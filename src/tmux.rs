@@ -2,17 +2,14 @@ use crate::model::{Action, Session, Window};
 use std::io;
 use std::process::Command;
 
-#[allow(dead_code)]
 pub const FMT: &str = "#{session_name}\x1f#{session_activity}\x1f#{session_created}\x1f#{session_attached}\x1f#{window_index}\x1f#{window_name}\x1f#{window_active}";
 
-#[allow(dead_code)]
 pub trait Tmux {
     fn gather(&self) -> Vec<Session>;
     fn switch_session(&self, name: &str) -> io::Result<()>;
     fn select_window(&self, name: &str, index: u32) -> io::Result<()>;
 }
 
-#[allow(dead_code)]
 pub struct RealTmux;
 
 impl Tmux for RealTmux {

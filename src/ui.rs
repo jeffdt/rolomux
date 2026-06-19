@@ -11,7 +11,6 @@ const DOT: Color = Color::Green;
 const SEL_BG: Color = Color::DarkGray;
 const META_COL: usize = 30;
 
-#[allow(dead_code)]
 pub fn draw(frame: &mut Frame, state: &PickerState) {
     let area = frame.area();
     let block = Block::default()
@@ -71,7 +70,6 @@ pub fn draw(frame: &mut Frame, state: &PickerState) {
     frame.render_stateful_widget(list, inner, &mut list_state);
 }
 
-#[allow(dead_code)]
 fn header_item(label: &str, width: u16) -> ListItem<'static> {
     let rule_len = (width as usize).saturating_sub(label.chars().count() + 2);
     ListItem::new(Line::from(vec![
@@ -84,7 +82,6 @@ fn header_item(label: &str, width: u16) -> ListItem<'static> {
     ]))
 }
 
-#[allow(dead_code)]
 fn session_item(sess: &Session, pinned: bool, expanded: bool) -> ListItem<'static> {
     let glyph = if expanded { "▾" } else { "▸" };
     let pin = if pinned { "★ " } else { "  " };
@@ -108,7 +105,6 @@ fn session_item(sess: &Session, pinned: bool, expanded: bool) -> ListItem<'stati
     ]))
 }
 
-#[allow(dead_code)]
 fn window_item(win: &Window, last: bool) -> ListItem<'static> {
     let connector = if last { "   └─ " } else { "   ├─ " };
     let dot = if win.active { "●" } else { " " };

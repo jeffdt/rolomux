@@ -4,7 +4,6 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub struct Config {
     pub pinned: Vec<String>,
     pub sort: SortKey,
@@ -61,7 +60,6 @@ impl Config {
     }
 }
 
-#[allow(dead_code)]
 pub fn config_path() -> PathBuf {
     if let Ok(x) = std::env::var("XDG_CONFIG_HOME") {
         if !x.is_empty() {

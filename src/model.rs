@@ -1,12 +1,10 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-#[allow(dead_code)]
 pub enum SortKey {
     #[default]
     Activity,
     Created,
 }
 
-#[allow(dead_code)]
 impl SortKey {
     pub fn from_config_str(s: &str) -> SortKey {
         match s {
@@ -17,7 +15,6 @@ impl SortKey {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[allow(dead_code)]
 pub struct Window {
     pub index: u32,
     pub name: String,
@@ -25,7 +22,6 @@ pub struct Window {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[allow(dead_code)]
 pub struct Session {
     pub name: String,
     pub activity: i64,
@@ -35,14 +31,12 @@ pub struct Session {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[allow(dead_code)]
 pub enum Action {
     SwitchSession(String),
     SwitchWindow(String, u32),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(dead_code)]
 pub enum Row {
     Session(usize),
     Window(usize, usize),
@@ -51,7 +45,6 @@ pub enum Row {
 use crate::store::Config;
 use std::collections::HashSet;
 
-#[allow(dead_code)]
 pub struct PickerState {
     all: Vec<Session>,
     pub pinned: Vec<String>,
@@ -146,14 +139,12 @@ impl PickerState {
         self.expanded.contains(name)
     }
 
-    #[allow(dead_code)]
     pub fn expand(&mut self) {
         if let Some(name) = self.cursor_session_name() {
             self.expanded.insert(name);
         }
     }
 
-    #[allow(dead_code)]
     pub fn collapse(&mut self) {
         if let Some(name) = self.cursor_session_name() {
             self.expanded.remove(&name);
@@ -161,7 +152,6 @@ impl PickerState {
         }
     }
 
-    #[allow(dead_code)]
     pub fn focus_session(&mut self, name: &str) {
         let rows = self.visible_rows();
         let ordered = self.ordered();
