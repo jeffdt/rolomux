@@ -53,6 +53,12 @@ impl Config {
         let body = toml::to_string(&out).map_err(io::Error::other)?;
         std::fs::write(path, body)
     }
+
+    pub fn reconcile(&mut self, live_names: &[String]) -> bool {
+        let before = self.pinned.len();
+        self.pinned.retain(|p| live_names.iter().any(|n| n == p));
+        before != self.pinned.len()
+    }
 }
 
 #[allow(dead_code)]
@@ -99,5 +105,28 @@ mod tests {
         assert_eq!(reloaded.sort, SortKey::Created);
 
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn reconcile_drops_dead_pins_and_reports_change() {
+        let mut cfg = Config {
+            pinned: vec!["a".into(), "gone".into(), "b".into()],
+            sort: SortKey::Activity,
+        };
+        let live = vec!["a".to_string(), "b".to_string(), "c".to_string()];
+        let changed = cfg.reconcile(&live);
+        assert!(changed);
+        assert_eq!(cfg.pinned, vec!["a".to_string(), "b".to_string()]);
+    }
+
+    #[test]
+    fn reconcile_no_change_when_all_pins_live() {
+        let mut cfg = Config {
+            pinned: vec!["a".into(), "b".into()],
+            sort: SortKey::Activity,
+        };
+        let live = vec!["a".to_string(), "b".to_string()];
+        assert!(!cfg.reconcile(&live));
+        assert_eq!(cfg.pinned, vec!["a".to_string(), "b".to_string()]);
     }
 }
