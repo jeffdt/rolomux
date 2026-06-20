@@ -2,6 +2,10 @@
 name = "smux"
 version = "0.1.0"
 edition = "2021"
+description = "A fast tmux session picker with pinned sessions and a collapsible window tree"
+license = "MIT"
+repository = "https://github.com/jeffdt/smux"
+authors = ["Jeff DiTeodoro"]
 
 [[bin]]
 name = "smux"

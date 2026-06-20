@@ -15,7 +15,35 @@ use std::io::{self, stdout};
 use tmux::{apply_action, RealTmux, Tmux};
 use ui::{draw, map_key, Input};
 
+const HELP: &str = "\
+smux - a fast tmux session picker
+
+Usage:
+  smux            Launch the picker (intended via `tmux popup -E`)
+  smux --version  Print version and exit
+  smux --help     Print this help and exit
+
+Bind it in ~/.tmux.conf, e.g.:
+  bind S display-popup -E -w 80% -h 80% \"exec smux\"";
+
 fn main() -> io::Result<()> {
+    if let Some(arg) = std::env::args().nth(1) {
+        match arg.as_str() {
+            "-V" | "--version" => {
+                println!("smux {}", env!("CARGO_PKG_VERSION"));
+                return Ok(());
+            }
+            "-h" | "--help" => {
+                println!("{HELP}");
+                return Ok(());
+            }
+            other => {
+                eprintln!("smux: unknown argument '{other}'\n\n{HELP}");
+                std::process::exit(2);
+            }
+        }
+    }
+
     let tmux = RealTmux;
     let sessions = tmux.gather();
     let live: Vec<String> = sessions.iter().map(|s| s.name.clone()).collect();
