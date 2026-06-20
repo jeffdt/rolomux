@@ -91,6 +91,10 @@ pub fn draw(frame: &mut Frame, state: &PickerState) {
                     emitted_pinned_header = true;
                 }
                 if !pinned && !emitted_sessions_header {
+                    // Blank spacer to separate the PINNED section above.
+                    if emitted_pinned_header {
+                        items.push(ListItem::new(Line::from("")));
+                    }
                     items.push(header_item("SESSIONS", list_area.width));
                     emitted_sessions_header = true;
                 }
