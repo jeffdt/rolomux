@@ -13,7 +13,8 @@ const DOT: Color = Color::Green;
 const SEL_BG: Color = Color::DarkGray;
 const META_COL: usize = 30;
 
-const FOOTER_HINT: &str = "↵ switch · 1-9 jump · p pin · ⇧JK move · z all · q quit";
+const FOOTER_HINT: &str =
+    "↵ switch · 1-9 jump · M-1-9 focus · p pin · ⇧JK move · z all · q quit";
 
 /// Style for secondary text (expand glyph, metadata, tree connectors). On the
 /// selected row it drops to the default foreground so it matches the session
@@ -211,6 +212,7 @@ pub enum Input {
     ToggleAll,
     Select,
     Switch(usize),
+    Focus(usize),
     Pin,
     MoveUp,
     MoveDown,
@@ -230,6 +232,9 @@ pub fn map_key(key: KeyEvent) -> Input {
         KeyCode::Char('p') => Input::Pin,
         KeyCode::Char('K') if shift => Input::MoveUp,
         KeyCode::Char('J') if shift => Input::MoveDown,
+        KeyCode::Char(c @ '1'..='9') if key.modifiers.contains(KeyModifiers::ALT) => {
+            Input::Focus(c as usize - '0' as usize)
+        }
         KeyCode::Char(c @ '1'..='9') => Input::Switch(c as usize - '0' as usize),
         KeyCode::Char('q') | KeyCode::Esc => Input::Quit,
         _ => Input::None,
@@ -245,6 +250,9 @@ mod tests {
     }
     fn shift(code: KeyCode) -> KeyEvent {
         KeyEvent::new(code, KeyModifiers::SHIFT)
+    }
+    fn alt(code: KeyCode) -> KeyEvent {
+        KeyEvent::new(code, KeyModifiers::ALT)
     }
 
     use crate::model::PickerState;
@@ -374,6 +382,10 @@ mod tests {
         assert_eq!(map_key(key(KeyCode::Char('9'))), Input::Switch(9));
         assert_eq!(map_key(key(KeyCode::Char('0'))), Input::None);
         assert_eq!(map_key(key(KeyCode::Char('x'))), Input::None);
+        // Option/Alt+digit focuses (moves highlight) instead of switching.
+        assert_eq!(map_key(alt(KeyCode::Char('1'))), Input::Focus(1));
+        assert_eq!(map_key(alt(KeyCode::Char('9'))), Input::Focus(9));
+        assert_eq!(map_key(alt(KeyCode::Char('0'))), Input::None);
     }
 
     #[test]
@@ -398,6 +410,7 @@ mod tests {
         let state = PickerState::build(sessions, &cfg);
         let text = render_to_string(&state);
         assert!(text.contains("switch"), "footer hint: switch present");
+        assert!(text.contains("focus"), "footer hint: focus present");
         assert!(text.contains("quit"), "footer hint: quit present");
     }
 

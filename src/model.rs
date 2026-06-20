@@ -222,6 +222,19 @@ impl PickerState {
             .map(|s| Action::SwitchSession(s.name.clone()))
     }
 
+    /// Move the cursor to the session at 1-based display number `n` (pinned #1
+    /// down, the same stable order as `action_for_session_number`). Unlike a
+    /// plain-digit switch, this only relocates the highlight so the session can
+    /// be expanded and a window picked. No-op if `n` is 0 or out of range.
+    pub fn focus_session_number(&mut self, n: usize) {
+        if n == 0 {
+            return;
+        }
+        if let Some(name) = self.ordered().get(n - 1).map(|s| s.name.clone()) {
+            self.focus_session(&name);
+        }
+    }
+
     /// Expand every session, or collapse all if everything is already expanded.
     /// Keeps the cursor on the same session.
     pub fn toggle_all(&mut self) {
@@ -407,6 +420,27 @@ mod tests {
         state.expand(); // expands "c" (cursor at top)
         assert_eq!(state.action_for_session_number(2), Some(Action::SwitchSession("b".into())));
         assert_eq!(state.action_for_session_number(3), Some(Action::SwitchSession("a".into())));
+    }
+
+    #[test]
+    fn focus_session_number_moves_cursor_without_switching() {
+        let sessions = vec![s("a", 10, 1), s("b", 30, 2), s("c", 20, 3)];
+        let cfg = Config { pinned: vec!["c".into()], sort: SortKey::Activity };
+        let mut state = PickerState::build(sessions, &cfg); // order: c, b, a
+
+        state.focus_session_number(3); // -> a
+        assert_eq!(state.cursor_session_name().as_deref(), Some("a"));
+        state.focus_session_number(1); // -> c
+        assert_eq!(state.cursor_session_name().as_deref(), Some("c"));
+
+        // Zero and out-of-range are no-ops (cursor stays put).
+        state.focus_session_number(0);
+        assert_eq!(state.cursor_session_name().as_deref(), Some("c"));
+        state.focus_session_number(9);
+        assert_eq!(state.cursor_session_name().as_deref(), Some("c"));
+
+        // Focusing does not switch or dirty state.
+        assert!(!state.dirty);
     }
 
     #[test]
