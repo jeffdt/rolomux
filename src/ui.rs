@@ -15,6 +15,18 @@ const META_COL: usize = 30;
 
 const FOOTER_HINT: &str = "↵ switch  ·  p pin  ·  ⇧J/⇧K move  ·  q quit";
 
+/// Style for secondary text (expand glyph, metadata, tree connectors). On the
+/// selected row it drops to the default foreground so it matches the session
+/// name and stays visible against the DarkGray selection bar; otherwise it is
+/// dimmed.
+fn secondary(selected: bool) -> Style {
+    if selected {
+        Style::default()
+    } else {
+        Style::default().fg(DIM)
+    }
+}
+
 /// Format a duration in seconds as a compact human-readable string.
 pub fn fmt_age(secs: i64) -> String {
     if secs < 0 {
@@ -82,18 +94,25 @@ pub fn draw(frame: &mut Frame, state: &PickerState) {
                     items.push(header_item("SESSIONS", list_area.width));
                     emitted_sessions_header = true;
                 }
-                if Some(*row) == cursor_row {
+                let selected = Some(*row) == cursor_row;
+                if selected {
                     selected_line = Some(items.len());
                 }
-                items.push(session_item(sess, pinned, state.is_expanded(&sess.name)));
+                items.push(session_item(
+                    sess,
+                    pinned,
+                    state.is_expanded(&sess.name),
+                    selected,
+                ));
             }
             Row::Window(si, wi) => {
                 let sess = ordered[*si];
-                if Some(*row) == cursor_row {
+                let selected = Some(*row) == cursor_row;
+                if selected {
                     selected_line = Some(items.len());
                 }
                 let last = *wi + 1 == sess.windows.len();
-                items.push(window_item(&sess.windows[*wi], last));
+                items.push(window_item(&sess.windows[*wi], last, selected));
             }
         }
     }
@@ -126,7 +145,7 @@ fn header_item(label: &str, width: u16) -> ListItem<'static> {
     ]))
 }
 
-fn session_item(sess: &Session, pinned: bool, expanded: bool) -> ListItem<'static> {
+fn session_item(sess: &Session, pinned: bool, expanded: bool, selected: bool) -> ListItem<'static> {
     let glyph = if expanded { "▾" } else { "▸" };
     let pin = if pinned { "★ " } else { "  " };
     let name_style = if sess.attached {
@@ -141,21 +160,21 @@ fn session_item(sess: &Session, pinned: bool, expanded: bool) -> ListItem<'stati
     let age = activity_age(sess.activity);
     ListItem::new(Line::from(vec![
         Span::styled(pin.to_string(), Style::default().fg(ACCENT)),
-        Span::styled(format!("{glyph} "), Style::default().fg(DIM)),
+        Span::styled(format!("{glyph} "), secondary(selected)),
         Span::styled(sess.name.clone(), name_style),
         Span::styled(
             format!("{}{wins} {label} · {age}", " ".repeat(pad)),
-            Style::default().fg(DIM),
+            secondary(selected),
         ),
     ]))
 }
 
-fn window_item(win: &Window, last: bool) -> ListItem<'static> {
+fn window_item(win: &Window, last: bool, selected: bool) -> ListItem<'static> {
     let connector = if last { "   └─ " } else { "   ├─ " };
     let dot = if win.active { "●" } else { " " };
     ListItem::new(Line::from(vec![
-        Span::styled(connector.to_string(), Style::default().fg(DIM)),
-        Span::styled(format!("{} ", win.index), Style::default().fg(DIM)),
+        Span::styled(connector.to_string(), secondary(selected)),
+        Span::styled(format!("{} ", win.index), secondary(selected)),
         Span::styled(format!("{dot} "), Style::default().fg(DOT)),
         Span::raw(win.name.clone()),
     ]))
@@ -273,6 +292,42 @@ mod tests {
             }
         }
         assert!(found, "cursor row should have a DarkGray background bar");
+    }
+
+    #[test]
+    fn selected_row_has_no_invisible_dark_on_dark_cells() {
+        // The expand glyph / metadata are dim (DarkGray) on unselected rows, but
+        // the selection bar is also DarkGray. On the selected row, secondary text
+        // must brighten so nothing renders DarkGray-on-DarkGray (invisible).
+        let sessions = vec![
+            Session { name: "alpha".into(), activity: 30, created: 1, attached: false,
+                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+        ];
+        let cfg = Config { pinned: vec![], sort: SortKey::Activity };
+        let state = PickerState::build(sessions, &cfg); // cursor on alpha (row 0)
+
+        let backend = TestBackend::new(60, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| draw(f, &state)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+
+        for y in 0..buf.area.height {
+            let mut line = String::new();
+            for x in 0..buf.area.width {
+                line.push_str(buf[(x, y)].symbol());
+            }
+            if line.contains("alpha") {
+                for x in 0..buf.area.width {
+                    let st = buf[(x, y)].style();
+                    let invisible = st.bg == Some(Color::DarkGray)
+                        && st.fg == Some(Color::DarkGray);
+                    assert!(
+                        !invisible,
+                        "selected row has DarkGray-on-DarkGray (invisible) cell at x={x}"
+                    );
+                }
+            }
+        }
     }
 
     #[test]
