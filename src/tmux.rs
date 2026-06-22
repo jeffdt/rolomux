@@ -2,10 +2,17 @@ use crate::model::{Action, Session, Window};
 use std::io;
 use std::process::Command;
 
-pub const FMT: &str = "#{session_name}\x1f#{session_activity}\x1f#{session_created}\x1f#{session_attached}\x1f#{window_index}\x1f#{window_name}\x1f#{window_active}";
+pub const FMT: &str = "#{session_name}\x1f#{session_activity}\x1f#{session_created}\x1f#{session_attached}\x1f#{window_index}\x1f#{window_name}\x1f#{window_active}\x1f#{session_id}";
+
+/// Result of a single gather: the sessions plus the name of the session the
+/// popup was launched from (when it can be resolved from `$TMUX`).
+pub struct Gathered {
+    pub sessions: Vec<Session>,
+    pub current: Option<String>,
+}
 
 pub trait Tmux {
-    fn gather(&self) -> Vec<Session>;
+    fn gather(&self) -> Gathered;
     fn switch_session(&self, name: &str) -> io::Result<()>;
     fn select_window(&self, name: &str, index: u32) -> io::Result<()>;
 }
@@ -13,15 +20,19 @@ pub trait Tmux {
 pub struct RealTmux;
 
 impl Tmux for RealTmux {
-    fn gather(&self) -> Vec<Session> {
+    fn gather(&self) -> Gathered {
         let out = Command::new("tmux")
             .args(["list-windows", "-a", "-F", FMT])
             .output();
         match out {
             Ok(o) if o.status.success() => {
-                parse_windows(&String::from_utf8_lossy(&o.stdout))
+                let raw = String::from_utf8_lossy(&o.stdout);
+                Gathered {
+                    sessions: parse_windows(&raw),
+                    current: current_session(&raw, std::env::var("TMUX").ok().as_deref()),
+                }
             }
-            _ => Vec::new(),
+            _ => Gathered { sessions: Vec::new(), current: None },
         }
     }
 
@@ -51,6 +62,25 @@ pub fn apply_action(t: &dyn Tmux, action: &Action) -> io::Result<()> {
     }
 }
 
+/// Resolve the session the popup was launched from by matching the session-id
+/// field of `$TMUX` (its 3rd comma-separated component, e.g. `7`) against the
+/// `#{session_id}` column (e.g. `$7`) in the gather output. Returns `None` when
+/// `$TMUX` is absent or too short, or nothing matches; callers then fall back
+/// to the `attached` flag. Pure (env passed in) so it is unit-testable.
+pub fn current_session(raw: &str, tmux_env: Option<&str>) -> Option<String> {
+    let id_num = tmux_env?.split(',').nth(2)?.trim();
+    if id_num.is_empty() {
+        return None;
+    }
+    for line in raw.lines() {
+        let f: Vec<&str> = line.split('\u{1f}').collect();
+        if f.len() == 8 && f[7].trim_start_matches('$') == id_num {
+            return Some(f[0].to_string());
+        }
+    }
+    None
+}
+
 pub fn parse_windows(raw: &str) -> Vec<Session> {
     let mut sessions: Vec<Session> = Vec::new();
     for line in raw.lines() {
@@ -58,7 +88,7 @@ pub fn parse_windows(raw: &str) -> Vec<Session> {
             continue;
         }
         let f: Vec<&str> = line.split('\u{1f}').collect();
-        if f.len() != 7 {
+        if f.len() != 8 {
             continue;
         }
         let name = f[0].to_string();
@@ -91,10 +121,11 @@ mod tests {
     #[test]
     fn parses_two_sessions_grouping_windows_in_order() {
         // Fields separated by the unit separator \x1f; one line per window.
+        // Trailing field is #{session_id}.
         let raw = "\
-work\u{1f}100\u{1f}10\u{1f}1\u{1f}0\u{1f}editor\u{1f}1
-work\u{1f}100\u{1f}10\u{1f}1\u{1f}1\u{1f}my logs\u{1f}0
-scratch\u{1f}50\u{1f}5\u{1f}0\u{1f}0\u{1f}shell\u{1f}1
+work\u{1f}100\u{1f}10\u{1f}1\u{1f}0\u{1f}editor\u{1f}1\u{1f}$3
+work\u{1f}100\u{1f}10\u{1f}1\u{1f}1\u{1f}my logs\u{1f}0\u{1f}$3
+scratch\u{1f}50\u{1f}5\u{1f}0\u{1f}0\u{1f}shell\u{1f}1\u{1f}$8
 ";
         let sessions = parse_windows(raw);
         assert_eq!(
@@ -121,13 +152,34 @@ scratch\u{1f}50\u{1f}5\u{1f}0\u{1f}0\u{1f}shell\u{1f}1
         );
     }
 
+    const SAMPLE: &str = "\
+work\u{1f}100\u{1f}10\u{1f}1\u{1f}0\u{1f}editor\u{1f}1\u{1f}$3
+scratch\u{1f}50\u{1f}5\u{1f}0\u{1f}0\u{1f}shell\u{1f}1\u{1f}$8
+";
+
+    #[test]
+    fn current_session_matches_tmux_env_session_id() {
+        // $TMUX = socket,pid,session-id -> "8" should map to scratch ($8).
+        let env = "/tmp/tmux-501/default,32102,8";
+        assert_eq!(current_session(SAMPLE, Some(env)).as_deref(), Some("scratch"));
+    }
+
+    #[test]
+    fn current_session_none_when_env_missing_or_no_match() {
+        assert_eq!(current_session(SAMPLE, None), None);
+        // session id 99 is not present
+        assert_eq!(current_session(SAMPLE, Some("sock,123,99")), None);
+        // too few comma fields
+        assert_eq!(current_session(SAMPLE, Some("sock,123")), None);
+    }
+
     #[derive(Default)]
     struct FakeTmux {
         calls: RefCell<Vec<String>>,
     }
     impl Tmux for FakeTmux {
-        fn gather(&self) -> Vec<Session> {
-            Vec::new()
+        fn gather(&self) -> Gathered {
+            Gathered { sessions: Vec::new(), current: None }
         }
         fn switch_session(&self, name: &str) -> std::io::Result<()> {
             self.calls.borrow_mut().push(format!("switch:{name}"));

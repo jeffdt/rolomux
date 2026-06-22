@@ -1,6 +1,6 @@
 use crate::model::{PickerState, Row, Session, Window};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use ratatui::layout::{Constraint, Direction, Layout};
+use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Borders, List, ListItem, ListState, Paragraph};
@@ -12,6 +12,11 @@ const DIM: Color = Color::DarkGray;
 const DOT: Color = Color::Green;
 const SEL_BG: Color = Color::DarkGray;
 const META_COL: usize = 30;
+/// Uniform buffer between the picker's border and the popup edge. The popup is
+/// launched borderless (`tmux display-popup -B`), so this blank ring is the
+/// only separation between smux's frame and the surrounding tmux panes; it
+/// keeps the picker from sitting flush against busy content behind the popup.
+const POPUP_MARGIN: u16 = 2;
 
 const FOOTER_HINT: &str =
     "↵ switch · 1-9 jump · M-1-9 focus · p pin · ⇧JK move · z all · q quit";
@@ -52,8 +57,23 @@ fn activity_age(activity: i64) -> String {
     fmt_age(now.saturating_sub(activity).max(0))
 }
 
+/// Shrink `area` by `margin` cells on every side. The margin is reduced toward
+/// zero when the area is too small to inset without collapsing, so a tiny popup
+/// still renders a non-empty frame rather than panicking (consistent with the
+/// project's graceful-on-degenerate-input stance).
+fn inset(area: Rect, margin: u16) -> Rect {
+    let mx = margin.min(area.width.saturating_sub(1) / 2);
+    let my = margin.min(area.height.saturating_sub(1) / 2);
+    Rect {
+        x: area.x + mx,
+        y: area.y + my,
+        width: area.width.saturating_sub(2 * mx),
+        height: area.height.saturating_sub(2 * my),
+    }
+}
+
 pub fn draw(frame: &mut Frame, state: &PickerState) {
-    let area = frame.area();
+    let area = inset(frame.area(), POPUP_MARGIN);
     let block = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
@@ -316,8 +336,9 @@ mod tests {
                 line.push_str(buf[(x, y)].symbol());
             }
             if line.contains("alpha") {
-                // The glyph cells of the selected row carry the bar background.
-                for x in 2..6 {
+                // The glyph cells of the selected row carry the bar background,
+                // now offset right by the popup margin + border.
+                for x in (POPUP_MARGIN + 1)..(POPUP_MARGIN + 5) {
                     if buf[(x, y)].style().bg == Some(ratatui::style::Color::DarkGray) {
                         found = true;
                     }
@@ -430,9 +451,9 @@ mod tests {
         terminal.draw(|f| draw(f, &state)).unwrap();
         let buf = terminal.backend().buffer().clone();
 
-        // Inner content (excluding the left border at col 0) for each row.
+        // Inner content (excluding the popup margin and left border) per row.
         let inner_line = |y: u16| -> String {
-            (1..buf.area.width).map(|x| buf[(x, y)].symbol()).collect()
+            ((POPUP_MARGIN + 1)..buf.area.width).map(|x| buf[(x, y)].symbol()).collect()
         };
         for y in 0..buf.area.height {
             let line = inner_line(y);
@@ -443,5 +464,58 @@ mod tests {
                 assert!(line.starts_with("2 "), "other row gutter: got {line:?}");
             }
         }
+    }
+
+    #[test]
+    fn draw_insets_frame_by_popup_margin() {
+        let sessions = vec![
+            Session { name: "alpha".into(), activity: 30, created: 1, attached: false,
+                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+        ];
+        let cfg = Config { pinned: vec![], sort: SortKey::Activity };
+        let state = PickerState::build(sessions, &cfg);
+
+        let (w, h) = (60u16, 20u16);
+        let backend = TestBackend::new(w, h);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| draw(f, &state)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+
+        // Rounded border corners are inset by the margin, not flush to the edge.
+        assert_eq!(buf[(POPUP_MARGIN, POPUP_MARGIN)].symbol(), "╭", "top-left inset");
+        assert_eq!(buf[(w - 1 - POPUP_MARGIN, POPUP_MARGIN)].symbol(), "╮", "top-right inset");
+        assert_eq!(buf[(POPUP_MARGIN, h - 1 - POPUP_MARGIN)].symbol(), "╰", "bottom-left inset");
+        assert_eq!(buf[(w - 1 - POPUP_MARGIN, h - 1 - POPUP_MARGIN)].symbol(), "╯", "bottom-right inset");
+
+        // The buffer ring (outer `margin` cells on every side) stays blank.
+        for y in 0..h {
+            for x in 0..w {
+                let in_ring = x < POPUP_MARGIN
+                    || y < POPUP_MARGIN
+                    || x >= w - POPUP_MARGIN
+                    || y >= h - POPUP_MARGIN;
+                if in_ring {
+                    assert_eq!(buf[(x, y)].symbol(), " ", "ring cell ({x},{y}) blank");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn draw_is_graceful_on_tiny_popup() {
+        let sessions = vec![
+            Session { name: "alpha".into(), activity: 30, created: 1, attached: false,
+                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+        ];
+        let cfg = Config { pinned: vec![], sort: SortKey::Activity };
+        let state = PickerState::build(sessions, &cfg);
+
+        // Smaller than 2*margin+1: must not panic and must keep its size.
+        let backend = TestBackend::new(3, 3);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| draw(f, &state)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+        assert_eq!(buf.area.width, 3);
+        assert_eq!(buf.area.height, 3);
     }
 }

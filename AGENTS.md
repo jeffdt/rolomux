@@ -77,8 +77,11 @@ smux ships as a prebuilt binary through a personal Homebrew tap, mirroring the
   `brew install jeffdt/tap/smux`.
 - **The tmux keybind is not part of the package.** It lives in the user's
   dotfiles (`~/.tmux.conf`), e.g.
-  `bind S display-popup -E -w 80% -h 80% "exec smux"`. Distribution ships the
-  binary; the bind travels with the user's config.
+  `bind S display-popup -E -B -w 84 -h 60% "exec smux"`. Distribution ships the
+  binary; the bind travels with the user's config. The popup is launched
+  borderless (`-B`) at a fixed 84-column width; smux draws its own framed card
+  inset by a 2-cell buffer ring (`POPUP_MARGIN` in `ui.rs`), so the picker reads
+  as a compact, evenly-bordered panel rather than filling a large popup.
 
 ### Cutting a release
 

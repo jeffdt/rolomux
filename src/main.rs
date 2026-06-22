@@ -24,7 +24,7 @@ Usage:
   smux --help     Print this help and exit
 
 Bind it in ~/.tmux.conf, e.g.:
-  bind S display-popup -E -w 80% -h 80% \"exec smux\"";
+  bind S display-popup -E -B -w 84 -h 60% \"exec smux\"";
 
 fn main() -> io::Result<()> {
     if let Some(arg) = std::env::args().nth(1) {
@@ -45,8 +45,8 @@ fn main() -> io::Result<()> {
     }
 
     let tmux = RealTmux;
-    let sessions = tmux.gather();
-    let live: Vec<String> = sessions.iter().map(|s| s.name.clone()).collect();
+    let gathered = tmux.gather();
+    let live: Vec<String> = gathered.sessions.iter().map(|s| s.name.clone()).collect();
 
     let path = store::config_path();
     let mut config = store::Config::load_from(&path);
@@ -54,7 +54,8 @@ fn main() -> io::Result<()> {
         let _ = config.save_to(&path);
     }
 
-    let mut state = PickerState::build(sessions, &config);
+    let mut state = PickerState::build(gathered.sessions, &config);
+    state.refocus_current(gathered.current.as_deref());
     if state.visible_rows().is_empty() {
         return Ok(()); // nothing to pick
     }

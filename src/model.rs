@@ -14,6 +14,26 @@ impl SortKey {
     }
 }
 
+/// Where the cursor starts when the picker opens. Like `SortKey`, this is a
+/// swappable seam: change the single `INITIAL_FOCUS` constant below to pick a
+/// policy without touching `build`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InitialFocus {
+    /// Always start on the first row (top pinned/sorted session). Legacy
+    /// behavior. Selected only by swapping `INITIAL_FOCUS`, so it is not
+    /// constructed in the shipped binary; the allow keeps that intentional
+    /// reserved variant from tripping the dead-code lint.
+    #[allow(dead_code)]
+    FirstRow,
+    /// Start on the session the popup was launched from. Resolved precisely
+    /// from `$TMUX` (passed in as `current`), falling back to the `attached`
+    /// flag, then the first row.
+    CurrentSession,
+}
+
+/// The active initial-focus policy. Swap this one constant to change behavior.
+pub const INITIAL_FOCUS: InitialFocus = InitialFocus::CurrentSession;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Window {
     pub index: u32,
@@ -63,13 +83,52 @@ fn sort_value(s: &Session, key: SortKey) -> i64 {
 
 impl PickerState {
     pub fn build(sessions: Vec<Session>, config: &Config) -> PickerState {
-        PickerState {
+        Self::build_with_focus(sessions, config, INITIAL_FOCUS, None)
+    }
+
+    /// Like `build`, but with an explicit initial-focus policy and current
+    /// session. `build` calls this with `INITIAL_FOCUS` and no precise current
+    /// (the `attached` flag is the fallback); tests use it to exercise each
+    /// policy and the precise-current path directly.
+    fn build_with_focus(
+        sessions: Vec<Session>,
+        config: &Config,
+        focus: InitialFocus,
+        current: Option<&str>,
+    ) -> PickerState {
+        let mut state = PickerState {
             all: sessions,
             pinned: config.pinned.clone(),
             sort: config.sort,
             expanded: HashSet::new(),
             cursor: 0,
             dirty: false,
+        };
+        state.apply_initial_focus(focus, current);
+        state
+    }
+
+    /// Refine the initial cursor with the precise current-session name resolved
+    /// from `$TMUX` (which `build` can't see). Only applies under the
+    /// `CurrentSession` policy, so swapping `INITIAL_FOCUS` to `FirstRow` is
+    /// still honored. Called by `main` right after `build`.
+    pub fn refocus_current(&mut self, current: Option<&str>) {
+        if let (InitialFocus::CurrentSession, Some(name)) = (INITIAL_FOCUS, current) {
+            self.focus_session(name);
+        }
+    }
+
+    /// Place the cursor according to `focus`. For `CurrentSession`, prefer the
+    /// precise `current` name (resolved from `$TMUX`), then the `attached`
+    /// flag, then leave it on the first row (the `cursor: 0` default).
+    fn apply_initial_focus(&mut self, focus: InitialFocus, current: Option<&str>) {
+        if let InitialFocus::CurrentSession = focus {
+            let target = current
+                .map(str::to_string)
+                .or_else(|| self.all.iter().find(|s| s.attached).map(|s| s.name.clone()));
+            if let Some(name) = target {
+                self.focus_session(&name);
+            }
         }
     }
 
@@ -273,6 +332,71 @@ mod tests {
         assert_eq!(SortKey::from_config_str("activity"), SortKey::Activity);
         assert_eq!(SortKey::from_config_str("garbage"), SortKey::Activity);
         assert_eq!(SortKey::default(), SortKey::Activity);
+    }
+
+    #[test]
+    fn initial_focus_prefers_precise_current_over_attached() {
+        // Ordered top is "a"; "b" carries the attached flag, but the precise
+        // current (from $TMUX) is "c" — the precise signal must win.
+        let mut sessions = vec![s("a", 30, 1), s("b", 20, 2), s("c", 10, 3)];
+        sessions[1].attached = true;
+        let cfg = Config { pinned: vec![], sort: SortKey::Activity };
+        let state =
+            PickerState::build_with_focus(sessions, &cfg, InitialFocus::CurrentSession, Some("c"));
+        assert_eq!(state.cursor_session_name().as_deref(), Some("c"));
+    }
+
+    #[test]
+    fn initial_focus_current_falls_back_to_attached_flag() {
+        // No precise current; the attached flag ("b") is the fallback.
+        let mut sessions = vec![s("a", 30, 1), s("b", 10, 2)];
+        sessions[1].attached = true;
+        let cfg = Config { pinned: vec![], sort: SortKey::Activity };
+        let state =
+            PickerState::build_with_focus(sessions, &cfg, InitialFocus::CurrentSession, None);
+        assert_eq!(state.cursor_session_name().as_deref(), Some("b"));
+    }
+
+    #[test]
+    fn initial_focus_first_row_ignores_current_and_attached() {
+        let mut sessions = vec![s("a", 30, 1), s("b", 10, 2)];
+        sessions[1].attached = true;
+        let cfg = Config { pinned: vec![], sort: SortKey::Activity };
+        let state =
+            PickerState::build_with_focus(sessions, &cfg, InitialFocus::FirstRow, Some("b"));
+        assert_eq!(state.cursor, 0);
+        assert_eq!(state.cursor_session_name().as_deref(), Some("a"));
+    }
+
+    #[test]
+    fn initial_focus_current_falls_back_to_first_row_when_nothing_matches() {
+        let sessions = vec![s("a", 30, 1), s("b", 10, 2)];
+        let cfg = Config { pinned: vec![], sort: SortKey::Activity };
+        let state =
+            PickerState::build_with_focus(sessions, &cfg, InitialFocus::CurrentSession, None);
+        assert_eq!(state.cursor, 0);
+        assert_eq!(state.cursor_session_name().as_deref(), Some("a"));
+    }
+
+    #[test]
+    fn build_defaults_to_current_focus_via_attached_fallback() {
+        // Canary for the shipped INITIAL_FOCUS default; update if it is swapped.
+        let mut sessions = vec![s("a", 30, 1), s("b", 10, 2)];
+        sessions[1].attached = true;
+        let cfg = Config { pinned: vec![], sort: SortKey::Activity };
+        let state = PickerState::build(sessions, &cfg);
+        assert_eq!(state.cursor_session_name().as_deref(), Some("b"));
+    }
+
+    #[test]
+    fn refocus_current_moves_to_named_session_and_no_ops_on_none() {
+        let sessions = vec![s("a", 30, 1), s("b", 10, 2)];
+        let cfg = Config { pinned: vec![], sort: SortKey::Activity };
+        let mut state = PickerState::build(sessions, &cfg); // no attached -> row 0 ("a")
+        state.refocus_current(Some("b"));
+        assert_eq!(state.cursor_session_name().as_deref(), Some("b"));
+        state.refocus_current(None); // no-op
+        assert_eq!(state.cursor_session_name().as_deref(), Some("b"));
     }
 
     #[test]

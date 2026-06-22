@@ -25,8 +25,11 @@ brew install jeffdt/tap/smux
 Then add a keybind to `~/.tmux.conf`:
 
 ```tmux
-bind S display-popup -E -w 80% -h 80% "exec smux"
+bind S display-popup -E -B -w 84 -h 60% "exec smux"
 ```
+
+`-B` drops tmux's popup border so smux's own framed card is the only border;
+the fixed 84-column width and 60% height keep it a compact, centered panel.
 
 Reload tmux and press `prefix + Shift+S`.
 
