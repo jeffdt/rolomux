@@ -85,9 +85,30 @@ smux ships as a prebuilt binary through a personal Homebrew tap, mirroring the
 
 ### Cutting a release
 
-1. Bump `version` in `Cargo.toml`; commit.
-2. Push a `vX.Y.Z` tag; CI builds and uploads the binary.
-3. Update `version` + `sha256` in `jeffdt/homebrew-tap`'s `Formula/smux.rb`.
+Everything lands on `main` (see "Working in this repo"). The tap is a separate
+repo, `jeffdt/homebrew-tap`; clone it if it isn't already checked out.
+
+1. Bump `version` in `Cargo.toml`, refresh `Cargo.lock` (any `cargo build`),
+   commit, and `git push origin main`.
+2. Tag and push: `git tag -a vX.Y.Z -m "Release X.Y.Z" && git push origin
+   vX.Y.Z`. The `v*` tag triggers `release.yml`, which builds and attaches a
+   single asset named **`smux-aarch64-apple-darwin`** to the GitHub Release.
+3. Wait for the build, then download the asset and hash it:
+
+   ```sh
+   gh run watch <run-id> --exit-status
+   gh release download vX.Y.Z -R jeffdt/smux -p smux-aarch64-apple-darwin -D /tmp/r
+   shasum -a 256 /tmp/r/smux-aarch64-apple-darwin
+   ```
+
+4. In `jeffdt/homebrew-tap`'s `Formula/smux.rb`, update `version` (the download
+   URL interpolates `#{version}`, so it follows automatically) and `sha256`.
+   Also update the example keybind in the `caveats` block if it changed. Commit
+   and push the tap.
+5. Pick up the build locally: `brew update && brew upgrade jeffdt/tap/smux`,
+   then confirm `smux --version`. If `~/.tmux.conf`'s `bind S` was temporarily
+   pointed at a dev build (`target/release/smux`) for testing, revert its `exec`
+   to `exec smux` and `tmux source-file ~/.tmux.conf`.
 
 Currently Apple Silicon only. Supporting Intel means adding
 `x86_64-apple-darwin` to the release matrix and an Intel branch in the formula.
