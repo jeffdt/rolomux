@@ -64,6 +64,8 @@ fn main() -> io::Result<()> {
 
     if state.dirty {
         config.pinned = state.pinned.clone();
+        config.manual_order = state.manual_order.clone();
+        config.sort = state.sort;
         let _ = config.save_to(&path);
     }
 
@@ -104,8 +106,9 @@ fn event_loop(
                 Input::Collapse => state.collapse(),
                 Input::ToggleAll => state.toggle_all(),
                 Input::Pin => state.toggle_pin(),
-                Input::MoveUp => state.move_pinned(-1),
-                Input::MoveDown => state.move_pinned(1),
+                Input::MoveUp => state.move_row(-1),
+                Input::MoveDown => state.move_row(1),
+                Input::CycleSort => state.cycle_sort(),
                 Input::Select => return Ok(state.selected_action()),
                 Input::Switch(n) => {
                     if let Some(action) = state.action_for_session_number(n) {

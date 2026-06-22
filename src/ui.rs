@@ -1,4 +1,4 @@
-use crate::model::{PickerState, Row, Session, Window};
+use crate::model::{PickerState, Row, Session, SortKey, Window};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
@@ -19,7 +19,16 @@ const META_COL: usize = 30;
 const POPUP_MARGIN: u16 = 2;
 
 const FOOTER_HINT: &str =
-    "↵ switch · 1-9 jump · M-1-9 focus · p pin · ⇧JK move · z all · q quit";
+    "↵ switch · 1-9 jump · ⌥ focus · p pin · ⇧JK move · s sort · z all · q quit";
+
+/// Human label for the active sort mode, shown in the picker's title bar.
+fn mode_label(sort: SortKey) -> &'static str {
+    match sort {
+        SortKey::Activity => "recency",
+        SortKey::Created => "age",
+        SortKey::Manual => "manual",
+    }
+}
 
 /// Style for secondary text (expand glyph, metadata, tree connectors). On the
 /// selected row it drops to the default foreground so it matches the session
@@ -81,7 +90,14 @@ pub fn draw(frame: &mut Frame, state: &PickerState) {
         .title(Span::styled(
             " smux  session picker ",
             Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
-        ));
+        ))
+        .title(
+            Line::from(Span::styled(
+                format!(" sort: {} ", mode_label(state.sort)),
+                Style::default().fg(DIM),
+            ))
+            .right_aligned(),
+        );
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
@@ -236,6 +252,7 @@ pub enum Input {
     Pin,
     MoveUp,
     MoveDown,
+    CycleSort,
     Quit,
     None,
 }
@@ -252,6 +269,7 @@ pub fn map_key(key: KeyEvent) -> Input {
         KeyCode::Char('p') => Input::Pin,
         KeyCode::Char('K') if shift => Input::MoveUp,
         KeyCode::Char('J') if shift => Input::MoveDown,
+        KeyCode::Char('s') => Input::CycleSort,
         KeyCode::Char(c @ '1'..='9') if key.modifiers.contains(KeyModifiers::ALT) => {
             Input::Focus(c as usize - '0' as usize)
         }
@@ -304,7 +322,7 @@ mod tests {
             Session { name: "scratch".into(), activity: 20, created: 2, attached: false,
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
         ];
-        let cfg = Config { pinned: vec!["pr-review".into()], sort: SortKey::Activity };
+        let cfg = Config { pinned: vec!["pr-review".into()], manual_order: vec![], sort: SortKey::Activity };
         let state = PickerState::build(sessions, &cfg);
         let text = render_to_string(&state);
         assert!(text.contains("smux"), "title present");
@@ -320,7 +338,7 @@ mod tests {
             Session { name: "alpha".into(), activity: 30, created: 1, attached: false,
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
         ];
-        let cfg = Config { pinned: vec![], sort: SortKey::Activity };
+        let cfg = Config { pinned: vec![], manual_order: vec![], sort: SortKey::Activity };
         let state = PickerState::build(sessions, &cfg);
 
         let backend = TestBackend::new(60, 20);
@@ -357,7 +375,7 @@ mod tests {
             Session { name: "alpha".into(), activity: 30, created: 1, attached: false,
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
         ];
-        let cfg = Config { pinned: vec![], sort: SortKey::Activity };
+        let cfg = Config { pinned: vec![], manual_order: vec![], sort: SortKey::Activity };
         let state = PickerState::build(sessions, &cfg); // cursor on alpha (row 0)
 
         let backend = TestBackend::new(60, 20);
@@ -410,6 +428,29 @@ mod tests {
     }
 
     #[test]
+    fn maps_cycle_sort_key() {
+        assert_eq!(map_key(key(KeyCode::Char('s'))), Input::CycleSort);
+    }
+
+    #[test]
+    fn draw_shows_active_sort_mode() {
+        let mode_text = |sort| {
+            let sessions = vec![Session {
+                name: "main".into(),
+                activity: 100,
+                created: 1,
+                attached: false,
+                windows: vec![Window { index: 0, name: "w".into(), active: true }],
+            }];
+            let cfg = Config { pinned: vec![], manual_order: vec![], sort };
+            render_to_string(&PickerState::build(sessions, &cfg))
+        };
+        assert!(mode_text(SortKey::Activity).contains("recency"), "recency label");
+        assert!(mode_text(SortKey::Created).contains("age"), "age label");
+        assert!(mode_text(SortKey::Manual).contains("manual"), "manual label");
+    }
+
+    #[test]
     fn fmt_age_formats_durations() {
         assert_eq!(fmt_age(0), "0s");
         assert_eq!(fmt_age(30), "30s");
@@ -427,11 +468,12 @@ mod tests {
             Session { name: "main".into(), activity: 100, created: 1, attached: false,
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
         ];
-        let cfg = Config { pinned: vec![], sort: SortKey::Activity };
+        let cfg = Config { pinned: vec![], manual_order: vec![], sort: SortKey::Activity };
         let state = PickerState::build(sessions, &cfg);
         let text = render_to_string(&state);
         assert!(text.contains("switch"), "footer hint: switch present");
         assert!(text.contains("focus"), "footer hint: focus present");
+        assert!(text.contains("sort"), "footer hint: sort present");
         assert!(text.contains("quit"), "footer hint: quit present");
     }
 
@@ -443,7 +485,7 @@ mod tests {
             Session { name: "other".into(), activity: 20, created: 2, attached: false,
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
         ];
-        let cfg = Config { pinned: vec![], sort: SortKey::Activity };
+        let cfg = Config { pinned: vec![], manual_order: vec![], sort: SortKey::Activity };
         let state = PickerState::build(sessions, &cfg); // main #1, other #2
 
         let backend = TestBackend::new(60, 20);
@@ -472,7 +514,7 @@ mod tests {
             Session { name: "alpha".into(), activity: 30, created: 1, attached: false,
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
         ];
-        let cfg = Config { pinned: vec![], sort: SortKey::Activity };
+        let cfg = Config { pinned: vec![], manual_order: vec![], sort: SortKey::Activity };
         let state = PickerState::build(sessions, &cfg);
 
         let (w, h) = (60u16, 20u16);
@@ -507,7 +549,7 @@ mod tests {
             Session { name: "alpha".into(), activity: 30, created: 1, attached: false,
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
         ];
-        let cfg = Config { pinned: vec![], sort: SortKey::Activity };
+        let cfg = Config { pinned: vec![], manual_order: vec![], sort: SortKey::Activity };
         let state = PickerState::build(sessions, &cfg);
 
         // Smaller than 2*margin+1: must not panic and must keep its size.

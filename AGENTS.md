@@ -17,8 +17,11 @@ These are the reasons the project exists. Changes should preserve them.
 - **Fast and on-demand.** Opens in well under 100ms. Gathers all state in a
   single tmux subprocess call, renders, and exits. No daemon, no caching layer.
 - **Pinned-first, then sorted.** Pinned sessions stay on top in a user-defined
-  order; everything else is sorted by an algorithm (recency or creation). Pins
-  and sort order persist across tmux restarts.
+  order; everything else follows the active sort mode. Three modes cycle in the
+  picker (the `s` key): recency, age (creation), and manual. In manual mode the
+  unpinned order is user-defined and reordered with the same `⇧J/⇧K` keys that
+  reorder pins; new/unlisted sessions always sink to the bottom. Pins, the
+  active mode, and the manual order all persist across tmux restarts.
 - **Collapsible session/window tree.** Sessions expand into their windows, with
   a choose-tree feel but calmer behavior (see "Numbering philosophy").
 - **Keyboard-driven, in-picker mutation.** Pin/unpin, reorder pins, expand,
@@ -62,8 +65,10 @@ These are deliberate and have driven past work. Do not reverse them casually.
 ## Configuration
 
 User config persists to `$XDG_CONFIG_HOME/smux/config.toml` (else
-`~/.config/smux/config.toml`): a `pinned` list and a `sort` key. Users normally
-never edit it by hand; the picker writes it on pin/reorder.
+`~/.config/smux/config.toml`): a `pinned` list, a `manual_order` list (the
+user-defined order for manual sort mode), and a `sort` key (`activity`,
+`created`, or `manual`). Users normally never edit it by hand; the picker writes
+it on pin/reorder/sort-cycle.
 
 ## Packaging and distribution
 
