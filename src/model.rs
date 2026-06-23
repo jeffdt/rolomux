@@ -45,6 +45,22 @@ pub enum InitialFocus {
 /// The active initial-focus policy. Swap this one constant to change behavior.
 pub const INITIAL_FOCUS: InitialFocus = InitialFocus::CurrentSession;
 
+/// Picker interaction mode. `Command` is the single-keystroke command UI;
+/// `Search` routes typed characters into a fuzzy-filter query. Which mode the
+/// picker launches in is the `DEFAULT_MODE` seam below (cf. `INITIAL_FOCUS`),
+/// so a future `default_mode` config key can select it without reworking the
+/// loop.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Mode {
+    Command,
+    #[allow(dead_code)] // scaffolding: used in Task 3+
+    Search,
+}
+
+/// The mode the picker starts in. Swap this one constant (or later wire it to
+/// config) to change the launch behavior.
+pub const DEFAULT_MODE: Mode = Mode::Command;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Window {
     pub index: u32,
@@ -84,6 +100,12 @@ pub struct PickerState {
     expanded: HashSet<String>,
     pub cursor: usize,
     pub dirty: bool,
+    #[allow(dead_code)] // scaffolding: wired into the UI by a later task
+    pub mode: Mode,
+    #[allow(dead_code)] // scaffolding: wired into the UI by a later task
+    pub query: String,
+    #[allow(dead_code)] // scaffolding: used in Task 3+
+    search_cursor: usize,
 }
 
 fn sort_value(s: &Session, key: SortKey) -> i64 {
@@ -118,6 +140,9 @@ impl PickerState {
             expanded: HashSet::new(),
             cursor: 0,
             dirty: false,
+            mode: DEFAULT_MODE,
+            query: String::new(),
+            search_cursor: 0,
         };
         state.apply_initial_focus(focus, current);
         state
@@ -186,6 +211,30 @@ impl PickerState {
         }
         out.extend(rest);
         out
+    }
+
+    /// The text a session is matched against in search. Today just its name; the
+    /// seam where window names can later be folded in (a session matches if its
+    /// name OR any window name matches) without touching the interaction layer.
+    #[allow(dead_code)] // scaffolding: called from search_results, wired into UI later
+    fn session_haystack(s: &Session) -> String {
+        s.name.clone()
+    }
+
+    /// Sessions for the current search query. Empty query returns the normal
+    /// command-mode order; a non-empty query returns matches ranked best-first.
+    /// Read-only -- never mutates state.
+    #[allow(dead_code)] // scaffolding: wired into the UI by a later task
+    pub fn search_results(&self) -> Vec<&Session> {
+        let base = self.ordered();
+        if self.query.is_empty() {
+            return base;
+        }
+        let haystacks: Vec<String> = base.iter().map(|s| Self::session_haystack(s)).collect();
+        crate::search::rank(&self.query, &haystacks)
+            .into_iter()
+            .map(|i| base[i])
+            .collect()
     }
 
     pub fn visible_rows(&self) -> Vec<Row> {
@@ -767,6 +816,38 @@ mod tests {
         assert_eq!(state.sort, SortKey::Manual);
         state.cycle_sort();
         assert_eq!(state.sort, SortKey::Activity);
+    }
+
+    #[test]
+    fn default_mode_is_command() {
+        let sessions = vec![s("a", 30, 1)];
+        let cfg = Config { pinned: vec![], manual_order: vec![], sort: SortKey::Activity };
+        let state = PickerState::build(sessions, &cfg);
+        assert_eq!(state.mode, Mode::Command);
+        assert!(state.query.is_empty());
+    }
+
+    #[test]
+    fn search_results_empty_query_is_normal_order() {
+        let sessions = vec![s("a", 10, 1), s("b", 30, 2)];
+        let cfg = Config { pinned: vec![], manual_order: vec![], sort: SortKey::Activity };
+        let state = PickerState::build(sessions, &cfg);
+        let names: Vec<&str> = state.search_results().iter().map(|s| s.name.as_str()).collect();
+        // Same as ordered(): activity desc -> b, a
+        assert_eq!(names, vec!["b", "a"]);
+    }
+
+    #[test]
+    fn search_results_filters_and_ranks_by_query() {
+        // "prr" matches pr-review (p,r,-,r) tightly and provision not at all
+        // (only one 'r'), so pr-review must rank first and scratch is excluded.
+        let sessions = vec![s("provision", 1, 1), s("pr-review", 1, 2), s("scratch", 1, 3)];
+        let cfg = Config { pinned: vec![], manual_order: vec![], sort: SortKey::Activity };
+        let mut state = PickerState::build(sessions, &cfg);
+        state.query = "prr".into();
+        let names: Vec<&str> = state.search_results().iter().map(|s| s.name.as_str()).collect();
+        assert_eq!(names.first().copied(), Some("pr-review"), "strong match first");
+        assert!(!names.contains(&"scratch"), "non-match omitted");
     }
 
     #[test]
