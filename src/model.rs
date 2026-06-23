@@ -388,6 +388,69 @@ impl PickerState {
         self.focus_session(&name);
     }
 
+    #[allow(dead_code)] // wired in Task 6
+    pub fn enter_search(&mut self) {
+        self.mode = Mode::Search;
+        self.query.clear();
+        self.search_cursor = 0;
+    }
+
+    /// Leave search for command mode, parking the command cursor on whatever match
+    /// was highlighted so command verbs (pin, sort, reorder) act on it.
+    #[allow(dead_code)] // wired in Task 6
+    pub fn exit_search(&mut self) {
+        let landing = self.search_cursor_name();
+        self.mode = Mode::Command;
+        self.query.clear();
+        self.search_cursor = 0;
+        if let Some(name) = landing {
+            self.focus_session(&name);
+        }
+    }
+
+    #[allow(dead_code)] // wired in Task 6
+    pub fn search_push(&mut self, c: char) {
+        self.query.push(c);
+        self.search_cursor = 0; // every query change re-selects the top match
+    }
+
+    #[allow(dead_code)] // wired in Task 6
+    pub fn search_backspace(&mut self) {
+        self.query.pop();
+        self.search_cursor = 0;
+    }
+
+    #[allow(dead_code)] // wired in Task 6
+    pub fn search_move(&mut self, delta: i32) {
+        let len = self.search_results().len() as i32;
+        if len == 0 {
+            self.search_cursor = 0;
+            return;
+        }
+        let next = (self.search_cursor as i32 + delta).clamp(0, len - 1);
+        self.search_cursor = next as usize;
+    }
+
+    /// Accessor for rendering (the field is private). Wired in Task 6.
+    #[allow(dead_code)] // wired in Task 6
+    pub fn search_cursor(&self) -> usize {
+        self.search_cursor
+    }
+
+    #[allow(dead_code)] // wired in Task 6
+    pub fn search_cursor_name(&self) -> Option<String> {
+        self.search_results()
+            .get(self.search_cursor)
+            .map(|s| s.name.clone())
+    }
+
+    #[allow(dead_code)] // wired in Task 6
+    pub fn search_selected_action(&self) -> Option<Action> {
+        self.search_results()
+            .get(self.search_cursor)
+            .map(|s| Action::SwitchSession(s.name.clone()))
+    }
+
     pub fn selected_action(&self) -> Option<Action> {
         let rows = self.visible_rows();
         let ordered = self.ordered();
@@ -848,6 +911,72 @@ mod tests {
         let names: Vec<&str> = state.search_results().iter().map(|s| s.name.as_str()).collect();
         assert_eq!(names.first().copied(), Some("pr-review"), "strong match first");
         assert!(!names.contains(&"scratch"), "non-match omitted");
+    }
+
+    #[test]
+    fn enter_and_exit_search_preserves_match_under_command_cursor() {
+        let sessions = vec![s("provision", 1, 1), s("pr-review", 1, 2), s("scratch", 1, 3)];
+        let cfg = Config { pinned: vec![], manual_order: vec![], sort: SortKey::Activity };
+        let mut state = PickerState::build(sessions, &cfg);
+
+        state.enter_search();
+        assert_eq!(state.mode, Mode::Search);
+        state.search_push('p');
+        state.search_push('r');
+        state.search_push('r'); // "prr" matches pr-review (two r's) but not provision (one r)
+        assert_eq!(state.search_cursor_name().as_deref(), Some("pr-review"));
+
+        state.exit_search();
+        assert_eq!(state.mode, Mode::Command);
+        assert!(state.query.is_empty());
+        // Command cursor now sits on the match we had highlighted.
+        assert_eq!(state.cursor_session_name().as_deref(), Some("pr-review"));
+        assert!(!state.dirty, "search is read-only");
+    }
+
+    #[test]
+    fn query_change_resets_to_top_and_move_clamps() {
+        let sessions = vec![s("alpha", 1, 1), s("alto", 1, 2), s("alarm", 1, 3)];
+        let cfg = Config { pinned: vec![], manual_order: vec![], sort: SortKey::Activity };
+        let mut state = PickerState::build(sessions, &cfg);
+        state.enter_search();
+        state.search_push('a');
+        state.search_push('l');
+
+        state.search_move(1);
+        state.search_push('a'); // query changed -> back to top
+        assert_eq!(state.search_cursor(), 0, "query change resets to top");
+
+        // Clamp at the bottom: a big move never exceeds the last match.
+        state.search_move(99);
+        let n = state.search_results().len();
+        assert!(state.search_cursor() < n.max(1));
+    }
+
+    #[test]
+    fn search_selected_action_switches_to_highlighted() {
+        let sessions = vec![s("provision", 1, 1), s("pr-review", 1, 2)];
+        let cfg = Config { pinned: vec![], manual_order: vec![], sort: SortKey::Activity };
+        let mut state = PickerState::build(sessions, &cfg);
+        state.enter_search();
+        state.search_push('p');
+        state.search_push('r');
+        state.search_push('r'); // "prr" matches pr-review (two r's) but not provision (one r)
+        assert_eq!(
+            state.search_selected_action(),
+            Some(Action::SwitchSession("pr-review".into()))
+        );
+    }
+
+    #[test]
+    fn search_selected_action_is_none_with_no_matches() {
+        let sessions = vec![s("alpha", 1, 1)];
+        let cfg = Config { pinned: vec![], manual_order: vec![], sort: SortKey::Activity };
+        let mut state = PickerState::build(sessions, &cfg);
+        state.enter_search();
+        state.search_push('z');
+        state.search_push('z');
+        assert_eq!(state.search_selected_action(), None);
     }
 
     #[test]
