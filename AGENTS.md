@@ -28,6 +28,9 @@ These are the reasons the project exists. Changes should preserve them.
   jump, and focus, all from the picker. Mutations persist immediately.
 - **Aesthetics matter.** The picker should be pleasant to open and use. It
   respects the user's terminal theme rather than imposing its own colors.
+- **Type-to-filter search.** Press `/` to enter a read-only fuzzy filter;
+  sessions are re-ranked best-match-first with the top result auto-selected.
+  `Enter` switches; `Esc` returns to command mode. Search never writes config.
 
 ## Tech stack
 
@@ -61,6 +64,15 @@ These are deliberate and have driven past work. Do not reverse them casually.
   buffer assertions for rendering). Keep the suite pristine under
   `RUSTFLAGS="-D warnings"` and `cargo clippy --all-targets -- -D warnings`; CI
   enforces both.
+- **Fuzzy search is in-process, compile-time only.** The matcher uses the
+  `nucleo-matcher` crate; it is a build-time dependency and does not change the
+  runtime dep (still just tmux). The `Mode` enum and `DEFAULT_MODE` constant
+  mirror the existing `INITIAL_FOCUS`/`SortKey` seams and are the hook for a
+  future `default_mode` config key (deferred, not shipped). During search,
+  section headers and 1-9 jump numbers are suppressed by design (digits are
+  query text; numbers cannot be stable when results re-rank on every keystroke).
+  The pinned star marker still shows. Window-name matching is intentionally
+  reachable via the `session_haystack` seam in `src/model.rs` but is not built.
 
 ## Configuration
 

@@ -41,6 +41,8 @@ Reload tmux and press `prefix + Shift+S`.
 - **On demand, no daemon.** tmux launches it via `tmux popup -E`; it makes one
   tmux query, renders, and exits. Its own overhead is a couple of milliseconds,
   so it opens about as fast as tmux can answer.
+- **Fuzzy search built in.** Press `/` to filter sessions by name; matching is
+  in-process with no extra runtime dependency.
 
 ## Keys
 
@@ -54,11 +56,24 @@ Reload tmux and press `prefix + Shift+S`.
 | `z` | Expand or collapse all |
 | `p` | Pin / unpin the selected session |
 | `⇧J` / `⇧K` | Reorder a pinned session down / up |
+| `/` | Enter search mode (type to filter, `↵` switch, `Esc` back) |
 | `q` / `Esc` | Quit |
 
 `M-` is Meta (Option on macOS). Your terminal must send Option as Meta: in
 Ghostty set `macos-option-as-alt = true` (iTerm2: "Left Option key → Esc+";
 Terminal.app: "Use Option as Meta key"). On Linux it is automatic.
+
+### Search
+
+Press `/` to enter search mode. Type any part of a session name; results are
+re-ranked fuzzy best-match-first with the top result auto-selected as you type.
+`Enter` switches to the highlighted session; `Esc` returns to command mode with
+the cursor left on the match. Move within results with `↑`/`↓` (or `Ctrl-n`/
+`Ctrl-p`, `Ctrl-j`/`Ctrl-k`). `Backspace` deletes the last character.
+
+While searching, section headers and jump numbers (1-9) are hidden; the list is
+flat and collapsed. The pinned star marker still shows. Search is read-only: it
+never pins, reorders, or writes config.
 
 ## Configuration
 
