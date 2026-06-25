@@ -111,11 +111,14 @@ unless a change is purely internal (docs, tests, CI, scratch under `specs/` or
 tag, wait for CI, and update the tap. Don't leave `main` ahead of the latest
 release.
 
-Everything lands on `main` (see "Working in this repo"). The tap is a separate
-repo, `jeffdt/homebrew-tap`; clone it if it isn't already checked out.
+Shipped changes reach `main` via PR (see "Working in this repo"), and the
+version bump rides in that PR. Once it has merged, cut the tag and update the
+tap. The tap is a separate repo, `jeffdt/homebrew-tap`; clone it if it isn't
+already checked out.
 
-1. Bump `version` in `Cargo.toml`, refresh `Cargo.lock` (any `cargo build`),
-   commit, and `git push origin main`.
+1. Make sure the `version` bump in `Cargo.toml` and the refreshed `Cargo.lock`
+   (any `cargo build`) are part of the feature PR. After it merges, `git
+   checkout main && git pull` so the tag points at the merged commit.
 2. Tag and push: `git tag -a vX.Y.Z -m "Release X.Y.Z" && git push origin
    vX.Y.Z`. The `v*` tag triggers `release.yml`, which builds and attaches a
    single asset named **`smux-aarch64-apple-darwin`** to the GitHub Release.
@@ -151,9 +154,10 @@ Currently Apple Silicon only. Supporting Intel means adding
   `cargo build --release`.
 - Specs live in `specs/`, plans in `plans/`, the build ledger in
   `.superpowers/`; all three are git-ignored scratch, not part of the package.
-- **Commit straight to `main`.** This is a solo project with no PR or
-  branch-review gate: ordinary commits, version bumps, and release tags all land
-  directly on `main`. Do **not** open a feature branch or pull request here, the
-  global `jeffdt/<domain>-<desc>` branch convention does not apply to this repo.
-  A git-ignored `.claude/local/commit-to-main` marker makes the git-commit
-  workflow honor this without prompting or branching.
+- **Changes land via pull request.** Work on a feature branch named
+  `jeffdt/<domain>-<brief-kebab-desc>` (the global convention applies here). When
+  Jeff clears a change to go live, open a PR and then merge it yourself (squash,
+  to keep `main` linear) purely for the audit trail; this is a solo project with
+  no human review gate, so the PR exists for history, not approval. Release tags
+  are cut on `main` after the merge (see "Cutting a release"). The version bump
+  rides in the same PR as the shipped change.
