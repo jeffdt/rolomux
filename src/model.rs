@@ -410,6 +410,21 @@ impl PickerState {
         self.search_cursor = 0;
     }
 
+    /// Delete the trailing word: strip trailing whitespace, then the run of
+    /// non-whitespace before it (the Ctrl-W / Alt-Backspace convention).
+    pub fn search_delete_word(&mut self) {
+        let trimmed = self.query.trim_end_matches(char::is_whitespace);
+        let cut = trimmed.trim_end_matches(|c: char| !c.is_whitespace());
+        self.query.truncate(cut.len());
+        self.search_cursor = 0;
+    }
+
+    /// Clear the entire query (the Ctrl-U convention).
+    pub fn search_clear(&mut self) {
+        self.query.clear();
+        self.search_cursor = 0;
+    }
+
     pub fn search_move(&mut self, delta: i32) {
         let len = self.search_results().len() as i32;
         if len == 0 {
@@ -993,6 +1008,52 @@ mod tests {
 
         // Search is read-only: no mutation, no dirty flag.
         assert!(!state.dirty, "search backspace never dirties state");
+    }
+
+    #[test]
+    fn search_delete_word_removes_trailing_word() {
+        let sessions = vec![s("api-gateway", 30, 1)];
+        let cfg = Config { pinned: vec![], manual_order: vec![], sort: SortKey::Activity };
+        let mut state = PickerState::build(sessions, &cfg);
+
+        state.enter_search();
+        for c in "api gate".chars() {
+            state.search_push(c);
+        }
+        state.search_cursor = 0;
+
+        state.search_delete_word();
+        assert_eq!(state.query, "api ", "deletes the trailing word, keeps the prior space");
+        assert_eq!(state.search_cursor(), 0, "cursor resets to top after word delete");
+
+        state.search_delete_word();
+        assert_eq!(state.query, "", "deletes through the space and the remaining word");
+
+        // Word delete on an empty query is a no-op (does not panic).
+        state.search_delete_word();
+        assert!(state.query.is_empty());
+        assert!(!state.dirty, "search word delete never dirties state");
+    }
+
+    #[test]
+    fn search_clear_empties_query() {
+        let sessions = vec![s("api-gateway", 30, 1)];
+        let cfg = Config { pinned: vec![], manual_order: vec![], sort: SortKey::Activity };
+        let mut state = PickerState::build(sessions, &cfg);
+
+        state.enter_search();
+        for c in "api gate".chars() {
+            state.search_push(c);
+        }
+
+        state.search_clear();
+        assert!(state.query.is_empty(), "clear empties the whole query");
+        assert_eq!(state.search_cursor(), 0, "cursor resets to top after clear");
+
+        // Clear on an empty query is a no-op (does not panic).
+        state.search_clear();
+        assert!(state.query.is_empty());
+        assert!(!state.dirty, "search clear never dirties state");
     }
 
     #[test]

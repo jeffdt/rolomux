@@ -21,7 +21,7 @@ const POPUP_MARGIN: u16 = 2;
 const FOOTER_HINT: &str =
     "/ search · 1-9 jump · p pin · ⇧JK move · s sort · z all · q quit";
 
-const SEARCH_FOOTER_HINT: &str = "↑↓ move · Esc back";
+const SEARCH_FOOTER_HINT: &str = "↑↓ move · ⌃W word · ⌃U clear · Esc back";
 
 /// Human label for the active sort mode, shown in the picker's title bar.
 fn mode_label(sort: SortKey) -> &'static str {
@@ -320,6 +320,8 @@ pub enum Input {
 pub enum SearchInput {
     Char(char),
     Backspace,
+    DeleteWord,
+    Clear,
     Up,
     Down,
     Select,
@@ -336,12 +338,16 @@ pub enum SearchInput {
 /// terminals that can distinguish it.
 pub fn map_search_key(key: KeyEvent) -> SearchInput {
     let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+    let alt = key.modifiers.contains(KeyModifiers::ALT);
     match key.code {
         KeyCode::Esc => SearchInput::Exit,
         KeyCode::Enter => SearchInput::Select,
+        KeyCode::Backspace if alt => SearchInput::DeleteWord,
         KeyCode::Backspace => SearchInput::Backspace,
         KeyCode::Up => SearchInput::Up,
         KeyCode::Down => SearchInput::Down,
+        KeyCode::Char('w') if ctrl => SearchInput::DeleteWord,
+        KeyCode::Char('u') if ctrl => SearchInput::Clear,
         KeyCode::Char('p') | KeyCode::Char('k') if ctrl => SearchInput::Up,
         KeyCode::Char('n') | KeyCode::Char('j') if ctrl => SearchInput::Down,
         KeyCode::Char(_) if ctrl => SearchInput::None,
@@ -659,6 +665,12 @@ mod tests {
         assert_eq!(map_search_key(ctrl(KeyCode::Char('k'))), SearchInput::Up);
         assert_eq!(map_search_key(ctrl(KeyCode::Char('n'))), SearchInput::Down);
         assert_eq!(map_search_key(ctrl(KeyCode::Char('j'))), SearchInput::Down);
+        // Bulk deletes: Ctrl-W / Alt-Backspace delete a word, Ctrl-U clears.
+        assert_eq!(map_search_key(ctrl(KeyCode::Char('w'))), SearchInput::DeleteWord);
+        assert_eq!(map_search_key(alt(KeyCode::Backspace)), SearchInput::DeleteWord);
+        assert_eq!(map_search_key(ctrl(KeyCode::Char('u'))), SearchInput::Clear);
+        // Plain Backspace still deletes a single char.
+        assert_eq!(map_search_key(key(KeyCode::Backspace)), SearchInput::Backspace);
         // Ctrl-modified letters are nav/no-op, never query text.
         assert_eq!(map_search_key(ctrl(KeyCode::Char('a'))), SearchInput::None);
     }

@@ -40,3 +40,4 @@ jobs:
         uses: softprops/action-gh-release@v3
         with:
           files: smux-${{ matrix.target }}
+          generate_release_notes: true
