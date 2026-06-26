@@ -11,7 +11,18 @@ const ACCENT: Color = Color::Cyan;
 const DIM: Color = Color::DarkGray;
 const DOT: Color = Color::Green;
 const SEL_BG: Color = Color::DarkGray;
+/// Default column where a session's metadata begins, used when every visible
+/// name is short. It is also the floor for the shared metadata column.
 const META_COL: usize = 30;
+/// Fixed cells preceding a session name: jump number (2) + pin star (2) +
+/// expand glyph and its trailing space (2).
+const SESSION_PREFIX: usize = 6;
+/// Minimum gap kept between the longest visible name and its metadata when the
+/// shared column is anchored to that name rather than to META_COL.
+const META_GAP: usize = 2;
+/// Cells reserved at the right so the shared column never pushes metadata off
+/// the card; roughly the widest plausible "12 windows · 20s".
+const META_BUDGET: usize = 18;
 /// Uniform buffer between the picker's border and the popup edge. The popup is
 /// launched borderless (`tmux display-popup -B`), so this blank ring is the
 /// only separation between smux's frame and the surrounding tmux panes; it
@@ -122,6 +133,14 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
     let rows = state.visible_rows();
     let cursor_row = rows.get(state.cursor).copied();
 
+    // Anchor metadata to one shared geometry across every session row, computed
+    // from the visible sessions (window rows carry no metadata).
+    let session_refs = rows.iter().filter_map(|r| match r {
+        Row::Session(si) => Some(ordered[*si]),
+        Row::Window(..) => None,
+    });
+    let meta = MetaLayout::compute(session_refs, list_area.width);
+
     let mut items: Vec<ListItem> = Vec::new();
     let mut selected_line: Option<usize> = None;
     let mut emitted_pinned_header = false;
@@ -157,6 +176,7 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
                     state.is_expanded(&sess.name),
                     selected,
                     number,
+                    meta,
                 ));
             }
             Row::Window(si, wi) => {
@@ -213,13 +233,14 @@ fn draw_search(frame: &mut Frame, state: &PickerState, inner: Rect) {
             Style::default().fg(DIM),
         ))));
     } else {
+        let meta = MetaLayout::compute(results.iter().copied(), chunks[1].width);
         for (i, sess) in results.iter().enumerate() {
             let selected = i == state.search_cursor();
             if selected {
                 selected_line = Some(items.len());
             }
             // Flat, collapsed, no jump number (None), normal metadata.
-            items.push(session_item(sess, state.is_pinned(&sess.name), false, selected, None));
+            items.push(session_item(sess, state.is_pinned(&sess.name), false, selected, None, meta));
         }
     }
     let list = List::new(items)
@@ -248,12 +269,47 @@ fn header_item(label: &str, width: u16) -> ListItem<'static> {
     ]))
 }
 
+/// The "{n} window(s)" count token for a session, singular for exactly one.
+fn window_count(wins: usize) -> String {
+    let label = if wins == 1 { "window" } else { "windows" };
+    format!("{wins} {label}")
+}
+
+/// Shared geometry for the metadata block, computed once per render so every
+/// row aligns to it (issue #3). `col` is the column where metadata begins;
+/// `count_width` is the width reserved for the window-count token so the middot
+/// and age line up even as "1 window" / "9 windows" / "12 windows" differ.
+#[derive(Debug, Clone, Copy)]
+struct MetaLayout {
+    col: usize,
+    count_width: usize,
+}
+
+impl MetaLayout {
+    /// Derive the layout from the visible sessions and the available width. The
+    /// column sits at META_COL by default, advances to META_GAP past the
+    /// longest visible name when that name would otherwise overrun, and is
+    /// capped so metadata never falls off the card.
+    fn compute<'a>(sessions: impl Iterator<Item = &'a Session>, width: u16) -> Self {
+        let mut longest_prefix = 0usize;
+        let mut count_width = 0usize;
+        for s in sessions {
+            longest_prefix = longest_prefix.max(SESSION_PREFIX + s.name.chars().count());
+            count_width = count_width.max(window_count(s.windows.len()).chars().count());
+        }
+        let target = META_COL.max(longest_prefix + META_GAP);
+        let cap = (width as usize).saturating_sub(META_BUDGET).max(META_COL);
+        MetaLayout { col: target.min(cap), count_width }
+    }
+}
+
 fn session_item(
     sess: &Session,
     pinned: bool,
     expanded: bool,
     selected: bool,
     number: Option<usize>,
+    meta: MetaLayout,
 ) -> ListItem<'static> {
     let glyph = if expanded { "▾" } else { "▸" };
     let pin = if pinned { "★ " } else { "  " };
@@ -266,10 +322,10 @@ fn session_item(
     } else {
         Style::default()
     };
-    let prefix_len = 2 + 2 + 2 + sess.name.chars().count(); // num + pin + "glyph " + name
-    let pad = META_COL.saturating_sub(prefix_len);
-    let wins = sess.windows.len();
-    let label = if wins == 1 { "window" } else { "windows" };
+    let prefix_len = SESSION_PREFIX + sess.name.chars().count(); // num + pin + "glyph " + name
+    let pad = meta.col.saturating_sub(prefix_len);
+    let count = window_count(sess.windows.len());
+    let count_pad = meta.count_width.saturating_sub(count.chars().count());
     let age = activity_age(sess.activity);
     ListItem::new(Line::from(vec![
         Span::styled(num, secondary(selected)),
@@ -277,7 +333,11 @@ fn session_item(
         Span::styled(format!("{glyph} "), secondary(selected)),
         Span::styled(sess.name.clone(), name_style),
         Span::styled(
-            format!("{}{wins} {label} · {age}", " ".repeat(pad)),
+            format!(
+                "{}{count}{} · {age}",
+                " ".repeat(pad),
+                " ".repeat(count_pad),
+            ),
             secondary(selected),
         ),
     ]))
@@ -609,6 +669,104 @@ mod tests {
                 assert!(line.starts_with("2 "), "other row gutter: got {line:?}");
             }
         }
+    }
+
+    /// Column (x) of the metadata middot on every row that shows a session
+    /// name, so alignment across rows can be asserted directly.
+    fn metadata_dot_columns(buf: &ratatui::buffer::Buffer, names: &[&str]) -> Vec<u16> {
+        let mut cols = Vec::new();
+        for y in 0..buf.area.height {
+            let line: String = (0..buf.area.width).map(|x| buf[(x, y)].symbol()).collect();
+            if names.iter().any(|n| line.contains(n)) {
+                for x in 0..buf.area.width {
+                    if buf[(x, y)].symbol() == "·" {
+                        cols.push(x);
+                        break;
+                    }
+                }
+            }
+        }
+        cols
+    }
+
+    #[test]
+    fn metadata_shares_one_column_across_long_and_short_names() {
+        // A single long name must shift every row's metadata together, not just
+        // its own, so the middot separators stay vertically aligned (issue #3).
+        let sessions = vec![
+            Session { name: "a-very-long-session-name-here".into(), activity: 30, created: 1,
+                      attached: false, windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+            Session { name: "short".into(), activity: 20, created: 2, attached: false,
+                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+        ];
+        let cfg = Config { pinned: vec![], manual_order: vec![], sort: SortKey::Activity };
+        let state = PickerState::build(sessions, &cfg);
+
+        let backend = TestBackend::new(80, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| draw(f, &state)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+
+        let cols = metadata_dot_columns(&buf, &["a-very-long-session-name-here", "short"]);
+        assert_eq!(cols.len(), 2, "both session rows should carry metadata, got {cols:?}");
+        assert_eq!(cols[0], cols[1], "metadata middots must align across rows");
+        // The long name (prefix 6 + 29 = 35) must push the shared column past
+        // the default META_COL, taking the short row's metadata with it.
+        assert!(cols[0] as usize > META_COL, "long name should advance the shared column");
+    }
+
+    #[test]
+    fn metadata_middot_aligns_across_singular_and_plural_counts() {
+        // "9 windows" is wider than "1 window"; the count field must be padded
+        // to a uniform width so the middot and age stay aligned (issue #3).
+        let many: Vec<Window> = (0..9)
+            .map(|i| Window { index: i, name: "w".into(), active: i == 0 })
+            .collect();
+        let sessions = vec![
+            Session { name: "alpha".into(), activity: 30, created: 1, attached: false,
+                      windows: many },
+            Session { name: "beta".into(), activity: 20, created: 2, attached: false,
+                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+        ];
+        let cfg = Config { pinned: vec![], manual_order: vec![], sort: SortKey::Activity };
+        let state = PickerState::build(sessions, &cfg);
+
+        let backend = TestBackend::new(80, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| draw(f, &state)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+
+        let cols = metadata_dot_columns(&buf, &["alpha", "beta"]);
+        assert_eq!(cols.len(), 2, "both rows present, got {cols:?}");
+        assert_eq!(cols[0], cols[1], "middot must align across 9-window and 1-window rows");
+    }
+
+    #[test]
+    fn metadata_stays_at_default_column_for_short_names() {
+        // With only short names, the shared column collapses back to META_COL,
+        // preserving the original compact layout.
+        let sessions = vec![
+            Session { name: "main".into(), activity: 30, created: 1, attached: false,
+                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+            Session { name: "other".into(), activity: 20, created: 2, attached: false,
+                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+        ];
+        let cfg = Config { pinned: vec![], manual_order: vec![], sort: SortKey::Activity };
+        let state = PickerState::build(sessions, &cfg);
+
+        let backend = TestBackend::new(80, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| draw(f, &state)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+
+        let cols = metadata_dot_columns(&buf, &["main", "other"]);
+        assert_eq!(cols.len(), 2, "both rows present");
+        assert_eq!(cols[0], cols[1], "short rows already align");
+        // Content starts at POPUP_MARGIN + 1 (margin + left border). Metadata
+        // begins at META_COL; the middot follows the "1 window " token (9 cells).
+        let content_start = (POPUP_MARGIN + 1) as usize;
+        assert_eq!(cols[0] as usize, content_start + META_COL + 9,
+                   "default column unchanged: got {}", cols[0]);
     }
 
     #[test]

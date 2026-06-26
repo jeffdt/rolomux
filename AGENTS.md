@@ -152,6 +152,22 @@ Currently Apple Silicon only. Supporting Intel means adding
 
 - Build/test loop: `RUSTFLAGS="-D warnings" cargo test`, then
   `cargo build --release`.
+- **Leave a live preview when a feature is done.** Once a feature is
+  implemented and tests pass, launch the freshly built binary in a new pane or
+  window of the *current* tmux session so the change is waiting on screen as a
+  real running picker, not just green test output. Run the raw build artifact
+  directly rather than through the `tmux popup` keybind:
+  `cargo build --release` then
+  `tmux split-window -h "exec $PWD/target/release/smux"` (use
+  `tmux new-window "exec $PWD/target/release/smux"` if you want it full width).
+  This is for unattended runs: the picker sits at its prompt waiting for input,
+  so when Jeff returns to the session the feature is previewable straight from
+  the command line. smux detects the current session normally in a plain pane
+  (`$TMUX` is set), so no popup is required. Do NOT launch it with `exec`: smux
+  exits on any selection/quit keypress, and an `exec`'d window vanishes with the
+  process, so the preview disappears the moment it's touched. Run it as a plain
+  command and set `tmux set-window-option -t <win> remain-on-exit on` so the
+  pane survives exit and shows what happened instead of closing.
 - Specs live in `specs/`, plans in `plans/`, the build ledger in
   `.superpowers/`; all three are git-ignored scratch, not part of the package.
 - **Changes land via pull request.** Work on a feature branch named
