@@ -56,9 +56,11 @@ impl Tmux for RealTmux {
             .output();
         match out {
             Ok(o) if o.status.success() => {
-                let raw = String::from_utf8_lossy(&o.stdout);
-                let sessions = parse_windows(&raw);
-                let current = current_session(&raw, std::env::var("TMUX").ok().as_deref());
+                let lossy = String::from_utf8_lossy(&o.stdout);
+                let raw = normalize_separators(&lossy);
+                let raw = raw.as_ref();
+                let sessions = parse_windows(raw);
+                let current = current_session(raw, std::env::var("TMUX").ok().as_deref());
                 crate::debug::log(|| {
                     format!(
                         "gather: ok socket={:?} status=0 stdout_bytes={} stdout_lines={} sessions={} current={:?}",
@@ -157,6 +159,20 @@ pub fn current_session(raw: &str, tmux_env: Option<&str>) -> Option<String> {
     None
 }
 
+/// Normalize the field separator in `-F` output. tmux 3.5 renders the `0x1F`
+/// unit separator smux uses in its format as the literal 4-character octal
+/// escape `\037` instead of the raw control byte; left as-is, every line becomes
+/// a single unsplittable field and the picker sees zero sessions. Convert the
+/// escape back to the real separator. Records stay newline-separated either way.
+/// Borrows (no allocation) for tmux versions that already emit the raw byte.
+pub fn normalize_separators(raw: &str) -> std::borrow::Cow<'_, str> {
+    if raw.contains("\\037") {
+        std::borrow::Cow::Owned(raw.replace("\\037", "\u{1f}"))
+    } else {
+        std::borrow::Cow::Borrowed(raw)
+    }
+}
+
 pub fn parse_windows(raw: &str) -> Vec<Session> {
     let mut sessions: Vec<Session> = Vec::new();
     for line in raw.lines() {
@@ -232,6 +248,35 @@ scratch\u{1f}50\u{1f}5\u{1f}0\u{1f}0\u{1f}shell\u{1f}1\u{1f}$8
 work\u{1f}100\u{1f}10\u{1f}1\u{1f}0\u{1f}editor\u{1f}1\u{1f}$3
 scratch\u{1f}50\u{1f}5\u{1f}0\u{1f}0\u{1f}shell\u{1f}1\u{1f}$8
 ";
+
+    #[test]
+    fn normalize_separators_handles_tmux35_octal_escape() {
+        // tmux 3.5 emits the 0x1F field separator as the literal escape `\037`
+        // (backslash-zero-three-seven), with records still newline-separated.
+        // This is the exact shape from a real 3.5a field report.
+        let escaped =
+            "0\\0371782948598\\0371782748885\\0371\\0371\\0372.1.198\\0371\\037$0\n\
+             0\\0371782948598\\0371782748885\\0371\\0372\\037zsh\\0370\\037$0\n";
+        let normalized = normalize_separators(escaped);
+        assert!(normalized.contains('\u{1f}'), "escape converted to real separator");
+        assert!(!normalized.contains("\\037"), "no literal escape remains");
+
+        let sessions = parse_windows(&normalized);
+        assert_eq!(sessions.len(), 1, "the two window lines fold into one session");
+        assert_eq!(sessions[0].name, "0");
+        assert!(sessions[0].attached);
+        assert_eq!(sessions[0].windows.len(), 2);
+        assert_eq!(sessions[0].windows[0].name, "2.1.198");
+        assert_eq!(sessions[0].windows[1].name, "zsh");
+    }
+
+    #[test]
+    fn normalize_separators_passes_raw_byte_form_through_unallocated() {
+        // tmux versions that emit the raw 0x1F byte are borrowed, not copied.
+        let raw = "work\u{1f}100\u{1f}10\u{1f}1\u{1f}0\u{1f}editor\u{1f}1\u{1f}$3";
+        assert!(matches!(normalize_separators(raw), std::borrow::Cow::Borrowed(_)));
+        assert_eq!(parse_windows(&normalize_separators(raw)).len(), 1);
+    }
 
     #[test]
     fn current_session_matches_tmux_env_session_id() {
