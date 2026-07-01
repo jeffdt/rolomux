@@ -17,11 +17,41 @@ pub trait Tmux {
     fn select_window(&self, name: &str, index: u32) -> io::Result<()>;
 }
 
-pub struct RealTmux;
+pub struct RealTmux {
+    /// The server socket smux was launched from (`$TMUX`'s first field). `None`
+    /// when smux runs outside tmux, in which case tmux's default socket is used.
+    socket: Option<String>,
+}
+
+impl RealTmux {
+    /// Bind to the tmux server smux was launched from, resolved from `$TMUX`.
+    /// Without this, every subprocess would talk to tmux's *default* socket, so
+    /// a picker launched from a non-default socket would see the wrong server's
+    /// sessions (or none) and switch-client would target the wrong server.
+    pub fn new() -> Self {
+        RealTmux { socket: tmux_socket(std::env::var("TMUX").ok().as_deref()) }
+    }
+
+    /// A `tmux` invocation already pointed at the launching server via `-S`.
+    fn command(&self) -> Command {
+        let mut c = Command::new("tmux");
+        if let Some(sock) = &self.socket {
+            c.arg("-S").arg(sock);
+        }
+        c
+    }
+}
+
+impl Default for RealTmux {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl Tmux for RealTmux {
     fn gather(&self) -> Gathered {
-        let out = Command::new("tmux")
+        let out = self
+            .command()
             .args(["list-windows", "-a", "-F", FMT])
             .output();
         match out {
@@ -31,7 +61,8 @@ impl Tmux for RealTmux {
                 let current = current_session(&raw, std::env::var("TMUX").ok().as_deref());
                 crate::debug::log(|| {
                     format!(
-                        "gather: ok status=0 stdout_bytes={} stdout_lines={} sessions={} current={:?}",
+                        "gather: ok socket={:?} status=0 stdout_bytes={} stdout_lines={} sessions={} current={:?}",
+                        self.socket,
                         o.stdout.len(),
                         raw.lines().count(),
                         sessions.len(),
@@ -43,7 +74,8 @@ impl Tmux for RealTmux {
             Ok(o) => {
                 crate::debug::log(|| {
                     format!(
-                        "gather: tmux exited non-zero status={:?} stderr={:?} (likely wrong/absent socket; smux queries the DEFAULT socket, ignoring $TMUX's socket path)",
+                        "gather: tmux exited non-zero socket={:?} status={:?} stderr={:?}",
+                        self.socket,
                         o.status.code(),
                         String::from_utf8_lossy(&o.stderr).trim(),
                     )
@@ -58,7 +90,7 @@ impl Tmux for RealTmux {
     }
 
     fn switch_session(&self, name: &str) -> io::Result<()> {
-        Command::new("tmux")
+        self.command()
             .args(["switch-client", "-t", name])
             .status()
             .map(|_| ())
@@ -66,10 +98,23 @@ impl Tmux for RealTmux {
 
     fn select_window(&self, name: &str, index: u32) -> io::Result<()> {
         let target = format!("{name}:{index}");
-        Command::new("tmux")
+        self.command()
             .args(["select-window", "-t", &target])
             .status()
             .map(|_| ())
+    }
+}
+
+/// Extract the tmux server socket path from `$TMUX` (its first comma-separated
+/// field, e.g. `/tmp/tmux-501/default`). Returns `None` when `$TMUX` is absent
+/// or empty so callers fall back to tmux's default socket. Pure (env passed in)
+/// so it is unit-testable, mirroring `current_session`.
+pub fn tmux_socket(tmux_env: Option<&str>) -> Option<String> {
+    let sock = tmux_env?.split(',').next()?.trim();
+    if sock.is_empty() {
+        None
+    } else {
+        Some(sock.to_string())
     }
 }
 
@@ -183,6 +228,24 @@ scratch\u{1f}50\u{1f}5\u{1f}0\u{1f}0\u{1f}shell\u{1f}1\u{1f}$8
         // $TMUX = socket,pid,session-id -> "8" should map to scratch ($8).
         let env = "/tmp/tmux-501/default,32102,8";
         assert_eq!(current_session(SAMPLE, Some(env)).as_deref(), Some("scratch"));
+    }
+
+    #[test]
+    fn tmux_socket_extracts_first_field_or_none() {
+        // $TMUX = socket,pid,session-id -> the socket is the first field.
+        assert_eq!(
+            tmux_socket(Some("/tmp/tmux-501/default,32102,7")).as_deref(),
+            Some("/tmp/tmux-501/default")
+        );
+        // A non-default socket (e.g. `tmux -L work`) is honored verbatim.
+        assert_eq!(
+            tmux_socket(Some("/private/tmp/tmux-501/work,111,2")).as_deref(),
+            Some("/private/tmp/tmux-501/work")
+        );
+        // Absent or empty $TMUX -> None, so callers use tmux's default socket.
+        assert_eq!(tmux_socket(None), None);
+        assert_eq!(tmux_socket(Some("")), None);
+        assert_eq!(tmux_socket(Some(",123,4")), None);
     }
 
     #[test]

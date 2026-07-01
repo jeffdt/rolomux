@@ -55,7 +55,7 @@ fn main() -> io::Result<()> {
         )
     });
 
-    let tmux = RealTmux;
+    let tmux = RealTmux::new();
     let gathered = tmux.gather();
     let live: Vec<String> = gathered.sessions.iter().map(|s| s.name.clone()).collect();
 
