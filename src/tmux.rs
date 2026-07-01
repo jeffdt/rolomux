@@ -27,12 +27,33 @@ impl Tmux for RealTmux {
         match out {
             Ok(o) if o.status.success() => {
                 let raw = String::from_utf8_lossy(&o.stdout);
-                Gathered {
-                    sessions: parse_windows(&raw),
-                    current: current_session(&raw, std::env::var("TMUX").ok().as_deref()),
-                }
+                let sessions = parse_windows(&raw);
+                let current = current_session(&raw, std::env::var("TMUX").ok().as_deref());
+                crate::debug::log(|| {
+                    format!(
+                        "gather: ok status=0 stdout_bytes={} stdout_lines={} sessions={} current={:?}",
+                        o.stdout.len(),
+                        raw.lines().count(),
+                        sessions.len(),
+                        current,
+                    )
+                });
+                Gathered { sessions, current }
             }
-            _ => Gathered { sessions: Vec::new(), current: None },
+            Ok(o) => {
+                crate::debug::log(|| {
+                    format!(
+                        "gather: tmux exited non-zero status={:?} stderr={:?} (likely wrong/absent socket; smux queries the DEFAULT socket, ignoring $TMUX's socket path)",
+                        o.status.code(),
+                        String::from_utf8_lossy(&o.stderr).trim(),
+                    )
+                });
+                Gathered { sessions: Vec::new(), current: None }
+            }
+            Err(e) => {
+                crate::debug::log(|| format!("gather: failed to spawn tmux: {e} (is tmux on PATH for this process?)"));
+                Gathered { sessions: Vec::new(), current: None }
+            }
         }
     }
 

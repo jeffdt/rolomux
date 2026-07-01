@@ -1,4 +1,4 @@
-use crate::model::{Mode, PickerState, Row, Session, SortKey, Window};
+use crate::model::{Group, Mode, PickerState, Row, Session, SortKey, Window, HEADER_COLORS};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
@@ -167,7 +167,8 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
                     }
                     match section {
                         Some(gi) => {
-                            push_section_header(&mut items, &state.groups[gi].name.to_uppercase(), list_area.width, ACCENT);
+                            let color = group_color(&state.groups[gi], gi);
+                            push_section_header(&mut items, &state.groups[gi].name.to_uppercase(), list_area.width, color);
                             next_group = gi + 1;
                         }
                         None => {
@@ -274,7 +275,7 @@ fn draw_search(frame: &mut Frame, state: &PickerState, inner: Rect) {
     frame.render_widget(footer, chunks[2]);
 }
 
-const GROUP_FOOTER_HINT: &str = "Enter rename · n new · d delete · ⇧JK reorder · Esc back";
+const GROUP_FOOTER_HINT: &str = "Enter rename · n new · c color · d delete · ⇧JK reorder · Esc back";
 
 fn draw_groups(frame: &mut Frame, state: &PickerState, inner: Rect) {
     let chunks = Layout::default()
@@ -297,8 +298,9 @@ fn draw_groups(frame: &mut Frame, state: &PickerState, inner: Rect) {
                 Span::styled("▏", Style::default().fg(ACCENT)),
             ])
         } else {
-            // Empty groups read as dimmed shelves, matching session mode.
-            let name_color = if g.members.is_empty() { DIM } else { ACCENT };
+            // Empty groups read as dimmed shelves, matching session mode;
+            // populated groups show their (flippable) header color.
+            let name_color = if g.members.is_empty() { DIM } else { group_color(g, gi) };
             Line::from(vec![
                 Span::styled(g.name.to_uppercase(),
                     Style::default().fg(name_color).add_modifier(Modifier::BOLD)),
@@ -325,6 +327,31 @@ fn draw_groups(frame: &mut Frame, state: &PickerState, inner: Rect) {
         Line::from(Span::styled(GROUP_FOOTER_HINT, Style::default().fg(DIM))),
     ]);
     frame.render_widget(footer, footer_area);
+}
+
+/// Map a `HEADER_COLORS` name to a named ANSI color (never RGB, so headers
+/// follow the terminal theme). `magenta` is the Nord purple. Unknown names fall
+/// back to the accent so a hand-edited config can never crash the picker.
+fn color_from_name(name: &str) -> Color {
+    match name {
+        "green" => Color::Green,
+        "yellow" => Color::Yellow,
+        "magenta" => Color::Magenta,
+        "blue" => Color::Blue,
+        "red" => Color::Red,
+        _ => Color::Cyan,
+    }
+}
+
+/// The header color for the group at `index`: its explicit color, or the
+/// positional default `HEADER_COLORS[index]` when unset.
+fn group_color(group: &Group, index: usize) -> Color {
+    let name = if group.color.is_empty() {
+        HEADER_COLORS[index % HEADER_COLORS.len()]
+    } else {
+        group.color.as_str()
+    };
+    color_from_name(name)
 }
 
 /// Push a section header, preceding it with a blank spacer unless it is the very
@@ -464,7 +491,7 @@ pub enum SearchInput {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum GroupInput { Up, Down, MoveUp, MoveDown, New, Rename, Delete, Exit, None }
+pub enum GroupInput { Up, Down, MoveUp, MoveDown, New, Rename, CycleColor, Delete, Exit, None }
 
 /// Key mapping for group-management mode while NOT editing a name. During an
 /// inline rename the loop routes keys through `map_search_key` instead.
@@ -477,6 +504,7 @@ pub fn map_group_key(key: KeyEvent) -> GroupInput {
         KeyCode::Char('K') if shift => GroupInput::MoveUp,
         KeyCode::Char('n') => GroupInput::New,
         KeyCode::Enter | KeyCode::Char('r') => GroupInput::Rename,
+        KeyCode::Char('c') => GroupInput::CycleColor,
         KeyCode::Char('d') => GroupInput::Delete,
         KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('g') => GroupInput::Exit,
         _ => GroupInput::None,
@@ -579,7 +607,7 @@ mod tests {
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
         ];
         let cfg = Config {
-            groups: vec![Group { name: "PINNED".into(), members: vec!["pr-review".into()] }],
+            groups: vec![Group { name: "PINNED".into(), members: vec!["pr-review".into()], color: String::new() }],
             manual_order: vec![],
             sort: SortKey::Activity,
         };
@@ -729,7 +757,7 @@ mod tests {
             Session { name: "claude".into(), activity: 30, created: 1, attached: false,
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
         ];
-        let cfg = Config { groups: vec![Group { name: "G".into(), members: vec!["claude".into()] }],
+        let cfg = Config { groups: vec![Group { name: "G".into(), members: vec!["claude".into()], color: String::new() }],
                            manual_order: vec![], sort: SortKey::Activity };
         let text = render_to_string(&PickerState::build(sessions, &cfg));
         assert!(!text.contains('★'), "pin star retired");
@@ -747,8 +775,8 @@ mod tests {
         ];
         let cfg = Config {
             groups: vec![
-                Group { name: "config".into(), members: vec!["claude".into()] },
-                Group { name: "tools".into(), members: vec!["tent".into()] },
+                Group { name: "config".into(), members: vec!["claude".into()], color: String::new() },
+                Group { name: "tools".into(), members: vec!["tent".into()], color: String::new() },
             ],
             manual_order: vec![], sort: SortKey::Activity,
         };
@@ -774,8 +802,8 @@ mod tests {
         ];
         let cfg = Config {
             groups: vec![
-                Group { name: "config".into(), members: vec!["claude".into()] },
-                Group { name: "tools".into(), members: vec![] }, // empty shelf
+                Group { name: "config".into(), members: vec!["claude".into()], color: String::new() },
+                Group { name: "tools".into(), members: vec![], color: String::new() }, // empty shelf
             ],
             manual_order: vec![], sort: SortKey::Activity,
         };
@@ -1024,7 +1052,7 @@ mod tests {
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
         ];
         let cfg = Config {
-            groups: vec![Group { name: "PINNED".into(), members: vec!["pr-review".into()] }],
+            groups: vec![Group { name: "PINNED".into(), members: vec!["pr-review".into()], color: String::new() }],
             manual_order: vec![],
             sort: SortKey::Activity,
         };
@@ -1073,11 +1101,51 @@ mod tests {
         assert_eq!(map_group_key(key(KeyCode::Char('n'))), GroupInput::New);
         assert_eq!(map_group_key(key(KeyCode::Enter)), GroupInput::Rename);
         assert_eq!(map_group_key(key(KeyCode::Char('r'))), GroupInput::Rename);
+        assert_eq!(map_group_key(key(KeyCode::Char('c'))), GroupInput::CycleColor);
         assert_eq!(map_group_key(key(KeyCode::Char('d'))), GroupInput::Delete);
         assert_eq!(map_group_key(key(KeyCode::Esc)), GroupInput::Exit);
         assert_eq!(map_group_key(key(KeyCode::Char('q'))), GroupInput::Exit);
         assert_eq!(map_group_key(key(KeyCode::Char('g'))), GroupInput::Exit);
         assert_eq!(map_group_key(key(KeyCode::Char('x'))), GroupInput::None);
+    }
+
+    #[test]
+    fn draw_colors_group_header_by_its_color_in_session_mode() {
+        // An explicit group color paints its header; a color-less group falls
+        // back to the positional default (HEADER_COLORS[0] == cyan == ACCENT).
+        let sessions = vec![
+            Session { name: "claude".into(), activity: 30, created: 1, attached: false,
+                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+            Session { name: "tent".into(), activity: 20, created: 2, attached: false,
+                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+        ];
+        let cfg = Config {
+            groups: vec![
+                Group { name: "config".into(), members: vec!["claude".into()], color: String::new() },
+                Group { name: "tools".into(), members: vec!["tent".into()], color: "magenta".into() },
+            ],
+            manual_order: vec![], sort: SortKey::Activity,
+        };
+        let state = PickerState::build(sessions, &cfg);
+
+        let backend = TestBackend::new(80, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| draw(f, &state)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+
+        let mut config_cyan = false;
+        let mut tools_magenta = false;
+        for y in 0..buf.area.height {
+            let line: String = (0..buf.area.width).map(|x| buf[(x, y)].symbol()).collect();
+            if let Some(i) = line.find("CONFIG") {
+                config_cyan = buf[(i as u16, y)].style().fg == Some(Color::Cyan);
+            }
+            if let Some(i) = line.find("TOOLS") {
+                tools_magenta = buf[(i as u16, y)].style().fg == Some(Color::Magenta);
+            }
+        }
+        assert!(config_cyan, "color-less group uses positional default (cyan)");
+        assert!(tools_magenta, "explicit magenta group header is purple");
     }
 
     fn groups_view(edit: bool) -> PickerState {
@@ -1087,7 +1155,7 @@ mod tests {
             Session { name: "ticket".into(), activity: 10, created: 2, attached: false,
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
         ];
-        let cfg = Config { groups: vec![Group { name: "config".into(), members: vec!["claude".into()] }],
+        let cfg = Config { groups: vec![Group { name: "config".into(), members: vec!["claude".into()], color: String::new() }],
                            manual_order: vec![], sort: SortKey::Activity };
         let mut st = PickerState::build(sessions, &cfg);
         st.enter_groups();

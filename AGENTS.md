@@ -90,8 +90,10 @@ These are deliberate and have driven past work. Do not reverse them casually.
 ## Configuration
 
 User config persists to `$XDG_CONFIG_HOME/smux/config.toml` (else
-`~/.config/smux/config.toml`): a `[[groups]]` array (each with a `name` and an
-ordered `members` list), a `manual_order` list (the user-defined order for the
+`~/.config/smux/config.toml`): a `[[groups]]` array (each with a `name`, an
+ordered `members` list, and an optional `color` from the named palette in
+`HEADER_COLORS`; empty/absent means the positional default, and `c` in group
+mode flips it), a `manual_order` list (the user-defined order for the
 `SESSIONS` manual sort mode), and a `sort` key (`activity`, `created`, or
 `manual`). A legacy top-level `pinned` list is still read and migrates to a
 single group named `PINNED`. Users normally never edit it by hand; the picker

@@ -1,3 +1,4 @@
+mod debug;
 mod model;
 mod search;
 mod store;
@@ -45,6 +46,15 @@ fn main() -> io::Result<()> {
         }
     }
 
+    debug::log(|| {
+        format!(
+            "start: version={} TMUX={:?} XDG_CONFIG_HOME={:?}",
+            env!("CARGO_PKG_VERSION"),
+            std::env::var("TMUX").ok(),
+            std::env::var("XDG_CONFIG_HOME").ok(),
+        )
+    });
+
     let tmux = RealTmux;
     let gathered = tmux.gather();
     let live: Vec<String> = gathered.sessions.iter().map(|s| s.name.clone()).collect();
@@ -58,6 +68,7 @@ fn main() -> io::Result<()> {
     let mut state = PickerState::build(gathered.sessions, &config);
     state.refocus_current(gathered.current.as_deref());
     if state.visible_rows().is_empty() {
+        debug::log(|| "exit: no visible rows (empty gather) -> returning immediately".into());
         return Ok(()); // nothing to pick
     }
 
@@ -156,6 +167,7 @@ fn event_loop(
                             GroupInput::MoveDown => state.group_reorder(1),
                             GroupInput::New => state.group_new(),
                             GroupInput::Rename => state.group_start_rename(),
+                            GroupInput::CycleColor => state.group_cycle_color(),
                             GroupInput::Delete => state.group_delete(),
                             GroupInput::Exit => state.exit_groups(),
                             GroupInput::None => {}

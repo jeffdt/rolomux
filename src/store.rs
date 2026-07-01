@@ -15,6 +15,8 @@ struct RawGroup {
     name: String,
     #[serde(default)]
     members: Vec<String>,
+    #[serde(default)]
+    color: String,
 }
 
 #[derive(Deserialize, Default)]
@@ -33,6 +35,8 @@ struct RawConfig {
 struct OutGroup {
     name: String,
     members: Vec<String>,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    color: String,
 }
 
 #[derive(serde::Serialize)]
@@ -49,11 +53,11 @@ impl Config {
             .and_then(|s| toml::from_str(&s).ok())
             .unwrap_or_default();
         let groups = if raw.groups.is_empty() && !raw.pinned.is_empty() {
-            vec![Group { name: "PINNED".into(), members: raw.pinned }]
+            vec![Group { name: "PINNED".into(), members: raw.pinned, color: String::new() }]
         } else {
             raw.groups
                 .into_iter()
-                .map(|g| Group { name: g.name, members: g.members })
+                .map(|g| Group { name: g.name, members: g.members, color: g.color })
                 .collect()
         };
         Config {
@@ -75,7 +79,11 @@ impl Config {
                 .groups
                 .iter()
                 .filter(|g| !g.name.is_empty())
-                .map(|g| OutGroup { name: g.name.clone(), members: g.members.clone() })
+                .map(|g| OutGroup {
+                    name: g.name.clone(),
+                    members: g.members.clone(),
+                    color: g.color.clone(),
+                })
                 .collect(),
             manual_order: self.manual_order.clone(),
             sort: match self.sort {
@@ -210,8 +218,8 @@ mod tests {
         let path = dir.join("config.toml");
         let cfg = Config {
             groups: vec![
-                Group { name: "CONFIG".into(), members: vec!["claude".into()] },
-                Group { name: "TOOLS".into(), members: vec![] },
+                Group { name: "CONFIG".into(), members: vec!["claude".into()], color: String::new() },
+                Group { name: "TOOLS".into(), members: vec![], color: String::new() },
             ],
             manual_order: vec![],
             sort: SortKey::Manual,
@@ -225,7 +233,7 @@ mod tests {
     #[test]
     fn reconcile_drops_dead_members_but_keeps_empty_group() {
         let mut cfg = Config {
-            groups: vec![Group { name: "G".into(), members: vec!["a".into(), "gone".into()] }],
+            groups: vec![Group { name: "G".into(), members: vec!["a".into(), "gone".into()], color: String::new() }],
             manual_order: vec![],
             sort: SortKey::Manual,
         };

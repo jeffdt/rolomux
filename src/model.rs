@@ -77,6 +77,12 @@ pub struct Session {
     pub windows: Vec<Window>,
 }
 
+/// Named header colors, in the order the color-flip cycles through them. These
+/// are the 16-color ANSI names (never RGB) so headers inherit the user's
+/// terminal theme; `magenta` is the purple in a Nord palette. An empty
+/// `Group::color` means "use the positional default" (`HEADER_COLORS[index]`).
+pub const HEADER_COLORS: [&str; 6] = ["cyan", "green", "yellow", "magenta", "blue", "red"];
+
 /// A user-named, ordered collection of sessions that renders as its own
 /// section above the residual `SESSIONS` bucket. Groups are durable: they
 /// persist even when empty and are removed only by an explicit delete.
@@ -84,6 +90,9 @@ pub struct Session {
 pub struct Group {
     pub name: String,
     pub members: Vec<String>,
+    /// Header color name from `HEADER_COLORS`, or empty for the positional
+    /// default. Set explicitly by the color-flip so it survives reordering.
+    pub color: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -500,9 +509,32 @@ impl PickerState {
 
     /// Append a new empty group after the last named group and begin naming it.
     pub fn group_new(&mut self) {
-        self.groups.push(Group { name: String::new(), members: Vec::new() });
+        self.groups.push(Group {
+            name: String::new(),
+            members: Vec::new(),
+            color: String::new(),
+        });
         self.group_cursor = self.groups.len() - 1;
         self.group_edit = Some(String::new());
+    }
+
+    /// Advance the selected group's header color to the next in `HEADER_COLORS`,
+    /// wrapping around. Starts from the group's effective color (its explicit
+    /// name, or the positional default) and stores the result explicitly so it
+    /// no longer shifts when groups are reordered.
+    pub fn group_cycle_color(&mut self) {
+        let gi = self.group_cursor;
+        if gi >= self.groups.len() {
+            return;
+        }
+        let current = if self.groups[gi].color.is_empty() {
+            HEADER_COLORS[gi % HEADER_COLORS.len()]
+        } else {
+            self.groups[gi].color.as_str()
+        };
+        let idx = HEADER_COLORS.iter().position(|c| *c == current).unwrap_or(0);
+        self.groups[gi].color = HEADER_COLORS[(idx + 1) % HEADER_COLORS.len()].to_string();
+        self.dirty = true;
     }
 
     /// Begin editing the selected group's name (seeded with its current name).
@@ -791,8 +823,8 @@ mod tests {
         let sessions = vec![s("a", 10, 1), s("b", 30, 2), s("c", 20, 3), s("d", 40, 4)];
         let cfg = Config {
             groups: vec![
-                Group { name: "CONFIG".into(), members: vec!["c".into()] },
-                Group { name: "TOOLS".into(), members: vec!["a".into()] },
+                Group { name: "CONFIG".into(), members: vec!["c".into()], color: String::new() },
+                Group { name: "TOOLS".into(), members: vec!["a".into()], color: String::new() },
             ],
             manual_order: vec![],
             sort: SortKey::Activity,
@@ -884,7 +916,7 @@ mod tests {
     fn action_for_session_number_uses_stable_pinned_first_order() {
         let sessions = vec![s("a", 10, 1), s("b", 30, 2), s("c", 20, 3)];
         let cfg = Config {
-            groups: vec![Group { name: "PINNED".into(), members: vec!["c".into()] }],
+            groups: vec![Group { name: "PINNED".into(), members: vec!["c".into()], color: String::new() }],
             manual_order: vec![],
             sort: SortKey::Activity,
         };
@@ -906,7 +938,7 @@ mod tests {
     fn focus_session_number_moves_cursor_without_switching() {
         let sessions = vec![s("a", 10, 1), s("b", 30, 2), s("c", 20, 3)];
         let cfg = Config {
-            groups: vec![Group { name: "PINNED".into(), members: vec!["c".into()] }],
+            groups: vec![Group { name: "PINNED".into(), members: vec!["c".into()], color: String::new() }],
             manual_order: vec![],
             sort: SortKey::Activity,
         };
@@ -955,7 +987,7 @@ mod tests {
         // filtered out of the manual tail); c then a are the manual placements;
         // b is unlisted and falls in after, by created asc.
         let cfg = Config {
-            groups: vec![Group { name: "PINNED".into(), members: vec!["d".into()] }],
+            groups: vec![Group { name: "PINNED".into(), members: vec!["d".into()], color: String::new() }],
             manual_order: vec!["d".into(), "c".into(), "a".into()],
             sort: SortKey::Manual,
         };
@@ -1019,7 +1051,7 @@ mod tests {
     fn move_row_on_pinned_reorders_pins_in_any_mode() {
         let sessions = vec![s("a", 30, 1), s("b", 20, 2)];
         let cfg = Config {
-            groups: vec![Group { name: "PINNED".into(), members: vec!["a".into(), "b".into()] }],
+            groups: vec![Group { name: "PINNED".into(), members: vec!["a".into(), "b".into()], color: String::new() }],
             manual_order: vec![],
             sort: SortKey::Activity,
         };
@@ -1242,8 +1274,8 @@ mod tests {
         let sessions = vec![s("a", 1, 1), s("b", 1, 2), s("c", 1, 3)];
         let cfg = Config {
             groups: vec![
-                Group { name: "G1".into(), members: vec!["a".into()] },
-                Group { name: "G2".into(), members: vec!["b".into()] },
+                Group { name: "G1".into(), members: vec!["a".into()], color: String::new() },
+                Group { name: "G2".into(), members: vec!["b".into()], color: String::new() },
             ],
             manual_order: vec![],
             sort: SortKey::Activity,
@@ -1323,6 +1355,26 @@ mod tests {
     }
 
     #[test]
+    fn group_new_leaves_color_positional_and_cycle_pins_explicit() {
+        let mut st = grouped_state();
+        st.enter_groups();
+        st.group_new(); // empty color -> positional default (HEADER_COLORS[index])
+        assert!(st.groups[2].color.is_empty(), "new group defaults to positional color");
+
+        st.dirty = false;
+        // Cursor is on the new group (index 2); its positional color is
+        // HEADER_COLORS[2] ("yellow"), so a flip advances to "magenta".
+        st.group_cycle_color();
+        assert_eq!(st.groups[2].color, "magenta");
+        assert!(st.dirty, "flipping a color dirties state");
+
+        // Cycling wraps around the palette back to the start.
+        st.groups[2].color = HEADER_COLORS[HEADER_COLORS.len() - 1].to_string();
+        st.group_cycle_color();
+        assert_eq!(st.groups[2].color, HEADER_COLORS[0]);
+    }
+
+    #[test]
     fn group_edit_buffer_backspace_and_delete_word() {
         let mut st = grouped_state();
         st.enter_groups();
@@ -1352,8 +1404,8 @@ mod tests {
         let sessions = vec![s("a", 1, 1), s("b", 1, 2), s("c", 1, 3), s("d", 40, 4), s("e", 30, 5)];
         let cfg = Config {
             groups: vec![
-                Group { name: "G1".into(), members: vec!["a".into(), "b".into()] },
-                Group { name: "G2".into(), members: vec!["c".into()] },
+                Group { name: "G1".into(), members: vec!["a".into(), "b".into()], color: String::new() },
+                Group { name: "G2".into(), members: vec!["c".into()], color: String::new() },
             ],
             manual_order: vec![],
             sort: SortKey::Activity,

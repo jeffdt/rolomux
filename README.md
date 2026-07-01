@@ -85,11 +85,15 @@ Press `g` to open group-management mode, a full-screen view of just your groups
 | `↵` / `r` | Rename the selected group inline |
 | `n` | Create a new group and name it |
 | `d` | Delete the selected group (its sessions fall back to SESSIONS) |
+| `c` | Cycle the selected group's header color |
 | `⇧J` / `⇧K` | Reorder the selected group down / up |
 | `Esc` / `q` / `g` | Back to the picker |
 
 Named groups are always in the manual order you set; only the residual SESSIONS
-bucket follows the `s` sort mode.
+bucket follows the `s` sort mode. Each group's header takes a color from your
+terminal theme (cyan, green, yellow, magenta, blue, red); new groups rotate
+through them, `c` flips a group's color, and empty groups show grayed out until
+you fill them.
 
 ### Search
 
@@ -117,6 +121,7 @@ members = ["workbench", "config-tmux"]
 [[groups]]
 name = "TOOLS"
 members = ["dev-stack"]
+color = "magenta"  # optional; omit to use the rotating default
 ```
 
 You normally don't edit this by hand; create groups and reorder from the picker
