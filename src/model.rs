@@ -323,22 +323,76 @@ impl PickerState {
         }
     }
 
-    /// Reorder the session under the cursor. Task 2 generalizes this to cross group
-    /// boundaries; for now it reorders within a group or the manual residual.
+    /// Move the session under the cursor by `delta` rows, crossing group boundaries
+    /// when needed: out of a group into the one above/below, or into/out of the
+    /// residual SESSIONS bucket. Clamps silently at the very top and bottom.
     pub fn move_row(&mut self, delta: i32) {
         let name = match self.cursor_session_name() { Some(n) => n, None => return };
-        if let Some(gi) = self.group_index_of(&name) {
-            let members = &mut self.groups[gi].members;
-            if let Some(pos) = members.iter().position(|m| m == &name) {
-                let target = pos as i32 + delta;
-                if target >= 0 && (target as usize) < members.len() {
-                    members.swap(pos, target as usize);
-                    self.dirty = true;
-                    self.focus_session(&name);
-                }
+        match self.group_index_of(&name) {
+            Some(gi) => self.move_grouped(gi, &name, delta),
+            None => self.move_residual(&name, delta),
+        }
+    }
+
+    /// Move a session that currently lives in named group `gi`.
+    fn move_grouped(&mut self, gi: usize, name: &str, delta: i32) {
+        let pos = match self.groups[gi].members.iter().position(|m| m == name) {
+            Some(p) => p,
+            None => return,
+        };
+        let last = self.groups[gi].members.len().saturating_sub(1);
+        if delta < 0 {
+            if pos > 0 {
+                self.groups[gi].members.swap(pos, pos - 1);
+            } else if gi > 0 {
+                self.groups[gi].members.remove(pos);
+                self.groups[gi - 1].members.push(name.to_string());
+            } else {
+                return; // very top: clamp
             }
-        } else if self.sort == SortKey::Manual {
-            self.move_unpinned(delta);
+        } else if pos < last {
+            self.groups[gi].members.swap(pos, pos + 1);
+        } else if gi + 1 < self.groups.len() {
+            self.groups[gi].members.remove(pos);
+            self.groups[gi + 1].members.insert(0, name.to_string());
+        } else {
+            // bottom of the last group: drop into the residual bucket
+            self.groups[gi].members.remove(pos);
+            if self.sort == SortKey::Manual {
+                self.manual_order.retain(|n| n != name);
+                self.manual_order.insert(0, name.to_string());
+            }
+        }
+        self.dirty = true;
+        self.focus_session(name);
+    }
+
+    /// Move a session that currently lives in the residual `SESSIONS` bucket.
+    fn move_residual(&mut self, name: &str, delta: i32) {
+        let residual: Vec<String> = self
+            .ordered()
+            .iter()
+            .filter(|s| !self.is_grouped(&s.name))
+            .map(|s| s.name.clone())
+            .collect();
+        let ri = match residual.iter().position(|n| n == name) {
+            Some(r) => r,
+            None => return,
+        };
+        if delta < 0 && ri == 0 {
+            if let Some(last) = self.groups.last_mut() {
+                self.manual_order.retain(|n| n != name);
+                last.members.push(name.to_string());
+                self.dirty = true;
+                self.focus_session(name);
+            }
+        } else if delta > 0 && ri + 1 == residual.len() {
+            // residual bottom: clamp
+        } else {
+            // interior residual reorder: manual mode only (unchanged behavior)
+            if self.sort == SortKey::Manual {
+                self.move_unpinned(delta);
+            }
         }
     }
 
@@ -1043,5 +1097,83 @@ mod tests {
         assert!(!state.is_expanded("a"));
         assert!(!state.is_expanded("b"));
         assert_eq!(state.visible_rows().len(), 2);
+    }
+
+    fn state_with_two_groups() -> PickerState {
+        // groups: G1=[a,b], G2=[c]; residual d,e by activity (d 40 > e 30)
+        let sessions = vec![s("a", 1, 1), s("b", 1, 2), s("c", 1, 3), s("d", 40, 4), s("e", 30, 5)];
+        let cfg = Config {
+            groups: vec![
+                Group { name: "G1".into(), members: vec!["a".into(), "b".into()] },
+                Group { name: "G2".into(), members: vec!["c".into()] },
+            ],
+            manual_order: vec![],
+            sort: SortKey::Activity,
+        };
+        PickerState::build(sessions, &cfg)
+    }
+
+    #[test]
+    fn move_up_from_group_top_joins_end_of_group_above() {
+        let mut st = state_with_two_groups();
+        st.focus_session("c"); // top (only) of G2
+        st.move_row(-1);
+        assert_eq!(st.groups[0].members, vec!["a".to_string(), "b".to_string(), "c".to_string()]);
+        assert_eq!(st.groups[1].members, Vec::<String>::new());
+        assert_eq!(st.cursor_session_name().as_deref(), Some("c"));
+        assert!(st.dirty);
+    }
+
+    #[test]
+    fn move_up_within_group_swaps() {
+        let mut st = state_with_two_groups();
+        st.focus_session("b");
+        st.move_row(-1);
+        assert_eq!(st.groups[0].members, vec!["b".to_string(), "a".to_string()]);
+    }
+
+    #[test]
+    fn move_up_at_very_top_clamps() {
+        let mut st = state_with_two_groups();
+        st.focus_session("a"); // top of first group
+        st.move_row(-1);
+        assert_eq!(st.groups[0].members, vec!["a".to_string(), "b".to_string()]);
+        assert!(!st.dirty);
+    }
+
+    #[test]
+    fn move_down_from_group_bottom_joins_front_of_group_below() {
+        let mut st = state_with_two_groups();
+        st.focus_session("b"); // bottom of G1
+        st.move_row(1);
+        assert_eq!(st.groups[0].members, vec!["a".to_string()]);
+        assert_eq!(st.groups[1].members, vec!["b".to_string(), "c".to_string()]);
+    }
+
+    #[test]
+    fn move_down_from_last_group_bottom_drops_into_residual() {
+        let mut st = state_with_two_groups();
+        st.focus_session("c"); // bottom of last group G2
+        st.move_row(1);
+        assert_eq!(st.groups[1].members, Vec::<String>::new());
+        assert!(!st.is_grouped("c"));
+    }
+
+    #[test]
+    fn move_up_from_residual_top_joins_last_group() {
+        let mut st = state_with_two_groups();
+        st.focus_session("d"); // residual top (activity 40)
+        st.move_row(-1);
+        assert_eq!(st.groups[1].members, vec!["c".to_string(), "d".to_string()]);
+        assert!(st.is_grouped("d"));
+    }
+
+    #[test]
+    fn move_down_at_residual_bottom_clamps() {
+        let mut st = state_with_two_groups();
+        st.focus_session("e"); // residual bottom
+        st.move_row(1);
+        assert!(!st.is_grouped("e"));
+        assert!(!st.dirty);
     }
 }
