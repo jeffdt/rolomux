@@ -672,6 +672,71 @@ impl PickerState {
         rows[self.settings_cursor.min(rows.len().saturating_sub(1))]
     }
 
+    /// `h` on the current settings row: step Default Mode / Color Policy
+    /// backward, collapse the palette, or (from a palette color row) collapse
+    /// and jump back to the Palette row.
+    #[allow(dead_code)]
+    pub fn settings_step_left(&mut self) {
+        match self.current_settings_row() {
+            SettingsRow::DefaultMode => {
+                self.default_mode = self.default_mode.next();
+                self.dirty = true;
+            }
+            SettingsRow::ColorPolicy => {
+                self.new_group_color_policy = self.new_group_color_policy.prev();
+                self.dirty = true;
+            }
+            SettingsRow::Palette => self.palette_expanded = false,
+            SettingsRow::PaletteColor(_) => {
+                self.palette_expanded = false;
+                self.settings_cursor = 2; // the Palette row is always index 2
+            }
+        }
+    }
+
+    /// `l` on the current settings row: step Default Mode / Color Policy
+    /// forward, or expand the palette. A no-op on an already-expanded palette
+    /// color row (there is nothing further to expand).
+    #[allow(dead_code)]
+    pub fn settings_step_right(&mut self) {
+        match self.current_settings_row() {
+            SettingsRow::DefaultMode => {
+                self.default_mode = self.default_mode.next();
+                self.dirty = true;
+            }
+            SettingsRow::ColorPolicy => {
+                self.new_group_color_policy = self.new_group_color_policy.next();
+                self.dirty = true;
+            }
+            SettingsRow::Palette => self.palette_expanded = true,
+            SettingsRow::PaletteColor(_) => {}
+        }
+    }
+
+    /// `Enter`/`Space` on the current settings row: steps Default Mode / Color
+    /// Policy forward (same as `l`), or (Task 6) toggles a palette color's
+    /// active state.
+    #[allow(dead_code)]
+    pub fn settings_activate(&mut self) {
+        match self.current_settings_row() {
+            SettingsRow::DefaultMode => {
+                self.default_mode = self.default_mode.next();
+                self.dirty = true;
+            }
+            SettingsRow::ColorPolicy => {
+                self.new_group_color_policy = self.new_group_color_policy.next();
+                self.dirty = true;
+            }
+            SettingsRow::Palette => {}
+            SettingsRow::PaletteColor(_) => self.settings_toggle_palette_color(),
+        }
+    }
+
+    #[allow(dead_code)]
+    fn settings_toggle_palette_color(&mut self) {
+        // Implemented in Task 6.
+    }
+
     /// The current cursor position within the group list.
     pub fn group_cursor(&self) -> usize { self.group_cursor }
 
@@ -1815,5 +1880,65 @@ mod tests {
         assert_eq!(st.settings_cursor(), 1);
         st.settings_move_cursor(99);
         assert_eq!(st.settings_cursor(), 2, "clamped at bottom, collapsed (3 rows)");
+    }
+
+    #[test]
+    fn step_cycles_default_mode_in_either_direction() {
+        let mut st = settings_state(); // cursor on row 0, DefaultMode
+        assert_eq!(st.default_mode, DefaultMode::Command);
+        st.settings_step_right();
+        assert_eq!(st.default_mode, DefaultMode::Search);
+        st.settings_step_right();
+        assert_eq!(st.default_mode, DefaultMode::Command, "2-state cycle wraps");
+        st.settings_step_left();
+        assert_eq!(st.default_mode, DefaultMode::Search, "h also flips a 2-state toggle");
+        assert!(st.dirty);
+    }
+
+    #[test]
+    fn activate_also_cycles_default_mode_forward() {
+        let mut st = settings_state();
+        st.settings_activate();
+        assert_eq!(st.default_mode, DefaultMode::Search);
+    }
+
+    #[test]
+    fn step_cycles_color_policy_forward_and_backward() {
+        let mut st = settings_state();
+        st.settings_move_cursor(1); // row 1: ColorPolicy
+        assert_eq!(st.new_group_color_policy, ColorPolicy::Rotate);
+        st.settings_step_right();
+        assert_eq!(st.new_group_color_policy, ColorPolicy::Random);
+        st.settings_step_right();
+        assert_eq!(st.new_group_color_policy, ColorPolicy::Static);
+        st.settings_step_right();
+        assert_eq!(st.new_group_color_policy, ColorPolicy::Rotate, "wraps forward");
+        st.settings_step_left();
+        assert_eq!(st.new_group_color_policy, ColorPolicy::Static, "wraps backward");
+    }
+
+    #[test]
+    fn palette_expands_and_collapses_via_step_right_and_left() {
+        let mut st = settings_state();
+        st.settings_move_cursor(2); // row 2: Palette
+        assert!(!st.palette_expanded());
+        st.settings_step_right();
+        assert!(st.palette_expanded());
+        assert_eq!(st.settings_visible_rows().len(), 3 + 16);
+        st.settings_step_left();
+        assert!(!st.palette_expanded());
+        assert_eq!(st.settings_visible_rows().len(), 3);
+    }
+
+    #[test]
+    fn step_left_on_a_palette_color_row_collapses_and_refocuses_the_parent() {
+        let mut st = settings_state();
+        st.settings_move_cursor(2);
+        st.settings_step_right(); // expand
+        st.settings_move_cursor(1); // onto the first PaletteColor child
+        assert_eq!(st.settings_visible_rows()[st.settings_cursor()], SettingsRow::PaletteColor(0));
+        st.settings_step_left();
+        assert!(!st.palette_expanded());
+        assert_eq!(st.settings_cursor(), 2, "cursor returns to the Palette row");
     }
 }
