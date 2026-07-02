@@ -206,6 +206,15 @@ pub enum Row {
     Window(usize, usize),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SettingsRow {
+    DefaultMode,
+    ColorPolicy,
+    Palette,
+    /// Index into `PickerState::settings_palette_rows()`'s display order.
+    PaletteColor(usize),
+}
+
 use crate::store::Config;
 use std::collections::HashSet;
 
@@ -615,6 +624,52 @@ impl PickerState {
     #[allow(dead_code)]
     pub fn palette_expanded(&self) -> bool {
         self.palette_expanded
+    }
+
+    /// The flat, ordered list of settings rows currently on screen. Mirrors the
+    /// session/window-tree shape of `visible_rows`: three top-level rows, with
+    /// 16 `PaletteColor` child rows spliced in only while the palette checklist
+    /// is expanded.
+    pub fn settings_visible_rows(&self) -> Vec<SettingsRow> {
+        let mut rows = vec![SettingsRow::DefaultMode, SettingsRow::ColorPolicy, SettingsRow::Palette];
+        if self.palette_expanded {
+            for i in 0..self.settings_palette_rows().len() {
+                rows.push(SettingsRow::PaletteColor(i));
+            }
+        }
+        rows
+    }
+
+    /// All 16 named colors in "curated-first" display order: active colors in
+    /// the user's `active_palette` order, then every remaining color in
+    /// `ALL_NAMED_COLORS` canonical order.
+    pub fn settings_palette_rows(&self) -> Vec<(String, bool)> {
+        let mut rows: Vec<(String, bool)> =
+            self.active_palette.iter().map(|c| (c.clone(), true)).collect();
+        for name in ALL_NAMED_COLORS {
+            if !self.active_palette.iter().any(|c| c == name) {
+                rows.push((name.to_string(), false));
+            }
+        }
+        rows
+    }
+
+    /// Move the settings cursor by `delta`, clamped to the valid range.
+    #[allow(dead_code)]
+    pub fn settings_move_cursor(&mut self, delta: i32) {
+        let len = self.settings_visible_rows().len() as i32;
+        if len == 0 {
+            self.settings_cursor = 0;
+            return;
+        }
+        self.settings_cursor = (self.settings_cursor as i32 + delta).clamp(0, len - 1) as usize;
+    }
+
+    /// The settings row the cursor currently sits on.
+    #[allow(dead_code)]
+    fn current_settings_row(&self) -> SettingsRow {
+        let rows = self.settings_visible_rows();
+        rows[self.settings_cursor.min(rows.len().saturating_sub(1))]
     }
 
     /// The current cursor position within the group list.
@@ -1717,5 +1772,48 @@ mod tests {
             st.ordered_group_ids(),
             vec![Some(0), Some(0), Some(1), None, None]
         );
+    }
+
+    fn settings_state() -> PickerState {
+        let sessions = vec![s("a", 1, 1)];
+        let cfg = Config::default();
+        PickerState::build(sessions, &cfg)
+    }
+
+    #[test]
+    fn settings_visible_rows_collapsed_shows_three_rows() {
+        let st = settings_state();
+        assert_eq!(
+            st.settings_visible_rows(),
+            vec![SettingsRow::DefaultMode, SettingsRow::ColorPolicy, SettingsRow::Palette]
+        );
+    }
+
+    #[test]
+    fn settings_palette_rows_lists_active_first_in_user_order_then_canonical_inactive() {
+        let st = settings_state(); // default active_palette = HEADER_COLORS order
+        let rows = st.settings_palette_rows();
+        assert_eq!(rows.len(), 16);
+        assert_eq!(&rows[0], &("cyan".to_string(), true));
+        assert_eq!(&rows[1], &("green".to_string(), true));
+        assert_eq!(&rows[2], &("yellow".to_string(), true));
+        assert_eq!(&rows[3], &("magenta".to_string(), true));
+        assert_eq!(&rows[4], &("blue".to_string(), true));
+        assert_eq!(&rows[5], &("red".to_string(), true));
+        // First canonical-order color that isn't active.
+        assert_eq!(&rows[6], &("black".to_string(), false));
+        assert_eq!(&rows[7], &("gray".to_string(), false));
+    }
+
+    #[test]
+    fn settings_move_cursor_clamps_within_visible_rows() {
+        let mut st = settings_state();
+        assert_eq!(st.settings_cursor(), 0);
+        st.settings_move_cursor(-1);
+        assert_eq!(st.settings_cursor(), 0, "clamped at top");
+        st.settings_move_cursor(1);
+        assert_eq!(st.settings_cursor(), 1);
+        st.settings_move_cursor(99);
+        assert_eq!(st.settings_cursor(), 2, "clamped at bottom, collapsed (3 rows)");
     }
 }
