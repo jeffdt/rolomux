@@ -118,6 +118,7 @@ pub fn draw(frame: &mut Frame, state: &PickerState) {
         Mode::Command => draw_command(frame, state, inner),
         Mode::Search => draw_search(frame, state, inner),
         Mode::Groups => draw_groups(frame, state, inner),
+        Mode::Settings => {}, // Rendered in Task 12
     }
 }
 

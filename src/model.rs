@@ -148,19 +148,17 @@ pub const INITIAL_FOCUS: InitialFocus = InitialFocus::CurrentSession;
 
 /// Picker interaction mode. `Command` is the single-keystroke command UI;
 /// `Search` routes typed characters into a fuzzy-filter query; `Groups` is the
-/// full-screen group-management overlay. Which mode the picker launches in is
-/// the `DEFAULT_MODE` seam below (cf. `INITIAL_FOCUS`), so a future
-/// `default_mode` config key can select it without reworking the loop.
+/// full-screen group-management overlay; `Settings` is the full-screen
+/// settings overlay. Which mode the picker launches in is governed by the
+/// persisted `default_mode` preference (`Config::default_mode`, of type
+/// `DefaultMode`), read once at `build` time -- see `DefaultMode::as_mode`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
     Command,
     Search,
     Groups,
+    Settings,
 }
-
-/// The mode the picker starts in. Swap this one constant (or later wire it to
-/// config) to change the launch behavior.
-pub const DEFAULT_MODE: Mode = Mode::Command;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Window {
@@ -226,6 +224,18 @@ pub struct PickerState {
     pub group_cursor: usize,
     /// In-flight rename buffer; `Some` while a rename is in progress.
     pub group_edit: Option<String>,
+    #[allow(dead_code)]
+    pub default_mode: DefaultMode,
+    #[allow(dead_code)]
+    pub new_group_color_policy: ColorPolicy,
+    #[allow(dead_code)]
+    pub static_color: String,
+    #[allow(dead_code)]
+    pub active_palette: Vec<String>,
+    #[allow(dead_code)]
+    settings_cursor: usize,
+    #[allow(dead_code)]
+    palette_expanded: bool,
 }
 
 fn sort_value(s: &Session, key: SortKey) -> i64 {
@@ -260,11 +270,17 @@ impl PickerState {
             expanded: HashSet::new(),
             cursor: 0,
             dirty: false,
-            mode: DEFAULT_MODE,
+            mode: config.default_mode.as_mode(),
             query: String::new(),
             search_cursor: 0,
             group_cursor: 0,
             group_edit: None,
+            default_mode: config.default_mode,
+            new_group_color_policy: config.new_group_color_policy,
+            static_color: config.static_color.clone(),
+            active_palette: config.active_palette.clone(),
+            settings_cursor: 0,
+            palette_expanded: false,
         };
         state.apply_initial_focus(focus, current);
         state
@@ -575,6 +591,30 @@ impl PickerState {
             self.group_cancel_rename();
         }
         self.mode = Mode::Command;
+    }
+
+    /// Enter the full-screen settings overlay.
+    #[allow(dead_code)]
+    pub fn enter_settings(&mut self) {
+        self.mode = Mode::Settings;
+    }
+
+    /// Leave settings mode back to session command mode.
+    #[allow(dead_code)]
+    pub fn exit_settings(&mut self) {
+        self.mode = Mode::Command;
+    }
+
+    /// The current cursor position within the settings rows (Task 4).
+    #[allow(dead_code)]
+    pub fn settings_cursor(&self) -> usize {
+        self.settings_cursor
+    }
+
+    /// Whether the color-palette checklist is currently expanded (Task 4).
+    #[allow(dead_code)]
+    pub fn palette_expanded(&self) -> bool {
+        self.palette_expanded
     }
 
     /// The current cursor position within the group list.
@@ -1537,6 +1577,49 @@ mod tests {
         assert_eq!(st.group_edit_buffer(), Some("G1 extra "));
         st.group_edit_backspace(); // drops trailing space
         assert_eq!(st.group_edit_buffer(), Some("G1 extra"));
+    }
+
+    #[test]
+    fn build_seeds_mode_and_fields_from_config_default_mode() {
+        let sessions = vec![s("a", 30, 1)];
+        let cfg = Config {
+            default_mode: DefaultMode::Search,
+            new_group_color_policy: ColorPolicy::Static,
+            static_color: "red".to_string(),
+            active_palette: vec!["red".to_string(), "white".to_string()],
+            ..Default::default()
+        };
+        let state = PickerState::build(sessions, &cfg);
+        assert_eq!(state.mode, Mode::Search, "startup mode follows config.default_mode");
+        assert_eq!(state.default_mode, DefaultMode::Search);
+        assert_eq!(state.new_group_color_policy, ColorPolicy::Static);
+        assert_eq!(state.static_color, "red");
+        assert_eq!(state.active_palette, vec!["red".to_string(), "white".to_string()]);
+    }
+
+    #[test]
+    fn live_mode_changes_never_rewrite_the_persisted_default() {
+        let sessions = vec![s("a", 30, 1)];
+        let cfg = Config { default_mode: DefaultMode::Search, ..Default::default() };
+        let mut state = PickerState::build(sessions, &cfg);
+        assert_eq!(state.mode, Mode::Search);
+        state.exit_search(); // navigates back to Command at runtime
+        assert_eq!(state.mode, Mode::Command);
+        assert_eq!(
+            state.default_mode,
+            DefaultMode::Search,
+            "startup preference is untouched by runtime navigation"
+        );
+    }
+
+    #[test]
+    fn enter_and_exit_settings_toggles_mode() {
+        let mut st = grouped_state();
+        assert_eq!(st.mode, Mode::Command);
+        st.enter_settings();
+        assert_eq!(st.mode, Mode::Settings);
+        st.exit_settings();
+        assert_eq!(st.mode, Mode::Command);
     }
 
     #[test]

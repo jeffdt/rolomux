@@ -174,6 +174,7 @@ fn event_loop(
                         }
                     }
                 }
+                Mode::Settings => {}, // Handled in Task 13
             }
         }
     }
