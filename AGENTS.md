@@ -100,6 +100,24 @@ single group named `PINNED`. Users normally never edit it by hand; the picker
 writes it on group/membership/reorder/sort-cycle. Groups are never auto-pruned;
 `reconcile` drops dead members but keeps the group.
 
+### Config migrations
+
+Every saved config carries a `config_version` (see `CONFIG_VERSION` in
+`src/store.rs`), stamped on each write. Plain additive fields don't need a
+version bump — `serde(default)` already makes them backward- and
+forward-compatible. Bump `CONFIG_VERSION` and add a step in `Config::migrate`
+only for a rename or a semantic change (the `pinned` → `groups` conversion is
+the existing example of both: a version-0 file lacks `config_version` and is
+migrated once; a version-1+ file is never re-migrated even if a stale legacy
+field is still lying around). **Any change to the config schema in that
+category must ship with a matching migration step, a unit test in
+`src/store.rs` for that step, and a bump to `CONFIG_VERSION`** — this project
+has real users on installed binaries now, so a config file must never fail to
+load or silently lose data across a version upgrade. A file with a
+`config_version` newer than this binary's `CONFIG_VERSION` (e.g. a colleague
+running a newer smux) must also load cleanly without misfiring an old
+migration — current-shape fields are just read as-is.
+
 ## Packaging and distribution
 
 smux ships as a prebuilt binary through a personal Homebrew tap, mirroring the

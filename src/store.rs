@@ -3,6 +3,12 @@ use serde::Deserialize;
 use std::io;
 use std::path::{Path, PathBuf};
 
+// Bump whenever the on-disk schema changes in a way that isn't already
+// tolerated by serde defaults (i.e. a rename or a semantic change, not a
+// plain new-field addition). Add the migration step in `Config::migrate`
+// and a matching test. See AGENTS.md "Configuration".
+pub const CONFIG_VERSION: u32 = 1;
+
 #[derive(Debug, Clone)]
 pub struct Config {
     pub groups: Vec<Group>,
@@ -21,8 +27,12 @@ struct RawGroup {
 
 #[derive(Deserialize, Default)]
 struct RawConfig {
+    // Absent on any file written before config_version existed; defaults to
+    // 0, which is treated as "pre-versioning legacy schema".
     #[serde(default)]
-    pinned: Vec<String>, // legacy migration input only
+    config_version: u32,
+    #[serde(default)]
+    pinned: Vec<String>, // migration input only, superseded by `groups` at version 1
     #[serde(default)]
     groups: Vec<RawGroup>,
     #[serde(default)]
@@ -41,6 +51,7 @@ struct OutGroup {
 
 #[derive(serde::Serialize)]
 struct OutConfig {
+    config_version: u32,
     groups: Vec<OutGroup>,
     manual_order: Vec<String>,
     sort: String,
@@ -52,7 +63,17 @@ impl Config {
             .ok()
             .and_then(|s| toml::from_str(&s).ok())
             .unwrap_or_default();
-        let groups = if raw.groups.is_empty() && !raw.pinned.is_empty() {
+        Config::migrate(raw)
+    }
+
+    // Applies every migration step the loaded file hasn't already been
+    // through, gated on `raw.config_version`. Each step should be additive
+    // and idempotent-safe within its own version guard so re-running
+    // `load_from` on an already-migrated file is a no-op.
+    fn migrate(raw: RawConfig) -> Config {
+        let groups = if raw.config_version < 1 && raw.groups.is_empty() && !raw.pinned.is_empty()
+        {
+            // v0 -> v1: single legacy `pinned` list becomes one PINNED group.
             vec![Group { name: "PINNED".into(), members: raw.pinned, color: String::new() }]
         } else {
             raw.groups
@@ -75,6 +96,7 @@ impl Config {
             std::fs::create_dir_all(parent)?;
         }
         let out = OutConfig {
+            config_version: CONFIG_VERSION,
             groups: self
                 .groups
                 .iter()
@@ -208,6 +230,55 @@ mod tests {
         assert_eq!(cfg.groups.len(), 1);
         assert_eq!(cfg.groups[0].name, "PINNED");
         assert_eq!(cfg.groups[0].members, vec!["a".to_string(), "b".to_string()]);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn save_stamps_current_config_version() {
+        let dir = std::env::temp_dir().join(format!("smux-ver-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.toml");
+        let cfg = Config { groups: vec![], manual_order: vec![], sort: SortKey::Activity };
+        cfg.save_to(&path).unwrap();
+        let written = std::fs::read_to_string(&path).unwrap();
+        assert!(written.contains(&format!("config_version = {CONFIG_VERSION}")));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn migration_does_not_rerun_once_versioned() {
+        // A file already stamped at the current version is never re-migrated,
+        // even if it happens to still carry a stale `pinned` list (e.g. from
+        // manual editing). Version gating, not field presence, decides.
+        let dir = std::env::temp_dir().join(format!("smux-nomig-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.toml");
+        std::fs::write(
+            &path,
+            format!("config_version = {CONFIG_VERSION}\npinned = [\"a\"]\nsort = \"activity\"\n"),
+        )
+        .unwrap();
+        let cfg = Config::load_from(&path);
+        assert!(cfg.groups.is_empty());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn config_version_ahead_of_current_loads_without_migration() {
+        // A colleague on a newer smux writes a higher config_version than
+        // this binary knows about; loading it must not panic or misfire an
+        // old migration, just read the current-shape fields as-is.
+        let dir = std::env::temp_dir().join(format!("smux-future-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.toml");
+        std::fs::write(
+            &path,
+            "config_version = 99\ngroups = [{ name = \"PINNED\", members = [\"a\"] }]\nsort = \"activity\"\n",
+        )
+        .unwrap();
+        let cfg = Config::load_from(&path);
+        assert_eq!(cfg.groups.len(), 1);
+        assert_eq!(cfg.groups[0].name, "PINNED");
         std::fs::remove_dir_all(&dir).ok();
     }
 
