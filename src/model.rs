@@ -25,6 +25,107 @@ impl SortKey {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum DefaultMode {
+    #[default]
+    Command,
+    Search,
+}
+
+impl DefaultMode {
+    #[allow(dead_code)]
+    pub fn from_config_str(s: &str) -> DefaultMode {
+        match s {
+            "search" => DefaultMode::Search,
+            _ => DefaultMode::Command,
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn as_config_str(self) -> &'static str {
+        match self {
+            DefaultMode::Command => "command",
+            DefaultMode::Search => "search",
+        }
+    }
+
+    /// The other value. A 2-state cycle, so `h`, `l`, and `Enter`/`Space` on
+    /// the Default Mode settings row all call this: there is no distinct
+    /// "previous".
+    #[allow(dead_code)]
+    pub fn next(self) -> DefaultMode {
+        match self {
+            DefaultMode::Command => DefaultMode::Search,
+            DefaultMode::Search => DefaultMode::Command,
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn as_mode(self) -> Mode {
+        match self {
+            DefaultMode::Command => Mode::Command,
+            DefaultMode::Search => Mode::Search,
+        }
+    }
+}
+
+/// Governs the header color assigned when a new group is created
+/// (`PickerState::group_new`). Never retroactively recolors existing groups.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ColorPolicy {
+    #[default]
+    Rotate,
+    Random,
+    Static,
+}
+
+impl ColorPolicy {
+    #[allow(dead_code)]
+    pub fn from_config_str(s: &str) -> ColorPolicy {
+        match s {
+            "random" => ColorPolicy::Random,
+            "static" => ColorPolicy::Static,
+            _ => ColorPolicy::Rotate,
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn as_config_str(self) -> &'static str {
+        match self {
+            ColorPolicy::Rotate => "rotate",
+            ColorPolicy::Random => "random",
+            ColorPolicy::Static => "static",
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn next(self) -> ColorPolicy {
+        match self {
+            ColorPolicy::Rotate => ColorPolicy::Random,
+            ColorPolicy::Random => ColorPolicy::Static,
+            ColorPolicy::Static => ColorPolicy::Rotate,
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn prev(self) -> ColorPolicy {
+        match self {
+            ColorPolicy::Rotate => ColorPolicy::Static,
+            ColorPolicy::Random => ColorPolicy::Rotate,
+            ColorPolicy::Static => ColorPolicy::Random,
+        }
+    }
+}
+
+/// All 16 named ANSI terminal colors (never RGB), in a fixed canonical order.
+/// Backs the settings palette checklist and the Static-policy color cycle.
+#[allow(dead_code)]
+pub const ALL_NAMED_COLORS: [&str; 16] = [
+    "black", "red", "green", "yellow", "blue", "magenta", "cyan", "gray",
+    "darkgray", "lightred", "lightgreen", "lightyellow", "lightblue",
+    "lightmagenta", "lightcyan", "white",
+];
+
 /// Where the cursor starts when the picker opens. Like `SortKey`, this is a
 /// swappable seam: change the single `INITIAL_FOCUS` constant below to pick a
 /// policy without touching `build`.
@@ -751,6 +852,55 @@ mod tests {
         assert_eq!(SortKey::from_config_str("activity"), SortKey::Activity);
         assert_eq!(SortKey::from_config_str("garbage"), SortKey::Activity);
         assert_eq!(SortKey::default(), SortKey::Activity);
+    }
+
+    #[test]
+    fn default_mode_parses_with_command_fallback() {
+        assert_eq!(DefaultMode::from_config_str("search"), DefaultMode::Search);
+        assert_eq!(DefaultMode::from_config_str("command"), DefaultMode::Command);
+        assert_eq!(DefaultMode::from_config_str("garbage"), DefaultMode::Command);
+        assert_eq!(DefaultMode::default(), DefaultMode::Command);
+    }
+
+    #[test]
+    fn default_mode_next_toggles_and_maps_to_mode() {
+        assert_eq!(DefaultMode::Command.next(), DefaultMode::Search);
+        assert_eq!(DefaultMode::Search.next(), DefaultMode::Command);
+        assert_eq!(DefaultMode::Command.as_mode(), Mode::Command);
+        assert_eq!(DefaultMode::Search.as_mode(), Mode::Search);
+        assert_eq!(DefaultMode::Command.as_config_str(), "command");
+        assert_eq!(DefaultMode::Search.as_config_str(), "search");
+    }
+
+    #[test]
+    fn color_policy_parses_with_rotate_fallback() {
+        assert_eq!(ColorPolicy::from_config_str("random"), ColorPolicy::Random);
+        assert_eq!(ColorPolicy::from_config_str("static"), ColorPolicy::Static);
+        assert_eq!(ColorPolicy::from_config_str("rotate"), ColorPolicy::Rotate);
+        assert_eq!(ColorPolicy::from_config_str("garbage"), ColorPolicy::Rotate);
+        assert_eq!(ColorPolicy::default(), ColorPolicy::Rotate);
+    }
+
+    #[test]
+    fn color_policy_cycles_forward_and_backward() {
+        assert_eq!(ColorPolicy::Rotate.next(), ColorPolicy::Random);
+        assert_eq!(ColorPolicy::Random.next(), ColorPolicy::Static);
+        assert_eq!(ColorPolicy::Static.next(), ColorPolicy::Rotate);
+        assert_eq!(ColorPolicy::Rotate.prev(), ColorPolicy::Static);
+        assert_eq!(ColorPolicy::Static.prev(), ColorPolicy::Random);
+        assert_eq!(ColorPolicy::Random.prev(), ColorPolicy::Rotate);
+        assert_eq!(ColorPolicy::Rotate.as_config_str(), "rotate");
+        assert_eq!(ColorPolicy::Random.as_config_str(), "random");
+        assert_eq!(ColorPolicy::Static.as_config_str(), "static");
+    }
+
+    #[test]
+    fn all_named_colors_has_sixteen_unique_entries() {
+        assert_eq!(ALL_NAMED_COLORS.len(), 16);
+        let mut sorted = ALL_NAMED_COLORS.to_vec();
+        sorted.sort();
+        sorted.dedup();
+        assert_eq!(sorted.len(), 16, "no duplicate color names");
     }
 
     #[test]
