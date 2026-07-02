@@ -611,7 +611,7 @@ mod tests {
         let cfg = Config {
             groups: vec![Group { name: "PINNED".into(), members: vec!["pr-review".into()], color: String::new() }],
             manual_order: vec![],
-            sort: SortKey::Activity,
+            sort: SortKey::Activity, ..Default::default()
         };
         let state = PickerState::build(sessions, &cfg);
         let text = render_to_string(&state);
@@ -628,7 +628,7 @@ mod tests {
             Session { name: "alpha".into(), activity: 30, created: 1, attached: false,
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
         ];
-        let cfg = Config { groups: vec![], manual_order: vec![], sort: SortKey::Activity };
+        let cfg = Config { groups: vec![], manual_order: vec![], sort: SortKey::Activity, ..Default::default() };
         let state = PickerState::build(sessions, &cfg);
 
         let backend = TestBackend::new(60, 20);
@@ -665,7 +665,7 @@ mod tests {
             Session { name: "alpha".into(), activity: 30, created: 1, attached: false,
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
         ];
-        let cfg = Config { groups: vec![], manual_order: vec![], sort: SortKey::Activity };
+        let cfg = Config { groups: vec![], manual_order: vec![], sort: SortKey::Activity, ..Default::default() };
         let state = PickerState::build(sessions, &cfg); // cursor on alpha (row 0)
 
         let backend = TestBackend::new(60, 20);
@@ -733,7 +733,7 @@ mod tests {
                 attached: false,
                 windows: vec![Window { index: 0, name: "w".into(), active: true }],
             }];
-            let cfg = Config { groups: vec![], manual_order: vec![], sort };
+            let cfg = Config { groups: vec![], manual_order: vec![], sort, ..Default::default() };
             render_to_string(&PickerState::build(sessions, &cfg))
         };
         assert!(mode_text(SortKey::Activity).contains("recency"), "recency label");
@@ -760,7 +760,7 @@ mod tests {
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
         ];
         let cfg = Config { groups: vec![Group { name: "G".into(), members: vec!["claude".into()], color: String::new() }],
-                           manual_order: vec![], sort: SortKey::Activity };
+                           manual_order: vec![], sort: SortKey::Activity, ..Default::default() };
         let text = render_to_string(&PickerState::build(sessions, &cfg));
         assert!(!text.contains('★'), "pin star retired");
     }
@@ -780,7 +780,7 @@ mod tests {
                 Group { name: "config".into(), members: vec!["claude".into()], color: String::new() },
                 Group { name: "tools".into(), members: vec!["tent".into()], color: String::new() },
             ],
-            manual_order: vec![], sort: SortKey::Activity,
+            manual_order: vec![], sort: SortKey::Activity, ..Default::default()
         };
         let state = PickerState::build(sessions, &cfg);
         let text = render_to_string(&state);
@@ -807,7 +807,7 @@ mod tests {
                 Group { name: "config".into(), members: vec!["claude".into()], color: String::new() },
                 Group { name: "tools".into(), members: vec![], color: String::new() }, // empty shelf
             ],
-            manual_order: vec![], sort: SortKey::Activity,
+            manual_order: vec![], sort: SortKey::Activity, ..Default::default()
         };
         let state = PickerState::build(sessions, &cfg);
 
@@ -844,7 +844,7 @@ mod tests {
             Session { name: "main".into(), activity: 100, created: 1, attached: false,
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
         ];
-        let cfg = Config { groups: vec![], manual_order: vec![], sort: SortKey::Activity };
+        let cfg = Config { groups: vec![], manual_order: vec![], sort: SortKey::Activity, ..Default::default() };
         let state = PickerState::build(sessions, &cfg);
         let text = render_to_string(&state);
         assert!(text.contains("search"), "footer hint: search present");
@@ -861,7 +861,7 @@ mod tests {
             Session { name: "other".into(), activity: 20, created: 2, attached: false,
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
         ];
-        let cfg = Config { groups: vec![], manual_order: vec![], sort: SortKey::Activity };
+        let cfg = Config { groups: vec![], manual_order: vec![], sort: SortKey::Activity, ..Default::default() };
         let state = PickerState::build(sessions, &cfg); // main #1, other #2
 
         let backend = TestBackend::new(60, 20);
@@ -912,7 +912,7 @@ mod tests {
             Session { name: "short".into(), activity: 20, created: 2, attached: false,
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
         ];
-        let cfg = Config { groups: vec![], manual_order: vec![], sort: SortKey::Activity };
+        let cfg = Config { groups: vec![], manual_order: vec![], sort: SortKey::Activity, ..Default::default() };
         let state = PickerState::build(sessions, &cfg);
 
         let backend = TestBackend::new(80, 20);
@@ -941,7 +941,7 @@ mod tests {
             Session { name: "beta".into(), activity: 20, created: 2, attached: false,
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
         ];
-        let cfg = Config { groups: vec![], manual_order: vec![], sort: SortKey::Activity };
+        let cfg = Config { groups: vec![], manual_order: vec![], sort: SortKey::Activity, ..Default::default() };
         let state = PickerState::build(sessions, &cfg);
 
         let backend = TestBackend::new(80, 20);
@@ -964,7 +964,7 @@ mod tests {
             Session { name: "other".into(), activity: 20, created: 2, attached: false,
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
         ];
-        let cfg = Config { groups: vec![], manual_order: vec![], sort: SortKey::Activity };
+        let cfg = Config { groups: vec![], manual_order: vec![], sort: SortKey::Activity, ..Default::default() };
         let state = PickerState::build(sessions, &cfg);
 
         let backend = TestBackend::new(80, 20);
@@ -988,7 +988,7 @@ mod tests {
             Session { name: "alpha".into(), activity: 30, created: 1, attached: false,
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
         ];
-        let cfg = Config { groups: vec![], manual_order: vec![], sort: SortKey::Activity };
+        let cfg = Config { groups: vec![], manual_order: vec![], sort: SortKey::Activity, ..Default::default() };
         let state = PickerState::build(sessions, &cfg);
 
         let (w, h) = (60u16, 20u16);
@@ -1056,7 +1056,7 @@ mod tests {
         let cfg = Config {
             groups: vec![Group { name: "PINNED".into(), members: vec!["pr-review".into()], color: String::new() }],
             manual_order: vec![],
-            sort: SortKey::Activity,
+            sort: SortKey::Activity, ..Default::default()
         };
         let mut state = PickerState::build(sessions, &cfg);
         state.enter_search();
@@ -1126,7 +1126,7 @@ mod tests {
                 Group { name: "config".into(), members: vec!["claude".into()], color: String::new() },
                 Group { name: "tools".into(), members: vec!["tent".into()], color: "magenta".into() },
             ],
-            manual_order: vec![], sort: SortKey::Activity,
+            manual_order: vec![], sort: SortKey::Activity, ..Default::default()
         };
         let state = PickerState::build(sessions, &cfg);
 
@@ -1158,7 +1158,7 @@ mod tests {
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
         ];
         let cfg = Config { groups: vec![Group { name: "config".into(), members: vec!["claude".into()], color: String::new() }],
-                           manual_order: vec![], sort: SortKey::Activity };
+                           manual_order: vec![], sort: SortKey::Activity, ..Default::default() };
         let mut st = PickerState::build(sessions, &cfg);
         st.enter_groups();
         if edit { st.group_start_rename(); }
@@ -1222,7 +1222,7 @@ mod tests {
             Session { name: "alpha".into(), activity: 30, created: 1, attached: false,
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
         ];
-        let cfg = Config { groups: vec![], manual_order: vec![], sort: SortKey::Activity };
+        let cfg = Config { groups: vec![], manual_order: vec![], sort: SortKey::Activity, ..Default::default() };
         let state = PickerState::build(sessions, &cfg);
 
         // Smaller than 2*margin+1: must not panic and must keep its size.
