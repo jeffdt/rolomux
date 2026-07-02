@@ -732,9 +732,69 @@ impl PickerState {
         }
     }
 
-    #[allow(dead_code)]
+    /// Toggle the palette color under the cursor active/inactive. Deactivating
+    /// removes it from `active_palette`; reactivating appends it to the end.
+    /// Guarded: the last active color can never be deactivated (several
+    /// resolution paths divide/index by `active_palette.len()`).
     fn settings_toggle_palette_color(&mut self) {
-        // Implemented in Task 6.
+        let rows = self.settings_visible_rows();
+        let idx = match rows.get(self.settings_cursor) {
+            Some(SettingsRow::PaletteColor(i)) => *i,
+            _ => return,
+        };
+        let entries = self.settings_palette_rows();
+        let (name, active) = &entries[idx];
+        if *active {
+            if self.active_palette.len() <= 1 {
+                return;
+            }
+            self.active_palette.retain(|c| c != name);
+        } else {
+            self.active_palette.push(name.clone());
+        }
+        self.dirty = true;
+    }
+
+    /// Reorder the active color under the cursor by `delta` within the active
+    /// set (Shift+J/K). A no-op on an inactive color or at either end of the
+    /// active set.
+    #[allow(dead_code)]
+    pub fn settings_reorder_palette_color(&mut self, delta: i32) {
+        let rows = self.settings_visible_rows();
+        let idx = match rows.get(self.settings_cursor) {
+            Some(SettingsRow::PaletteColor(i)) => *i,
+            _ => return,
+        };
+        let entries = self.settings_palette_rows();
+        let (name, active) = entries[idx].clone();
+        if !active {
+            return;
+        }
+        let pos = match self.active_palette.iter().position(|c| c == &name) {
+            Some(p) => p,
+            None => return,
+        };
+        let target = pos as i32 + delta;
+        if target < 0 || target >= self.active_palette.len() as i32 {
+            return;
+        }
+        self.active_palette.swap(pos, target as usize);
+        self.dirty = true;
+        self.settings_focus_palette_color(&name);
+    }
+
+    /// Move the settings cursor onto the given color's current display row.
+    #[allow(dead_code)]
+    fn settings_focus_palette_color(&mut self, name: &str) {
+        let entries = self.settings_palette_rows();
+        let idx = match entries.iter().position(|(n, _)| n == name) {
+            Some(i) => i,
+            None => return,
+        };
+        let rows = self.settings_visible_rows();
+        if let Some(pos) = rows.iter().position(|r| matches!(r, SettingsRow::PaletteColor(x) if *x == idx)) {
+            self.settings_cursor = pos;
+        }
     }
 
     /// The current cursor position within the group list.
@@ -1940,5 +2000,75 @@ mod tests {
         st.settings_step_left();
         assert!(!st.palette_expanded());
         assert_eq!(st.settings_cursor(), 2, "cursor returns to the Palette row");
+    }
+
+    #[test]
+    fn activate_toggles_a_palette_color_off() {
+        let mut st = settings_state();
+        st.settings_move_cursor(2);
+        st.settings_step_right(); // expand
+        st.settings_move_cursor(1); // first PaletteColor child: "cyan" (active)
+        assert_eq!(st.settings_palette_rows()[0], ("cyan".to_string(), true));
+        st.settings_activate();
+        assert!(!st.active_palette.contains(&"cyan".to_string()));
+        assert!(st.dirty);
+    }
+
+    #[test]
+    fn activate_cannot_deactivate_the_last_active_color() {
+        let mut st = settings_state();
+        st.active_palette = vec!["cyan".to_string()];
+        st.settings_move_cursor(2);
+        st.settings_step_right();
+        st.settings_move_cursor(1); // the only active color
+        st.settings_activate();
+        assert_eq!(st.active_palette, vec!["cyan".to_string()], "guard: last active color stays");
+    }
+
+    #[test]
+    fn activate_reactivates_an_inactive_color_by_appending_to_the_end() {
+        let mut st = settings_state();
+        st.settings_move_cursor(2);
+        st.settings_step_right();
+        let black_idx = st.settings_palette_rows().iter().position(|(n, _)| n == "black").unwrap();
+        st.settings_move_cursor(1 + black_idx as i32); // descend onto the "black" child row
+        assert_eq!(st.settings_visible_rows()[st.settings_cursor()], SettingsRow::PaletteColor(black_idx));
+        st.settings_activate();
+        assert!(st.active_palette.contains(&"black".to_string()));
+        assert_eq!(
+            st.active_palette.last(),
+            Some(&"black".to_string()),
+            "newly activated color appends to the end of the active set"
+        );
+    }
+
+    #[test]
+    fn reorder_swaps_active_color_with_its_neighbor_and_refocuses() {
+        let mut st = settings_state(); // active: cyan, green, yellow, magenta, blue, red
+        st.settings_move_cursor(2);
+        st.settings_step_right();
+        st.settings_move_cursor(2); // PaletteColor(1) = "green"
+        assert_eq!(st.settings_palette_rows()[1], ("green".to_string(), true));
+        st.settings_reorder_palette_color(-1); // move green up past cyan
+        assert_eq!(
+            st.active_palette,
+            vec!["green".to_string(), "cyan".to_string(), "yellow".to_string(),
+                 "magenta".to_string(), "blue".to_string(), "red".to_string()]
+        );
+        assert!(st.dirty);
+        assert_eq!(st.settings_visible_rows()[st.settings_cursor()], SettingsRow::PaletteColor(0));
+    }
+
+    #[test]
+    fn reorder_is_a_noop_on_an_inactive_color() {
+        let mut st = settings_state();
+        st.settings_move_cursor(2);
+        st.settings_step_right();
+        let black_idx = st.settings_palette_rows().iter().position(|(n, _)| n == "black").unwrap();
+        st.settings_move_cursor(1 + black_idx as i32);
+        let before = st.active_palette.clone();
+        st.settings_reorder_palette_color(-1);
+        assert_eq!(st.active_palette, before, "inactive colors are not reorderable");
+        assert!(!st.dirty);
     }
 }
