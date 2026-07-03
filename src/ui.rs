@@ -622,6 +622,40 @@ pub fn map_group_key(key: KeyEvent) -> GroupInput {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
+pub enum SettingsInput {
+    Up,
+    Down,
+    Left,
+    Right,
+    Activate,
+    MoveUp,
+    MoveDown,
+    CycleStaticColor,
+    Exit,
+    None,
+}
+
+/// Key mapping for settings mode. `,` exits (mirroring how it also enters,
+/// same as `g` for Groups mode), alongside the usual `q`/`Esc`.
+#[allow(dead_code)]
+pub fn map_settings_key(key: KeyEvent) -> SettingsInput {
+    let shift = key.modifiers.contains(KeyModifiers::SHIFT);
+    match key.code {
+        KeyCode::Char('j') | KeyCode::Down => SettingsInput::Down,
+        KeyCode::Char('k') | KeyCode::Up => SettingsInput::Up,
+        KeyCode::Char('J') if shift => SettingsInput::MoveDown,
+        KeyCode::Char('K') if shift => SettingsInput::MoveUp,
+        KeyCode::Char('l') | KeyCode::Right => SettingsInput::Right,
+        KeyCode::Char('h') | KeyCode::Left => SettingsInput::Left,
+        KeyCode::Enter | KeyCode::Char(' ') => SettingsInput::Activate,
+        KeyCode::Char('c') => SettingsInput::CycleStaticColor,
+        KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char(',') => SettingsInput::Exit,
+        _ => SettingsInput::None,
+    }
+}
+
 /// Key mapping while in search mode. Printable characters (including digits)
 /// build the query; movement uses arrows plus the fzf/vim Ctrl pairs.
 ///
@@ -1220,6 +1254,27 @@ mod tests {
         assert_eq!(map_group_key(key(KeyCode::Char('q'))), GroupInput::Exit);
         assert_eq!(map_group_key(key(KeyCode::Char('g'))), GroupInput::Exit);
         assert_eq!(map_group_key(key(KeyCode::Char('x'))), GroupInput::None);
+    }
+
+    #[test]
+    fn settings_keys_map_to_ops() {
+        assert_eq!(map_settings_key(key(KeyCode::Char('j'))), SettingsInput::Down);
+        assert_eq!(map_settings_key(key(KeyCode::Down)), SettingsInput::Down);
+        assert_eq!(map_settings_key(key(KeyCode::Char('k'))), SettingsInput::Up);
+        assert_eq!(map_settings_key(key(KeyCode::Up)), SettingsInput::Up);
+        assert_eq!(map_settings_key(key(KeyCode::Char('l'))), SettingsInput::Right);
+        assert_eq!(map_settings_key(key(KeyCode::Right)), SettingsInput::Right);
+        assert_eq!(map_settings_key(key(KeyCode::Char('h'))), SettingsInput::Left);
+        assert_eq!(map_settings_key(key(KeyCode::Left)), SettingsInput::Left);
+        assert_eq!(map_settings_key(key(KeyCode::Enter)), SettingsInput::Activate);
+        assert_eq!(map_settings_key(key(KeyCode::Char(' '))), SettingsInput::Activate);
+        assert_eq!(map_settings_key(shift(KeyCode::Char('J'))), SettingsInput::MoveDown);
+        assert_eq!(map_settings_key(shift(KeyCode::Char('K'))), SettingsInput::MoveUp);
+        assert_eq!(map_settings_key(key(KeyCode::Char('c'))), SettingsInput::CycleStaticColor);
+        assert_eq!(map_settings_key(key(KeyCode::Esc)), SettingsInput::Exit);
+        assert_eq!(map_settings_key(key(KeyCode::Char('q'))), SettingsInput::Exit);
+        assert_eq!(map_settings_key(key(KeyCode::Char(','))), SettingsInput::Exit);
+        assert_eq!(map_settings_key(key(KeyCode::Char('x'))), SettingsInput::None);
     }
 
     #[test]
