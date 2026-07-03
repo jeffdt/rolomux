@@ -356,7 +356,7 @@ impl PickerState {
         }
     }
 
-    /// Snapshot of every dormant session name, sorted for a stable on-disk diff.
+    /// Sorted snapshot of every dormant session name.
     pub fn dormant_list(&self) -> Vec<String> {
         let mut v: Vec<String> = self.dormant.iter().cloned().collect();
         v.sort();
