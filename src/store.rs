@@ -20,6 +20,12 @@ pub struct Config {
     pub active_palette: Vec<String>,
 }
 
+/// The active palette a fresh `Config` starts with, and the fallback when a
+/// loaded config has no (or an empty) `active_palette`.
+fn default_active_palette() -> Vec<String> {
+    HEADER_COLORS.iter().map(|s| s.to_string()).collect()
+}
+
 impl Default for Config {
     fn default() -> Config {
         Config {
@@ -29,7 +35,7 @@ impl Default for Config {
             default_mode: DefaultMode::default(),
             new_group_color_policy: ColorPolicy::default(),
             static_color: "cyan".to_string(),
-            active_palette: HEADER_COLORS.iter().map(|s| s.to_string()).collect(),
+            active_palette: default_active_palette(),
         }
     }
 }
@@ -139,7 +145,7 @@ impl Config {
             .settings
             .active_palette
             .filter(|p| !p.is_empty())
-            .unwrap_or_else(|| HEADER_COLORS.iter().map(|s| s.to_string()).collect());
+            .unwrap_or_else(default_active_palette);
         Config {
             groups,
             manual_order: raw.manual_order,

@@ -346,6 +346,9 @@ fn draw_settings(frame: &mut Frame, state: &PickerState, inner: Rect) {
     let footer_area = chunks[1];
 
     let rows = state.settings_visible_rows();
+    // Computed once: PaletteColor rows below index into this instead of
+    // rebuilding the 16-entry palette Vec on every iteration.
+    let palette_entries = state.settings_palette_rows();
     let mut items: Vec<ListItem> = Vec::new();
     for (i, row) in rows.iter().enumerate() {
         let selected = i == state.settings_cursor();
@@ -370,8 +373,7 @@ fn draw_settings(frame: &mut Frame, state: &PickerState, inner: Rect) {
                 ])
             }
             SettingsRow::PaletteColor(idx) => {
-                let entries = state.settings_palette_rows();
-                let (name, active) = &entries[*idx];
+                let (name, active) = &palette_entries[*idx];
                 let checkbox = if *active { "[x]" } else { "[ ]" };
                 Line::from(vec![
                     Span::raw("     "),

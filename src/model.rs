@@ -615,7 +615,10 @@ impl PickerState {
     pub fn settings_visible_rows(&self) -> Vec<SettingsRow> {
         let mut rows = vec![SettingsRow::DefaultMode, SettingsRow::ColorPolicy, SettingsRow::Palette];
         if self.palette_expanded {
-            for i in 0..self.settings_palette_rows().len() {
+            // settings_palette_rows() always emits exactly one entry per
+            // canonical color, so its length is always ALL_NAMED_COLORS.len();
+            // read the const directly instead of building the palette Vec.
+            for i in 0..ALL_NAMED_COLORS.len() {
                 rows.push(SettingsRow::PaletteColor(i));
             }
         }
@@ -696,16 +699,20 @@ impl PickerState {
     /// active state.
     pub fn settings_activate(&mut self) {
         match self.current_settings_row() {
-            SettingsRow::DefaultMode => {
-                self.default_mode = self.default_mode.next();
-                self.dirty = true;
-            }
-            SettingsRow::ColorPolicy => {
-                self.new_group_color_policy = self.new_group_color_policy.next();
-                self.dirty = true;
-            }
+            SettingsRow::DefaultMode | SettingsRow::ColorPolicy => self.settings_step_right(),
             SettingsRow::Palette => {}
             SettingsRow::PaletteColor(_) => self.settings_toggle_palette_color(),
+        }
+    }
+
+    /// The palette-checklist index under the cursor, if the cursor is
+    /// currently on a `PaletteColor` row. Shared by the palette mutation
+    /// methods below so they resolve "which color" the same way `h`/`l`/`Enter`
+    /// resolve "which row".
+    fn current_palette_color_idx(&self) -> Option<usize> {
+        match self.current_settings_row() {
+            SettingsRow::PaletteColor(i) => Some(i),
+            _ => None,
         }
     }
 
@@ -714,10 +721,9 @@ impl PickerState {
     /// Guarded: the last active color can never be deactivated (several
     /// resolution paths divide/index by `active_palette.len()`).
     fn settings_toggle_palette_color(&mut self) {
-        let rows = self.settings_visible_rows();
-        let idx = match rows.get(self.settings_cursor) {
-            Some(SettingsRow::PaletteColor(i)) => *i,
-            _ => return,
+        let idx = match self.current_palette_color_idx() {
+            Some(i) => i,
+            None => return,
         };
         let entries = self.settings_palette_rows();
         let (name, active) = &entries[idx];
@@ -736,10 +742,9 @@ impl PickerState {
     /// set (Shift+J/K). A no-op on an inactive color or at either end of the
     /// active set.
     pub fn settings_reorder_palette_color(&mut self, delta: i32) {
-        let rows = self.settings_visible_rows();
-        let idx = match rows.get(self.settings_cursor) {
-            Some(SettingsRow::PaletteColor(i)) => *i,
-            _ => return,
+        let idx = match self.current_palette_color_idx() {
+            Some(i) => i,
+            None => return,
         };
         let entries = self.settings_palette_rows();
         let (name, active) = entries[idx].clone();
