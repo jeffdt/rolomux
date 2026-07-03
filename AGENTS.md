@@ -148,47 +148,55 @@ release.
 Shipped changes reach `main` via PR (see "Working in this repo"), and the
 version bump rides in that PR. Once it has merged, cut the tag and update the
 tap. The tap is a separate repo, `jeffdt/homebrew-tap`; clone it if it isn't
-already checked out.
+already checked out. `scripts/release.sh` expects it at `~/code/homebrew-tap`;
+set `SMUX_TAP_DIR` if it lives elsewhere.
 
-1. Make sure the `version` bump in `Cargo.toml` and the refreshed `Cargo.lock`
-   (any `cargo build`) are part of the feature PR. After it merges, `git
-   checkout main && git pull` so the tag points at the merged commit.
-2. Tag and push: `git tag -a vX.Y.Z -m "Release X.Y.Z" && git push origin
-   vX.Y.Z`. The `v*` tag triggers `release.yml`, which builds and attaches a
-   single asset named **`smux-aarch64-apple-darwin`** to the GitHub Release.
-3. Wait for the build, then download the asset and hash it:
+`scripts/release.sh` automates the mechanical steps:
 
-   ```sh
-   gh run watch <run-id> --exit-status
-   gh release download vX.Y.Z -R jeffdt/smux -p smux-aarch64-apple-darwin -D /tmp/r
-   shasum -a 256 /tmp/r/smux-aarch64-apple-darwin
-   ```
+1. On the feature branch, before opening the PR: `scripts/release.sh bump
+   <patch|minor|major>`. Reads the current version from `Cargo.toml`, applies
+   the bump, refreshes `Cargo.lock` (`cargo build --release`), and commits.
+   That commit rides in the PR as usual. Picking `patch` vs `minor` vs `major`
+   is the one call the script doesn't make for you -- same judgment as always
+   (a bug fix is patch, new user-facing behavior like a setting is minor).
+2. After the PR merges: `git checkout main && git pull`, then
+   `scripts/release.sh cut`. It reads the version already on `main` (no bump
+   decision left -- that was step 1), tags and pushes `vX.Y.Z`, waits for
+   `release.yml` (which builds and attaches a single asset named
+   **`smux-aarch64-apple-darwin`** to the GitHub Release), downloads and
+   hashes that asset, updates and validates `jeffdt/homebrew-tap`'s
+   `Formula/smux.rb`, pushes the tap, and runs `brew update && brew upgrade
+   jeffdt/tap/smux` locally, ending on a confirmed `smux --version`. It
+   refuses to run off `main`, with a dirty tree, or against a tag that
+   already exists, rather than guessing.
 
-4. In `jeffdt/homebrew-tap`'s `Formula/smux.rb`, bump the version in the `url`
-   (the full URL is hardcoded, e.g. `.../download/vX.Y.Z/smux-...`; there is no
-   separate `version` line, brew scans it from the URL) and update `sha256`.
-   Also update the example keybind in the `caveats` block if it changed. The
-   formula carries `depends_on arch: :arm64` and `depends_on :macos` and a
-   top-level `url` so the tap's `brew test-bot` CI passes; keep that shape (a
-   nested `on_macos`/`version`-line formula fails `readall`/`audit`). Validate
-   before pushing with `brew style jeffdt/tap`, `brew readall --aliases
-   --os=all --arch=all jeffdt/tap`, and `brew audit --except=installed
-   --tap=jeffdt/tap`. Commit and push the tap.
-5. Pick up the build locally: `brew update && brew upgrade jeffdt/tap/smux`,
-   then confirm `smux --version`. If `~/.tmux.conf`'s `bind S` was temporarily
-   pointed at a dev build (`target/release/smux`) for testing, revert its `exec`
-   to `exec smux` and `tmux source-file ~/.tmux.conf`.
-6. If this was the final PR for the work (no agreed-upon follow-up or
-   multi-PR split), clean up rather than leaving the worktree lying around:
-   confirm the linked issue actually closed (`Closes #N` closes it on merge,
-   but check `gh issue view N --json state,closed` rather than assuming; `gh
-   issue close N` by hand if it didn't), then run `wt remove` from inside the
-   feature worktree (it deletes the worktree and the now-merged branch, and
-   switches the shell back to the `main` worktree on its own). Offer to `git
-   pull` the merge into that `main` worktree rather than doing it silently.
+The formula carries `depends_on arch: :arm64` and `depends_on :macos` and a
+top-level `url` (the version is scanned from the URL, e.g.
+`.../download/vX.Y.Z/smux-...`; there is no separate `version` line) so the
+tap's `brew test-bot` CI passes -- keep that shape by hand if editing the
+formula outside the script (a nested `on_macos`/`version`-line formula fails
+`readall`/`audit`). `release.sh cut` only ever rewrites the `url` and `sha256`
+lines; it won't touch the `caveats` block's example keybind, so update that by
+hand if it changed.
+
+Two things the script doesn't cover -- finish these by hand after `cut`
+succeeds:
+
+- If `~/.tmux.conf`'s `bind S` was temporarily pointed at a dev build
+  (`target/release/smux`) for testing, revert its `exec` to `exec smux` and
+  `tmux source-file ~/.tmux.conf`.
+- If this was the final PR for the work (no agreed-upon follow-up or
+  multi-PR split), clean up rather than leaving the worktree lying around:
+  confirm the linked issue actually closed (`Closes #N` closes it on merge,
+  but check `gh issue view N --json state,closed` rather than assuming; `gh
+  issue close N` by hand if it didn't), then run `wt remove` from inside the
+  feature worktree (it deletes the worktree and the now-merged branch, and
+  switches the shell back to the `main` worktree on its own). Offer to `git
+  pull` the merge into that `main` worktree rather than doing it silently.
 
 Currently Apple Silicon only. Supporting Intel means adding
-`x86_64-apple-darwin` to the release matrix and an Intel branch in the formula.
+`x86_64-apple-darwin` to the release matrix, an Intel branch in the formula,
+and updating `scripts/release.sh`'s asset handling.
 
 ## Working in this repo
 
