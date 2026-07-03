@@ -335,7 +335,7 @@ fn draw_groups(frame: &mut Frame, state: &PickerState, inner: Rect) {
 }
 
 const SETTINGS_FOOTER_HINT: &str =
-    "j/k move · h/l cycle · Space toggle · ⇧JK reorder · c color · Esc back";
+    "j/k move · h/l cycle · Space toggle · c color · Esc back";
 
 fn draw_settings(frame: &mut Frame, state: &PickerState, inner: Rect) {
     let chunks = Layout::default()
@@ -356,11 +356,24 @@ fn draw_settings(frame: &mut Frame, state: &PickerState, inner: Rect) {
             SettingsRow::DefaultMode => {
                 settings_value_line("Default mode", default_mode_label(state.default_mode), selected)
             }
-            SettingsRow::ColorPolicy => settings_value_line(
-                "New group color",
-                color_policy_label(state.new_group_color_policy),
-                selected,
-            ),
+            SettingsRow::ColorPolicy => {
+                let mut spans = vec![
+                    Span::styled("New group color", Style::default().add_modifier(Modifier::BOLD)),
+                    Span::styled(
+                        format!("  {}", color_policy_label(state.new_group_color_policy)),
+                        secondary(selected),
+                    ),
+                ];
+                if state.new_group_color_policy == ColorPolicy::Static {
+                    spans.push(Span::raw("  "));
+                    spans.push(Span::styled(
+                        "██",
+                        Style::default().fg(color_from_name(&state.static_color)),
+                    ));
+                    spans.push(Span::styled(format!(" {}", state.static_color), secondary(selected)));
+                }
+                Line::from(spans)
+            }
             SettingsRow::Palette => {
                 let glyph = if state.palette_expanded() { "▾" } else { "▸" };
                 Line::from(vec![
@@ -631,22 +644,19 @@ pub enum SettingsInput {
     Left,
     Right,
     Activate,
-    MoveUp,
-    MoveDown,
     CycleStaticColor,
     Exit,
     None,
 }
 
 /// Key mapping for settings mode. `,` exits (mirroring how it also enters,
-/// same as `g` for Groups mode), alongside the usual `q`/`Esc`.
+/// same as `g` for Groups mode), alongside the usual `q`/`Esc`. The palette
+/// checklist has a fixed display order (`ALL_NAMED_COLORS` canonical order),
+/// so there is no reorder key here (unlike Groups mode's `⇧JK`).
 pub fn map_settings_key(key: KeyEvent) -> SettingsInput {
-    let shift = key.modifiers.contains(KeyModifiers::SHIFT);
     match key.code {
         KeyCode::Char('j') | KeyCode::Down => SettingsInput::Down,
         KeyCode::Char('k') | KeyCode::Up => SettingsInput::Up,
-        KeyCode::Char('J') if shift => SettingsInput::MoveDown,
-        KeyCode::Char('K') if shift => SettingsInput::MoveUp,
         KeyCode::Char('l') | KeyCode::Right => SettingsInput::Right,
         KeyCode::Char('h') | KeyCode::Left => SettingsInput::Left,
         KeyCode::Enter | KeyCode::Char(' ') => SettingsInput::Activate,
@@ -1268,8 +1278,6 @@ mod tests {
         assert_eq!(map_settings_key(key(KeyCode::Left)), SettingsInput::Left);
         assert_eq!(map_settings_key(key(KeyCode::Enter)), SettingsInput::Activate);
         assert_eq!(map_settings_key(key(KeyCode::Char(' '))), SettingsInput::Activate);
-        assert_eq!(map_settings_key(shift(KeyCode::Char('J'))), SettingsInput::MoveDown);
-        assert_eq!(map_settings_key(shift(KeyCode::Char('K'))), SettingsInput::MoveUp);
         assert_eq!(map_settings_key(key(KeyCode::Char('c'))), SettingsInput::CycleStaticColor);
         assert_eq!(map_settings_key(key(KeyCode::Esc)), SettingsInput::Exit);
         assert_eq!(map_settings_key(key(KeyCode::Char('q'))), SettingsInput::Exit);
@@ -1497,5 +1505,26 @@ mod tests {
         assert!(text.contains("[ ]"), "inactive color unchecked");
         assert!(text.contains("cyan"));
         assert!(text.contains("black"));
+    }
+
+    #[test]
+    fn draw_settings_shows_static_color_value_when_policy_is_static() {
+        let mut st = settings_view();
+        st.settings_move_cursor(1); // ColorPolicy row
+        st.settings_step_right(); // Rotate -> Random
+        st.settings_step_right(); // Random -> Static
+        st.static_color = "magenta".to_string();
+        let text = render_to_string(&st);
+        assert!(text.contains("Static"));
+        assert!(text.contains("magenta"), "the selected static color is visible on the row");
+    }
+
+    #[test]
+    fn draw_settings_does_not_show_a_color_value_for_rotate_or_random() {
+        let text = render_to_string(&settings_view()); // default policy is Rotate
+        // "Rotate" itself is on screen, but no color name should follow it
+        // since Rotate has no single fixed color to show.
+        assert!(text.contains("Rotate"));
+        assert!(!text.contains("██"), "no swatch for Rotate/Random policies");
     }
 }

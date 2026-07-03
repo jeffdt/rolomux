@@ -185,8 +185,6 @@ fn event_loop(
                     SettingsInput::Left => state.settings_step_left(),
                     SettingsInput::Right => state.settings_step_right(),
                     SettingsInput::Activate => state.settings_activate(),
-                    SettingsInput::MoveUp => state.settings_reorder_palette_color(-1),
-                    SettingsInput::MoveDown => state.settings_reorder_palette_color(1),
                     SettingsInput::CycleStaticColor => state.settings_cycle_static_color(),
                     SettingsInput::Exit => state.exit_settings(),
                     SettingsInput::None => {}

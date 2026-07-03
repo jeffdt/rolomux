@@ -625,18 +625,15 @@ impl PickerState {
         rows
     }
 
-    /// All 16 named colors in "curated-first" display order: active colors in
-    /// the user's `active_palette` order, then every remaining color in
-    /// `ALL_NAMED_COLORS` canonical order.
+    /// All 16 named colors in fixed `ALL_NAMED_COLORS` canonical order, each
+    /// paired with whether it's currently active. The order never changes as
+    /// colors are toggled, so checking/unchecking a color never reshuffles
+    /// the list.
     pub fn settings_palette_rows(&self) -> Vec<(String, bool)> {
-        let mut rows: Vec<(String, bool)> =
-            self.active_palette.iter().map(|c| (c.clone(), true)).collect();
-        for name in ALL_NAMED_COLORS {
-            if !self.active_palette.iter().any(|c| c == name) {
-                rows.push((name.to_string(), false));
-            }
-        }
-        rows
+        ALL_NAMED_COLORS
+            .iter()
+            .map(|name| (name.to_string(), self.active_palette.iter().any(|c| c == name)))
+            .collect()
     }
 
     /// Move the settings cursor by `delta`, clamped to the valid range.
@@ -716,65 +713,29 @@ impl PickerState {
         }
     }
 
-    /// Toggle the palette color under the cursor active/inactive. Deactivating
-    /// removes it from `active_palette`; reactivating appends it to the end.
-    /// Guarded: the last active color can never be deactivated (several
-    /// resolution paths divide/index by `active_palette.len()`).
+    /// Toggle the palette color under the cursor active/inactive. `active_palette`
+    /// is kept in `ALL_NAMED_COLORS` canonical order on every mutation, so
+    /// rotation/cycle order always matches the checklist's fixed display order
+    /// and toggling a color never reshuffles the list. Guarded: the last
+    /// active color can never be deactivated (several resolution paths
+    /// divide/index by `active_palette.len()`).
     fn settings_toggle_palette_color(&mut self) {
         let idx = match self.current_palette_color_idx() {
             Some(i) => i,
             None => return,
         };
-        let entries = self.settings_palette_rows();
-        let (name, active) = &entries[idx];
-        if *active {
+        let name = ALL_NAMED_COLORS[idx];
+        if self.active_palette.iter().any(|c| c == name) {
             if self.active_palette.len() <= 1 {
                 return;
             }
             self.active_palette.retain(|c| c != name);
         } else {
-            self.active_palette.push(name.clone());
+            self.active_palette.push(name.to_string());
+            self.active_palette
+                .sort_by_key(|c| ALL_NAMED_COLORS.iter().position(|n| n == c).unwrap_or(usize::MAX));
         }
         self.dirty = true;
-    }
-
-    /// Reorder the active color under the cursor by `delta` within the active
-    /// set (Shift+J/K). A no-op on an inactive color or at either end of the
-    /// active set.
-    pub fn settings_reorder_palette_color(&mut self, delta: i32) {
-        let idx = match self.current_palette_color_idx() {
-            Some(i) => i,
-            None => return,
-        };
-        let entries = self.settings_palette_rows();
-        let (name, active) = entries[idx].clone();
-        if !active {
-            return;
-        }
-        let pos = match self.active_palette.iter().position(|c| c == &name) {
-            Some(p) => p,
-            None => return,
-        };
-        let target = pos as i32 + delta;
-        if target < 0 || target >= self.active_palette.len() as i32 {
-            return;
-        }
-        self.active_palette.swap(pos, target as usize);
-        self.dirty = true;
-        self.settings_focus_palette_color(&name);
-    }
-
-    /// Move the settings cursor onto the given color's current display row.
-    fn settings_focus_palette_color(&mut self, name: &str) {
-        let entries = self.settings_palette_rows();
-        let idx = match entries.iter().position(|(n, _)| n == name) {
-            Some(i) => i,
-            None => return,
-        };
-        let rows = self.settings_visible_rows();
-        if let Some(pos) = rows.iter().position(|r| matches!(r, SettingsRow::PaletteColor(x) if *x == idx)) {
-            self.settings_cursor = pos;
-        }
     }
 
     /// `c` on the Color Policy row while the policy is Static: cycle
@@ -1965,18 +1926,19 @@ mod tests {
     }
 
     #[test]
-    fn settings_palette_rows_lists_active_first_in_user_order_then_canonical_inactive() {
-        let st = settings_state(); // default active_palette = HEADER_COLORS order
+    fn settings_palette_rows_lists_all_sixteen_in_fixed_canonical_order() {
+        let st = settings_state(); // default active_palette = HEADER_COLORS: cyan,green,yellow,magenta,blue,red
         let rows = st.settings_palette_rows();
         assert_eq!(rows.len(), 16);
-        assert_eq!(&rows[0], &("cyan".to_string(), true));
-        assert_eq!(&rows[1], &("green".to_string(), true));
-        assert_eq!(&rows[2], &("yellow".to_string(), true));
-        assert_eq!(&rows[3], &("magenta".to_string(), true));
+        // Order never changes with active/inactive status: it's always
+        // ALL_NAMED_COLORS canonical order, so a toggle never reshuffles it.
+        assert_eq!(&rows[0], &("black".to_string(), false));
+        assert_eq!(&rows[1], &("red".to_string(), true));
+        assert_eq!(&rows[2], &("green".to_string(), true));
+        assert_eq!(&rows[3], &("yellow".to_string(), true));
         assert_eq!(&rows[4], &("blue".to_string(), true));
-        assert_eq!(&rows[5], &("red".to_string(), true));
-        // First canonical-order color that isn't active.
-        assert_eq!(&rows[6], &("black".to_string(), false));
+        assert_eq!(&rows[5], &("magenta".to_string(), true));
+        assert_eq!(&rows[6], &("cyan".to_string(), true));
         assert_eq!(&rows[7], &("gray".to_string(), false));
     }
 
@@ -2057,8 +2019,9 @@ mod tests {
         let mut st = settings_state();
         st.settings_move_cursor(2);
         st.settings_step_right(); // expand
-        st.settings_move_cursor(1); // first PaletteColor child: "cyan" (active)
-        assert_eq!(st.settings_palette_rows()[0], ("cyan".to_string(), true));
+        let cyan_idx = st.settings_palette_rows().iter().position(|(n, _)| n == "cyan").unwrap();
+        st.settings_move_cursor(1 + cyan_idx as i32); // descend onto the "cyan" child row
+        assert_eq!(st.settings_palette_rows()[cyan_idx], ("cyan".to_string(), true));
         st.settings_activate();
         assert!(!st.active_palette.contains(&"cyan".to_string()));
         assert!(st.dirty);
@@ -2070,14 +2033,15 @@ mod tests {
         st.active_palette = vec!["cyan".to_string()];
         st.settings_move_cursor(2);
         st.settings_step_right();
-        st.settings_move_cursor(1); // the only active color
+        let cyan_idx = st.settings_palette_rows().iter().position(|(n, _)| n == "cyan").unwrap();
+        st.settings_move_cursor(1 + cyan_idx as i32); // the only active color
         st.settings_activate();
         assert_eq!(st.active_palette, vec!["cyan".to_string()], "guard: last active color stays");
     }
 
     #[test]
-    fn activate_reactivates_an_inactive_color_by_appending_to_the_end() {
-        let mut st = settings_state();
+    fn activate_reactivates_an_inactive_color_at_its_canonical_position() {
+        let mut st = settings_state(); // active: cyan, green, yellow, magenta, blue, red
         st.settings_move_cursor(2);
         st.settings_step_right();
         let black_idx = st.settings_palette_rows().iter().position(|(n, _)| n == "black").unwrap();
@@ -2085,41 +2049,28 @@ mod tests {
         assert_eq!(st.settings_visible_rows()[st.settings_cursor()], SettingsRow::PaletteColor(black_idx));
         st.settings_activate();
         assert!(st.active_palette.contains(&"black".to_string()));
+        // "black" is first in ALL_NAMED_COLORS canonical order, so reactivating
+        // it inserts it at the front of active_palette, not the end: rotation
+        // order always matches the checklist's fixed display order.
         assert_eq!(
-            st.active_palette.last(),
+            st.active_palette.first(),
             Some(&"black".to_string()),
-            "newly activated color appends to the end of the active set"
+            "newly activated color is inserted at its canonical position"
         );
     }
 
     #[test]
-    fn reorder_swaps_active_color_with_its_neighbor_and_refocuses() {
-        let mut st = settings_state(); // active: cyan, green, yellow, magenta, blue, red
-        st.settings_move_cursor(2);
-        st.settings_step_right();
-        st.settings_move_cursor(2); // PaletteColor(1) = "green"
-        assert_eq!(st.settings_palette_rows()[1], ("green".to_string(), true));
-        st.settings_reorder_palette_color(-1); // move green up past cyan
-        assert_eq!(
-            st.active_palette,
-            vec!["green".to_string(), "cyan".to_string(), "yellow".to_string(),
-                 "magenta".to_string(), "blue".to_string(), "red".to_string()]
-        );
-        assert!(st.dirty);
-        assert_eq!(st.settings_visible_rows()[st.settings_cursor()], SettingsRow::PaletteColor(0));
-    }
-
-    #[test]
-    fn reorder_is_a_noop_on_an_inactive_color() {
+    fn toggling_a_color_never_reorders_the_checklist() {
         let mut st = settings_state();
         st.settings_move_cursor(2);
-        st.settings_step_right();
-        let black_idx = st.settings_palette_rows().iter().position(|(n, _)| n == "black").unwrap();
-        st.settings_move_cursor(1 + black_idx as i32);
-        let before = st.active_palette.clone();
-        st.settings_reorder_palette_color(-1);
-        assert_eq!(st.active_palette, before, "inactive colors are not reorderable");
-        assert!(!st.dirty);
+        st.settings_step_right(); // expand
+        let before: Vec<String> =
+            st.settings_palette_rows().into_iter().map(|(n, _)| n).collect();
+        let cyan_idx = before.iter().position(|n| n == "cyan").unwrap();
+        st.settings_move_cursor(1 + cyan_idx as i32);
+        st.settings_activate(); // toggle cyan off
+        let after: Vec<String> = st.settings_palette_rows().into_iter().map(|(n, _)| n).collect();
+        assert_eq!(before, after, "deactivating a color must not move any row");
     }
 
     #[test]
