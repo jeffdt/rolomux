@@ -675,7 +675,7 @@ pub enum SettingsInput {
     Left,
     Right,
     Activate,
-    CycleStaticColor,
+    CycleColor,
     Exit,
     None,
 }
@@ -691,7 +691,7 @@ pub fn map_settings_key(key: KeyEvent) -> SettingsInput {
         KeyCode::Char('l') | KeyCode::Right => SettingsInput::Right,
         KeyCode::Char('h') | KeyCode::Left => SettingsInput::Left,
         KeyCode::Enter | KeyCode::Char(' ') => SettingsInput::Activate,
-        KeyCode::Char('c') => SettingsInput::CycleStaticColor,
+        KeyCode::Char('c') => SettingsInput::CycleColor,
         KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char(',') => SettingsInput::Exit,
         _ => SettingsInput::None,
     }
@@ -1344,7 +1344,7 @@ mod tests {
         assert_eq!(map_settings_key(key(KeyCode::Left)), SettingsInput::Left);
         assert_eq!(map_settings_key(key(KeyCode::Enter)), SettingsInput::Activate);
         assert_eq!(map_settings_key(key(KeyCode::Char(' '))), SettingsInput::Activate);
-        assert_eq!(map_settings_key(key(KeyCode::Char('c'))), SettingsInput::CycleStaticColor);
+        assert_eq!(map_settings_key(key(KeyCode::Char('c'))), SettingsInput::CycleColor);
         assert_eq!(map_settings_key(key(KeyCode::Esc)), SettingsInput::Exit);
         assert_eq!(map_settings_key(key(KeyCode::Char('q'))), SettingsInput::Exit);
         assert_eq!(map_settings_key(key(KeyCode::Char(','))), SettingsInput::Exit);

@@ -810,22 +810,37 @@ impl PickerState {
         self.dirty = true;
     }
 
-    /// `c` on the Color Policy row while the policy is Static: cycle
-    /// `static_color` through all 16 named colors (independent of the active
-    /// palette). A no-op anywhere else, or when the policy isn't Static.
-    pub fn settings_cycle_static_color(&mut self) {
-        if self.current_settings_row() != SettingsRow::ColorPolicy {
-            return;
+    /// Step `current` forward one position through `ALL_NAMED_COLORS`,
+    /// wrapping from white back to black. Shared by every raw single-color
+    /// cycle in Settings so the wrap-around index logic lives in exactly one
+    /// place.
+    fn cycle_named_color(current: &str) -> String {
+        let idx = ALL_NAMED_COLORS.iter().position(|c| *c == current).unwrap_or(0);
+        ALL_NAMED_COLORS[(idx + 1) % ALL_NAMED_COLORS.len()].to_string()
+    }
+
+    /// `c`: cycle the current row's raw color value forward through all 16
+    /// named colors. Applies to the Color Policy row only while its policy
+    /// is Static (the nested `static_color`), and to the two standalone
+    /// color rows (`attached_color`, `border_color`) whether collapsed or
+    /// expanded. A no-op everywhere else, so `c` never surprises a row that
+    /// isn't a raw color picker.
+    pub fn settings_cycle_color(&mut self) {
+        match self.current_settings_row() {
+            SettingsRow::ColorPolicy if self.new_group_color_policy == ColorPolicy::Static => {
+                self.static_color = Self::cycle_named_color(&self.static_color);
+                self.dirty = true;
+            }
+            SettingsRow::AttachedColor => {
+                self.attached_color = Self::cycle_named_color(&self.attached_color);
+                self.dirty = true;
+            }
+            SettingsRow::BorderColor => {
+                self.border_color = Self::cycle_named_color(&self.border_color);
+                self.dirty = true;
+            }
+            _ => {}
         }
-        if self.new_group_color_policy != ColorPolicy::Static {
-            return;
-        }
-        let idx = ALL_NAMED_COLORS
-            .iter()
-            .position(|c| *c == self.static_color)
-            .unwrap_or(0);
-        self.static_color = ALL_NAMED_COLORS[(idx + 1) % ALL_NAMED_COLORS.len()].to_string();
-        self.dirty = true;
     }
 
     /// The current cursor position within the group list.
@@ -2273,28 +2288,28 @@ mod tests {
     fn c_key_only_cycles_static_color_when_policy_is_static() {
         let mut st = settings_state();
         st.settings_move_cursor(3); // ColorPolicy row, policy still Rotate
-        st.settings_cycle_static_color();
+        st.settings_cycle_color();
         assert_eq!(st.static_color, "cyan", "no-op: policy is not Static");
 
         st.settings_step_right(); // Rotate -> Random
-        st.settings_cycle_static_color();
+        st.settings_cycle_color();
         assert_eq!(st.static_color, "cyan", "no-op: policy is Random, not Static");
 
         st.settings_step_right(); // Random -> Static
         assert_eq!(st.new_group_color_policy, ColorPolicy::Static);
-        st.settings_cycle_static_color();
+        st.settings_cycle_color();
         assert_eq!(st.static_color, "gray", "cycles to the next of all 16 named colors after cyan");
         assert!(st.dirty);
     }
 
     #[test]
-    fn c_key_is_a_noop_off_the_color_policy_row() {
+    fn c_key_is_a_noop_off_a_color_row() {
         let mut st = settings_state();
         st.settings_move_cursor(3);
         st.settings_step_right(); st.settings_step_right(); // -> Static
-        st.settings_move_cursor(-1); // off ColorPolicy, onto BorderColor
-        st.settings_cycle_static_color();
-        assert_eq!(st.static_color, "cyan", "cursor must be on the Color Policy row");
+        st.settings_move_cursor(-3); // back to DefaultMode row
+        st.settings_cycle_color();
+        assert_eq!(st.static_color, "cyan", "cursor must be on a color row");
     }
 
     #[test]
@@ -2302,12 +2317,32 @@ mod tests {
         let mut st = settings_state();
         st.settings_move_cursor(3);
         st.settings_step_right(); st.settings_step_right(); // -> Static
-        st.settings_cycle_static_color(); // cyan -> gray
+        st.settings_cycle_color(); // cyan -> gray
         assert_eq!(st.static_color, "gray");
         st.settings_step_right(); // Static -> Rotate
         assert_eq!(st.static_color, "gray", "not cleared by switching away from Static");
         st.settings_step_right(); st.settings_step_right(); // Random -> Static
         assert_eq!(st.static_color, "gray", "round-trips back without loss");
+    }
+
+    #[test]
+    fn c_key_quick_cycles_attached_color_without_expanding() {
+        let mut st = settings_state();
+        st.settings_move_cursor(1); // AttachedColor, collapsed
+        st.settings_cycle_color();
+        assert_eq!(st.attached_color, "gray", "cyan -> gray, next in ALL_NAMED_COLORS");
+        assert!(st.dirty);
+        assert_eq!(st.settings_visible_rows().len(), 5, "stays collapsed");
+    }
+
+    #[test]
+    fn c_key_quick_cycles_border_color_without_expanding() {
+        let mut st = settings_state();
+        st.settings_move_cursor(2); // BorderColor, collapsed
+        st.settings_cycle_color();
+        assert_eq!(st.border_color, "gray");
+        assert!(st.dirty);
+        assert_eq!(st.settings_visible_rows().len(), 5, "stays collapsed");
     }
 
     #[test]
