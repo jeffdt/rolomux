@@ -623,7 +623,6 @@ pub fn map_group_key(key: KeyEvent) -> GroupInput {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(dead_code)]
 pub enum SettingsInput {
     Up,
     Down,
@@ -639,7 +638,6 @@ pub enum SettingsInput {
 
 /// Key mapping for settings mode. `,` exits (mirroring how it also enters,
 /// same as `g` for Groups mode), alongside the usual `q`/`Esc`.
-#[allow(dead_code)]
 pub fn map_settings_key(key: KeyEvent) -> SettingsInput {
     let shift = key.modifiers.contains(KeyModifiers::SHIFT);
     match key.code {
