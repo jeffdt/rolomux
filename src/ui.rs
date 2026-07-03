@@ -90,13 +90,14 @@ fn inset(area: Rect, margin: u16) -> Rect {
 
 pub fn draw(frame: &mut Frame, state: &PickerState) {
     let area = inset(frame.area(), POPUP_MARGIN);
+    let border_color = color_from_name(&state.border_color);
     let block = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(ACCENT))
+        .border_style(Style::default().fg(border_color))
         .title(Span::styled(
             " smux  session picker ",
-            Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+            Style::default().fg(border_color).add_modifier(Modifier::BOLD),
         ));
     let inner = block.inner(area);
     frame.render_widget(block, area);
@@ -129,6 +130,7 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
         Row::Window(..) => None,
     });
     let meta = MetaLayout::compute(session_refs, list_area.width);
+    let attached_color = color_from_name(&state.attached_color);
 
     let group_ids = state.ordered_group_ids();
     let mut items: Vec<ListItem> = Vec::new();
@@ -179,6 +181,7 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
                     number,
                     meta,
                     state.is_dormant(&sess.name),
+                    attached_color,
                 ));
             }
             Row::Window(si, wi) => {
@@ -227,7 +230,7 @@ fn draw_search(frame: &mut Frame, state: &PickerState, inner: Rect) {
     let prompt = Line::from(vec![
         Span::styled("search: ", Style::default().fg(DIM)),
         Span::raw(state.query.clone()),
-        Span::styled("▏", Style::default().fg(ACCENT)),
+        Span::styled("▏", Style::default().fg(color_from_name(&state.border_color))),
     ]);
     frame.render_widget(Paragraph::new(prompt), chunks[0]);
 
@@ -241,13 +244,14 @@ fn draw_search(frame: &mut Frame, state: &PickerState, inner: Rect) {
         ))));
     } else {
         let meta = MetaLayout::compute(results.iter().copied(), chunks[1].width);
+        let attached_color = color_from_name(&state.attached_color);
         for (i, sess) in results.iter().enumerate() {
             let selected = i == state.search_cursor();
             if selected {
                 selected_line = Some(items.len());
             }
             // Flat, collapsed, no jump number (None), normal metadata.
-            items.push(session_item(sess, false, selected, None, meta, state.is_dormant(&sess.name)));
+            items.push(session_item(sess, false, selected, None, meta, state.is_dormant(&sess.name), attached_color));
         }
     }
     let list = List::new(items)
@@ -284,7 +288,7 @@ fn draw_groups(frame: &mut Frame, state: &PickerState, inner: Rect) {
             let buf = state.group_edit_buffer().unwrap_or("");
             Line::from(vec![
                 Span::styled(buf.to_uppercase(), Style::default().add_modifier(Modifier::BOLD)),
-                Span::styled("▏", Style::default().fg(ACCENT)),
+                Span::styled("▏", Style::default().fg(color_from_name(&state.border_color))),
             ])
         } else {
             // Group mode always shows a group's real (flippable) header color,
@@ -574,11 +578,12 @@ fn session_item(
     number: Option<usize>,
     meta: MetaLayout,
     dormant: bool,
+    attached_color: Color,
 ) -> ListItem<'static> {
     let glyph = if expanded { "▾" } else { "▸" };
     let num = match number { Some(n) => format!("{n} "), None => "  ".to_string() };
     let name_style = if sess.attached {
-        Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)
+        Style::default().fg(attached_color).add_modifier(Modifier::BOLD)
     } else if dormant {
         secondary(selected)
     } else {
@@ -805,6 +810,49 @@ mod tests {
         assert!(text.contains("SESSIONS"), "sessions header present");
         assert!(text.contains("pr-review"), "pinned session present");
         assert!(text.contains("scratch"), "unpinned session present");
+    }
+
+    #[test]
+    fn border_and_title_use_the_configured_border_color() {
+        let sessions = vec![Session { name: "a".into(), activity: 1, created: 1, attached: false,
+                                       windows: vec![] }];
+        let cfg = Config { border_color: "magenta".to_string(), ..Default::default() };
+        let state = PickerState::build(sessions, &cfg);
+        let backend = TestBackend::new(80, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| draw(f, &state)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+        // Top-left border corner, inset by POPUP_MARGIN.
+        let corner = buf[(POPUP_MARGIN, POPUP_MARGIN)].style().fg;
+        assert_eq!(corner, Some(Color::Magenta), "border picks up the configured color");
+        let mut title_magenta = false;
+        for y in 0..buf.area.height {
+            let line: String = (0..buf.area.width).map(|x| buf[(x, y)].symbol()).collect();
+            if let Some(x) = line.find("session picker") {
+                title_magenta = buf[(x as u16, y)].style().fg == Some(Color::Magenta);
+            }
+        }
+        assert!(title_magenta, "title text picks up the configured border color");
+    }
+
+    #[test]
+    fn attached_session_name_uses_the_configured_attached_color() {
+        let sessions = vec![Session { name: "current".into(), activity: 1, created: 1, attached: true,
+                                       windows: vec![] }];
+        let cfg = Config { attached_color: "lightgreen".to_string(), ..Default::default() };
+        let state = PickerState::build(sessions, &cfg);
+        let backend = TestBackend::new(80, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| draw(f, &state)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+        let mut found_lightgreen = false;
+        for y in 0..buf.area.height {
+            let line: String = (0..buf.area.width).map(|x| buf[(x, y)].symbol()).collect();
+            if let Some(x) = line.find("current") {
+                found_lightgreen = buf[(x as u16, y)].style().fg == Some(Color::LightGreen);
+            }
+        }
+        assert!(found_lightgreen, "attached session name picks up the configured color");
     }
 
     #[test]
