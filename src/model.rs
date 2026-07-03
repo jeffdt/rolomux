@@ -216,6 +216,7 @@ pub struct PickerState {
     pub manual_order: Vec<String>,
     pub sort: SortKey,
     expanded: HashSet<String>,
+    dormant: HashSet<String>,
     pub cursor: usize,
     pub dirty: bool,
     pub mode: Mode,
@@ -263,6 +264,7 @@ impl PickerState {
             manual_order: config.manual_order.clone(),
             sort: config.sort,
             expanded: HashSet::new(),
+            dormant: config.dormant.iter().cloned().collect(),
             cursor: 0,
             dirty: false,
             mode: config.default_mode.as_mode(),
@@ -446,6 +448,31 @@ impl PickerState {
             self.expanded.remove(&name);
             self.focus_session(&name);
         }
+    }
+
+    /// Whether `name` is marked dormant (dimmed, but otherwise a fully normal
+    /// session: order, grouping, and numbering are unaffected).
+    pub fn is_dormant(&self, name: &str) -> bool {
+        self.dormant.contains(name)
+    }
+
+    /// Toggle dormant status for the session under the cursor. Resolves
+    /// through an expanded window row to its parent session, same as
+    /// `cursor_session_name` already does for other per-session commands.
+    pub fn toggle_dormant(&mut self) {
+        if let Some(name) = self.cursor_session_name() {
+            if !self.dormant.remove(&name) {
+                self.dormant.insert(name);
+            }
+            self.dirty = true;
+        }
+    }
+
+    /// Sorted snapshot of every dormant session name.
+    pub fn dormant_list(&self) -> Vec<String> {
+        let mut v: Vec<String> = self.dormant.iter().cloned().collect();
+        v.sort();
+        v
     }
 
     pub fn focus_session(&mut self, name: &str) {
@@ -1183,7 +1210,7 @@ mod tests {
     fn ordered_lists_groups_in_order_then_residual_by_activity() {
         let sessions = vec![s("a", 10, 1), s("b", 30, 2), s("c", 20, 3), s("d", 40, 4)];
         let cfg = Config {
-            groups: vec![
+            dormant: vec![], groups: vec![
                 Group { name: "CONFIG".into(), members: vec!["c".into()], color: String::new() },
                 Group { name: "TOOLS".into(), members: vec!["a".into()], color: String::new() },
             ],
@@ -1277,7 +1304,7 @@ mod tests {
     fn action_for_session_number_uses_stable_pinned_first_order() {
         let sessions = vec![s("a", 10, 1), s("b", 30, 2), s("c", 20, 3)];
         let cfg = Config {
-            groups: vec![Group { name: "PINNED".into(), members: vec!["c".into()], color: String::new() }],
+            dormant: vec![], groups: vec![Group { name: "PINNED".into(), members: vec!["c".into()], color: String::new() }],
             manual_order: vec![],
             sort: SortKey::Activity, ..Default::default()
         };
@@ -1299,7 +1326,7 @@ mod tests {
     fn focus_session_number_moves_cursor_without_switching() {
         let sessions = vec![s("a", 10, 1), s("b", 30, 2), s("c", 20, 3)];
         let cfg = Config {
-            groups: vec![Group { name: "PINNED".into(), members: vec!["c".into()], color: String::new() }],
+            dormant: vec![], groups: vec![Group { name: "PINNED".into(), members: vec!["c".into()], color: String::new() }],
             manual_order: vec![],
             sort: SortKey::Activity, ..Default::default()
         };
@@ -1348,7 +1375,7 @@ mod tests {
         // filtered out of the manual tail); c then a are the manual placements;
         // b is unlisted and falls in after, by created asc.
         let cfg = Config {
-            groups: vec![Group { name: "PINNED".into(), members: vec!["d".into()], color: String::new() }],
+            dormant: vec![], groups: vec![Group { name: "PINNED".into(), members: vec!["d".into()], color: String::new() }],
             manual_order: vec!["d".into(), "c".into(), "a".into()],
             sort: SortKey::Manual, ..Default::default()
         };
@@ -1362,7 +1389,7 @@ mod tests {
         // "x" is the newest (highest created) and unlisted -> appears last.
         let sessions = vec![s("old", 1, 1), s("mid", 1, 2), s("x", 1, 99)];
         let cfg = Config {
-            groups: vec![],
+            dormant: vec![], groups: vec![],
             manual_order: vec!["mid".into(), "old".into()],
             sort: SortKey::Manual, ..Default::default()
         };
@@ -1412,7 +1439,7 @@ mod tests {
     fn move_row_on_pinned_reorders_pins_in_any_mode() {
         let sessions = vec![s("a", 30, 1), s("b", 20, 2)];
         let cfg = Config {
-            groups: vec![Group { name: "PINNED".into(), members: vec!["a".into(), "b".into()], color: String::new() }],
+            dormant: vec![], groups: vec![Group { name: "PINNED".into(), members: vec!["a".into(), "b".into()], color: String::new() }],
             manual_order: vec![],
             sort: SortKey::Activity, ..Default::default()
         };
@@ -1631,10 +1658,65 @@ mod tests {
         assert_eq!(state.visible_rows().len(), 2);
     }
 
+    #[test]
+    fn toggle_dormant_flips_and_dirties() {
+        let sessions = vec![s("a", 30, 1), s("b", 20, 2)];
+        let cfg = Config { groups: vec![], manual_order: vec![], sort: SortKey::Activity, ..Default::default() };
+        let mut state = PickerState::build(sessions, &cfg); // cursor starts on "a"
+
+        assert!(!state.is_dormant("a"));
+        state.toggle_dormant();
+        assert!(state.is_dormant("a"));
+        assert!(state.dirty);
+
+        state.dirty = false;
+        state.toggle_dormant();
+        assert!(!state.is_dormant("a"));
+        assert!(state.dirty);
+    }
+
+    #[test]
+    fn dormant_loads_from_config() {
+        let sessions = vec![s("a", 30, 1)];
+        let cfg = Config { groups: vec![], manual_order: vec![], sort: SortKey::Activity, dormant: vec!["a".into()], ..Default::default() };
+        let state = PickerState::build(sessions, &cfg);
+        assert!(state.is_dormant("a"));
+    }
+
+    #[test]
+    fn toggle_dormant_on_expanded_window_row_affects_parent_session() {
+        let mut sessions = vec![s("a", 30, 1)];
+        sessions[0].windows = vec![
+            Window { index: 0, name: "e".into(), active: true },
+            Window { index: 1, name: "l".into(), active: false },
+        ];
+        let cfg = Config { groups: vec![], manual_order: vec![], sort: SortKey::Activity, ..Default::default() };
+        let mut state = PickerState::build(sessions, &cfg);
+
+        state.expand();
+        state.move_cursor(1); // land on the first window row
+        assert!(matches!(state.visible_rows()[state.cursor], Row::Window(0, 0)));
+
+        state.toggle_dormant();
+        assert!(state.is_dormant("a"), "toggling on a window row affects its parent session");
+    }
+
+    #[test]
+    fn dormant_list_is_sorted_snapshot() {
+        let sessions = vec![s("charlie", 1, 1), s("alpha", 1, 2), s("bravo", 1, 3)];
+        let cfg = Config { groups: vec![], manual_order: vec![], sort: SortKey::Activity, ..Default::default() };
+        let mut state = PickerState::build(sessions, &cfg);
+        state.focus_session("charlie");
+        state.toggle_dormant();
+        state.focus_session("alpha");
+        state.toggle_dormant();
+        assert_eq!(state.dormant_list(), vec!["alpha".to_string(), "charlie".to_string()]);
+    }
+
     fn grouped_state() -> PickerState {
         let sessions = vec![s("a", 1, 1), s("b", 1, 2), s("c", 1, 3)];
         let cfg = Config {
-            groups: vec![
+            dormant: vec![], groups: vec![
                 Group { name: "G1".into(), members: vec!["a".into()], color: String::new() },
                 Group { name: "G2".into(), members: vec!["b".into()], color: String::new() },
             ],
@@ -1827,7 +1909,7 @@ mod tests {
         // groups: G1=[a,b], G2=[c]; residual d,e by activity (d 40 > e 30)
         let sessions = vec![s("a", 1, 1), s("b", 1, 2), s("c", 1, 3), s("d", 40, 4), s("e", 30, 5)];
         let cfg = Config {
-            groups: vec![
+            dormant: vec![], groups: vec![
                 Group { name: "G1".into(), members: vec!["a".into(), "b".into()], color: String::new() },
                 Group { name: "G2".into(), members: vec!["c".into()], color: String::new() },
             ],

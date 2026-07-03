@@ -32,7 +32,7 @@ const META_BUDGET: usize = 18;
 const POPUP_MARGIN: u16 = 2;
 
 const FOOTER_HINT: &str =
-    "/ search · 1-9 jump · ⇧JK move · g groups · , settings · s sort · q quit";
+    "/ search · 1-9 · ⇧JK mv · g groups · , settings · s sort · d dim · q quit";
 
 const SEARCH_FOOTER_HINT: &str = "↑↓ move · ⌃W word · ⌃U clear · Esc back";
 
@@ -193,6 +193,7 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
                     selected,
                     number,
                     meta,
+                    state.is_dormant(&sess.name),
                 ));
             }
             Row::Window(si, wi) => {
@@ -261,7 +262,7 @@ fn draw_search(frame: &mut Frame, state: &PickerState, inner: Rect) {
                 selected_line = Some(items.len());
             }
             // Flat, collapsed, no jump number (None), normal metadata.
-            items.push(session_item(sess, false, selected, None, meta));
+            items.push(session_item(sess, false, selected, None, meta, state.is_dormant(&sess.name)));
         }
     }
     let list = List::new(items)
@@ -545,11 +546,14 @@ fn session_item(
     selected: bool,
     number: Option<usize>,
     meta: MetaLayout,
+    dormant: bool,
 ) -> ListItem<'static> {
     let glyph = if expanded { "▾" } else { "▸" };
     let num = match number { Some(n) => format!("{n} "), None => "  ".to_string() };
     let name_style = if sess.attached {
         Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)
+    } else if dormant {
+        secondary(selected)
     } else {
         Style::default()
     };
@@ -599,6 +603,7 @@ pub enum Input {
     MoveDown,
     CycleSort,
     EnterSearch,
+    ToggleDormant,
     Quit,
     None,
 }
@@ -708,6 +713,7 @@ pub fn map_key(key: KeyEvent) -> Input {
         KeyCode::Char('J') if shift => Input::MoveDown,
         KeyCode::Char('s') => Input::CycleSort,
         KeyCode::Char('/') => Input::EnterSearch,
+        KeyCode::Char('d') => Input::ToggleDormant,
         KeyCode::Char(c @ '1'..='9') if key.modifiers.contains(KeyModifiers::ALT) => {
             Input::Focus(c as usize - '0' as usize)
         }
@@ -763,7 +769,7 @@ mod tests {
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
         ];
         let cfg = Config {
-            groups: vec![Group { name: "PINNED".into(), members: vec!["pr-review".into()], color: String::new() }],
+            dormant: vec![], groups: vec![Group { name: "PINNED".into(), members: vec!["pr-review".into()], color: String::new() }],
             manual_order: vec![],
             sort: SortKey::Activity, ..Default::default()
         };
@@ -878,6 +884,63 @@ mod tests {
     }
 
     #[test]
+    fn maps_toggle_dormant_key() {
+        assert_eq!(map_key(key(KeyCode::Char('d'))), Input::ToggleDormant);
+    }
+
+    #[test]
+    fn draw_dims_dormant_session_when_unselected_but_not_when_selected() {
+        let sessions = vec![
+            Session { name: "alpha".into(), activity: 30, created: 1, attached: false,
+                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+            Session { name: "beta".into(), activity: 20, created: 2, attached: false,
+                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+        ];
+        let cfg = Config { groups: vec![], manual_order: vec![], sort: SortKey::Activity, dormant: vec!["beta".into()], ..Default::default() };
+        let mut state = PickerState::build(sessions, &cfg); // cursor starts on "alpha"
+
+        let backend = TestBackend::new(80, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| draw(f, &state)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+
+        let mut beta_dim = false;
+        for y in 0..buf.area.height {
+            let line: String = (0..buf.area.width).map(|x| buf[(x, y)].symbol()).collect();
+            if let Some(i) = line.find("beta") {
+                beta_dim = buf[(i as u16, y)].style().fg == Some(Color::DarkGray);
+            }
+        }
+        assert!(beta_dim, "unselected dormant session renders dim");
+
+        // Move the cursor onto "beta": dormant + selected must not go invisible.
+        state.focus_session("beta");
+        let backend2 = TestBackend::new(80, 20);
+        let mut terminal2 = Terminal::new(backend2).unwrap();
+        terminal2.draw(|f| draw(f, &state)).unwrap();
+        let buf2 = terminal2.backend().buffer().clone();
+        for y in 0..buf2.area.height {
+            for x in 0..buf2.area.width {
+                let st = buf2[(x, y)].style();
+                let invisible = st.bg == Some(Color::DarkGray) && st.fg == Some(Color::DarkGray);
+                assert!(!invisible, "selected dormant row has DarkGray-on-DarkGray cell at x={x}, y={y}");
+            }
+        }
+    }
+
+    #[test]
+    fn draw_shows_dormant_footer_hint() {
+        let sessions = vec![
+            Session { name: "main".into(), activity: 100, created: 1, attached: false,
+                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+        ];
+        let cfg = Config { groups: vec![], manual_order: vec![], sort: SortKey::Activity, ..Default::default() };
+        let state = PickerState::build(sessions, &cfg);
+        let text = render_to_string(&state);
+        assert!(text.contains("dim"), "footer hint: dim present");
+    }
+
+    #[test]
     fn draw_shows_active_sort_mode() {
         let mode_text = |sort| {
             let sessions = vec![Session {
@@ -930,7 +993,7 @@ mod tests {
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
         ];
         let cfg = Config {
-            groups: vec![
+            dormant: vec![], groups: vec![
                 Group { name: "config".into(), members: vec!["claude".into()], color: String::new() },
                 Group { name: "tools".into(), members: vec!["tent".into()], color: String::new() },
             ],
@@ -957,7 +1020,7 @@ mod tests {
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
         ];
         let cfg = Config {
-            groups: vec![
+            dormant: vec![], groups: vec![
                 Group { name: "config".into(), members: vec!["claude".into()], color: String::new() },
                 Group { name: "tools".into(), members: vec![], color: String::new() }, // empty shelf
             ],
@@ -1209,7 +1272,7 @@ mod tests {
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
         ];
         let cfg = Config {
-            groups: vec![Group { name: "PINNED".into(), members: vec!["pr-review".into()], color: String::new() }],
+            dormant: vec![], groups: vec![Group { name: "PINNED".into(), members: vec!["pr-review".into()], color: String::new() }],
             manual_order: vec![],
             sort: SortKey::Activity, ..Default::default()
         };
@@ -1296,7 +1359,7 @@ mod tests {
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
         ];
         let cfg = Config {
-            groups: vec![
+            dormant: vec![], groups: vec![
                 Group { name: "config".into(), members: vec!["claude".into()], color: String::new() },
                 Group { name: "tools".into(), members: vec!["tent".into()], color: "magenta".into() },
             ],

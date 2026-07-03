@@ -14,6 +14,7 @@ pub struct Config {
     pub groups: Vec<Group>,
     pub manual_order: Vec<String>,
     pub sort: SortKey,
+    pub dormant: Vec<String>,
     pub default_mode: DefaultMode,
     pub new_group_color_policy: ColorPolicy,
     pub static_color: String,
@@ -32,6 +33,7 @@ impl Default for Config {
             groups: Vec::new(),
             manual_order: Vec::new(),
             sort: SortKey::default(),
+            dormant: Vec::new(),
             default_mode: DefaultMode::default(),
             new_group_color_policy: ColorPolicy::default(),
             static_color: "cyan".to_string(),
@@ -84,6 +86,8 @@ struct RawConfig {
     #[serde(default)]
     sort: Option<String>,
     #[serde(default)]
+    dormant: Vec<String>,
+    #[serde(default)]
     settings: RawSettings,
 }
 
@@ -101,6 +105,7 @@ struct OutConfig {
     groups: Vec<OutGroup>,
     manual_order: Vec<String>,
     sort: String,
+    dormant: Vec<String>,
     settings: OutSettings,
 }
 
@@ -153,6 +158,7 @@ impl Config {
                 .sort
                 .map(|s| SortKey::from_config_str(&s))
                 .unwrap_or_default(),
+            dormant: raw.dormant,
             default_mode,
             new_group_color_policy,
             static_color,
@@ -164,6 +170,8 @@ impl Config {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
+        let mut dormant = self.dormant.clone();
+        dormant.sort();
         let out = OutConfig {
             config_version: CONFIG_VERSION,
             groups: self
@@ -182,6 +190,7 @@ impl Config {
                 SortKey::Created => "created".into(),
                 SortKey::Manual => "manual".into(),
             },
+            dormant,
             settings: OutSettings {
                 default_mode: self.default_mode.as_config_str().to_string(),
                 new_group_color_policy: self.new_group_color_policy.as_config_str().to_string(),
@@ -195,14 +204,17 @@ impl Config {
 
     pub fn reconcile(&mut self, live_names: &[String]) -> bool {
         let is_live = |name: &String| live_names.iter().any(|n| n == name);
-        let before: usize =
-            self.groups.iter().map(|g| g.members.len()).sum::<usize>() + self.manual_order.len();
+        let before: usize = self.groups.iter().map(|g| g.members.len()).sum::<usize>()
+            + self.manual_order.len()
+            + self.dormant.len();
         for g in &mut self.groups {
             g.members.retain(&is_live);
         }
         self.manual_order.retain(&is_live);
-        let after: usize =
-            self.groups.iter().map(|g| g.members.len()).sum::<usize>() + self.manual_order.len();
+        self.dormant.retain(&is_live);
+        let after: usize = self.groups.iter().map(|g| g.members.len()).sum::<usize>()
+            + self.manual_order.len()
+            + self.dormant.len();
         before != after
     }
 }
@@ -226,6 +238,40 @@ mod tests {
         let cfg = Config::load_from(Path::new("/nonexistent/smux/config.toml"));
         assert!(cfg.groups.is_empty());
         assert_eq!(cfg.sort, SortKey::Activity);
+        assert!(cfg.dormant.is_empty());
+    }
+
+    #[test]
+    fn round_trips_dormant_sessions() {
+        let dir = std::env::temp_dir().join(format!("smux-dormant-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.toml");
+        let cfg = Config {
+            groups: vec![],
+            manual_order: vec![],
+            sort: SortKey::Activity,
+            dormant: vec!["zebra".into(), "alpha".into()],
+            ..Default::default()
+        };
+        cfg.save_to(&path).unwrap();
+        let reloaded = Config::load_from(&path);
+        // Saved sorted for a stable diff, regardless of insertion order.
+        assert_eq!(reloaded.dormant, vec!["alpha".to_string(), "zebra".to_string()]);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn reconcile_drops_dead_dormant_entries() {
+        let mut cfg = Config {
+            groups: vec![],
+            manual_order: vec![],
+            sort: SortKey::Activity,
+            dormant: vec!["a".into(), "gone".into()],
+            ..Default::default()
+        };
+        let changed = cfg.reconcile(&["a".to_string()]);
+        assert!(changed);
+        assert_eq!(cfg.dormant, vec!["a".to_string()]);
     }
 
     #[test]
@@ -285,7 +331,7 @@ mod tests {
     #[test]
     fn reconcile_drops_dead_manual_order_entries() {
         let mut cfg = Config {
-            groups: vec![],
+            dormant: vec![], groups: vec![],
             manual_order: vec!["a".into(), "gone".into(), "b".into()],
             sort: SortKey::Manual, ..Default::default()
         };
@@ -363,7 +409,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("config.toml");
         let cfg = Config {
-            groups: vec![
+            dormant: vec![], groups: vec![
                 Group { name: "CONFIG".into(), members: vec!["claude".into()], color: String::new() },
                 Group { name: "TOOLS".into(), members: vec![], color: String::new() },
             ],
@@ -379,7 +425,7 @@ mod tests {
     #[test]
     fn reconcile_drops_dead_members_but_keeps_empty_group() {
         let mut cfg = Config {
-            groups: vec![Group { name: "G".into(), members: vec!["a".into(), "gone".into()], color: String::new() }],
+            dormant: vec![], groups: vec![Group { name: "G".into(), members: vec!["a".into(), "gone".into()], color: String::new() }],
             manual_order: vec![],
             sort: SortKey::Manual, ..Default::default()
         };
