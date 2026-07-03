@@ -15,7 +15,7 @@ use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
 use std::io::{self, stdout};
 use tmux::{apply_action, RealTmux, Tmux};
-use ui::{draw, map_group_key, map_key, map_search_key, GroupInput, Input, SearchInput};
+use ui::{draw, map_group_key, map_key, map_search_key, map_settings_key, GroupInput, Input, SearchInput, SettingsInput};
 
 const HELP: &str = "\
 smux - a fast tmux session picker
@@ -78,6 +78,10 @@ fn main() -> io::Result<()> {
         config.groups = state.groups.clone();
         config.manual_order = state.manual_order.clone();
         config.sort = state.sort;
+        config.default_mode = state.default_mode;
+        config.new_group_color_policy = state.new_group_color_policy;
+        config.static_color = state.static_color.clone();
+        config.active_palette = state.active_palette.clone();
         let _ = config.save_to(&path);
     }
 
@@ -119,6 +123,7 @@ fn event_loop(
                     Input::Collapse => state.collapse(),
                     Input::ToggleAll => state.toggle_all(),
                     Input::EnterGroups => state.enter_groups(),
+                    Input::EnterSettings => state.enter_settings(),
                     Input::MoveUp => state.move_row(-1),
                     Input::MoveDown => state.move_row(1),
                     Input::CycleSort => state.cycle_sort(),
@@ -174,6 +179,16 @@ fn event_loop(
                         }
                     }
                 }
+                Mode::Settings => match map_settings_key(key) {
+                    SettingsInput::Up => state.settings_move_cursor(-1),
+                    SettingsInput::Down => state.settings_move_cursor(1),
+                    SettingsInput::Left => state.settings_step_left(),
+                    SettingsInput::Right => state.settings_step_right(),
+                    SettingsInput::Activate => state.settings_activate(),
+                    SettingsInput::CycleStaticColor => state.settings_cycle_static_color(),
+                    SettingsInput::Exit => state.exit_settings(),
+                    SettingsInput::None => {}
+                },
             }
         }
     }

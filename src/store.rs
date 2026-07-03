@@ -1,4 +1,4 @@
-use crate::model::{Group, SortKey};
+use crate::model::{ColorPolicy, DefaultMode, Group, SortKey, HEADER_COLORS};
 use serde::Deserialize;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -14,6 +14,30 @@ pub struct Config {
     pub groups: Vec<Group>,
     pub manual_order: Vec<String>,
     pub sort: SortKey,
+    pub default_mode: DefaultMode,
+    pub new_group_color_policy: ColorPolicy,
+    pub static_color: String,
+    pub active_palette: Vec<String>,
+}
+
+/// The active palette a fresh `Config` starts with, and the fallback when a
+/// loaded config has no (or an empty) `active_palette`.
+fn default_active_palette() -> Vec<String> {
+    HEADER_COLORS.iter().map(|s| s.to_string()).collect()
+}
+
+impl Default for Config {
+    fn default() -> Config {
+        Config {
+            groups: Vec::new(),
+            manual_order: Vec::new(),
+            sort: SortKey::default(),
+            default_mode: DefaultMode::default(),
+            new_group_color_policy: ColorPolicy::default(),
+            static_color: "cyan".to_string(),
+            active_palette: default_active_palette(),
+        }
+    }
 }
 
 #[derive(serde::Deserialize)]
@@ -23,6 +47,26 @@ struct RawGroup {
     members: Vec<String>,
     #[serde(default)]
     color: String,
+}
+
+#[derive(Deserialize, Default)]
+struct RawSettings {
+    #[serde(default)]
+    default_mode: Option<String>,
+    #[serde(default)]
+    new_group_color_policy: Option<String>,
+    #[serde(default)]
+    static_color: Option<String>,
+    #[serde(default)]
+    active_palette: Option<Vec<String>>,
+}
+
+#[derive(serde::Serialize)]
+struct OutSettings {
+    default_mode: String,
+    new_group_color_policy: String,
+    static_color: String,
+    active_palette: Vec<String>,
 }
 
 #[derive(Deserialize, Default)]
@@ -39,6 +83,8 @@ struct RawConfig {
     manual_order: Vec<String>,
     #[serde(default)]
     sort: Option<String>,
+    #[serde(default)]
+    settings: RawSettings,
 }
 
 #[derive(serde::Serialize)]
@@ -55,6 +101,7 @@ struct OutConfig {
     groups: Vec<OutGroup>,
     manual_order: Vec<String>,
     sort: String,
+    settings: OutSettings,
 }
 
 impl Config {
@@ -81,6 +128,24 @@ impl Config {
                 .map(|g| Group { name: g.name, members: g.members, color: g.color })
                 .collect()
         };
+        let default_mode = raw
+            .settings
+            .default_mode
+            .as_deref()
+            .map(DefaultMode::from_config_str)
+            .unwrap_or_default();
+        let new_group_color_policy = raw
+            .settings
+            .new_group_color_policy
+            .as_deref()
+            .map(ColorPolicy::from_config_str)
+            .unwrap_or_default();
+        let static_color = raw.settings.static_color.unwrap_or_else(|| "cyan".to_string());
+        let active_palette = raw
+            .settings
+            .active_palette
+            .filter(|p| !p.is_empty())
+            .unwrap_or_else(default_active_palette);
         Config {
             groups,
             manual_order: raw.manual_order,
@@ -88,6 +153,10 @@ impl Config {
                 .sort
                 .map(|s| SortKey::from_config_str(&s))
                 .unwrap_or_default(),
+            default_mode,
+            new_group_color_policy,
+            static_color,
+            active_palette,
         }
     }
 
@@ -112,6 +181,12 @@ impl Config {
                 SortKey::Activity => "activity".into(),
                 SortKey::Created => "created".into(),
                 SortKey::Manual => "manual".into(),
+            },
+            settings: OutSettings {
+                default_mode: self.default_mode.as_config_str().to_string(),
+                new_group_color_policy: self.new_group_color_policy.as_config_str().to_string(),
+                static_color: self.static_color.clone(),
+                active_palette: self.active_palette.clone(),
             },
         };
         let body = toml::to_string(&out).map_err(io::Error::other)?;
@@ -212,7 +287,7 @@ mod tests {
         let mut cfg = Config {
             groups: vec![],
             manual_order: vec!["a".into(), "gone".into(), "b".into()],
-            sort: SortKey::Manual,
+            sort: SortKey::Manual, ..Default::default()
         };
         let live = vec!["a".to_string(), "b".to_string()];
         let changed = cfg.reconcile(&live);
@@ -238,7 +313,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("smux-ver-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("config.toml");
-        let cfg = Config { groups: vec![], manual_order: vec![], sort: SortKey::Activity };
+        let cfg = Config { groups: vec![], manual_order: vec![], sort: SortKey::Activity, ..Default::default() };
         cfg.save_to(&path).unwrap();
         let written = std::fs::read_to_string(&path).unwrap();
         assert!(written.contains(&format!("config_version = {CONFIG_VERSION}")));
@@ -293,7 +368,7 @@ mod tests {
                 Group { name: "TOOLS".into(), members: vec![], color: String::new() },
             ],
             manual_order: vec![],
-            sort: SortKey::Manual,
+            sort: SortKey::Manual, ..Default::default()
         };
         cfg.save_to(&path).unwrap();
         let reloaded = Config::load_from(&path);
@@ -306,7 +381,7 @@ mod tests {
         let mut cfg = Config {
             groups: vec![Group { name: "G".into(), members: vec!["a".into(), "gone".into()], color: String::new() }],
             manual_order: vec![],
-            sort: SortKey::Manual,
+            sort: SortKey::Manual, ..Default::default()
         };
         let live = vec!["a".to_string()];
         assert!(cfg.reconcile(&live));
@@ -315,5 +390,79 @@ mod tests {
         assert!(cfg.reconcile(&[]));
         assert_eq!(cfg.groups.len(), 1);
         assert!(cfg.groups[0].members.is_empty());
+    }
+
+    #[test]
+    fn default_config_seeds_settings_from_header_colors() {
+        let cfg = Config::default();
+        assert_eq!(cfg.default_mode, DefaultMode::Command);
+        assert_eq!(cfg.new_group_color_policy, ColorPolicy::Rotate);
+        assert_eq!(cfg.static_color, "cyan");
+        assert_eq!(
+            cfg.active_palette,
+            HEADER_COLORS.iter().map(|s| s.to_string()).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn legacy_config_without_settings_table_defaults_cleanly() {
+        let dir = std::env::temp_dir().join(format!("smux-nosettings-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.toml");
+        // A config_version=1 file from before [settings] existed.
+        std::fs::write(&path, "config_version = 1\nsort = \"activity\"\n").unwrap();
+        let cfg = Config::load_from(&path);
+        assert_eq!(cfg.default_mode, DefaultMode::Command);
+        assert_eq!(cfg.new_group_color_policy, ColorPolicy::Rotate);
+        assert_eq!(cfg.static_color, "cyan");
+        assert_eq!(
+            cfg.active_palette,
+            HEADER_COLORS.iter().map(|s| s.to_string()).collect::<Vec<_>>()
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn empty_active_palette_on_disk_falls_back_to_default() {
+        // Guards the same invariant the settings-mode min-1 UI guard protects at
+        // runtime: a hand-edited config can never load a zero-length palette.
+        let dir = std::env::temp_dir().join(format!("smux-emptypal-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.toml");
+        std::fs::write(
+            &path,
+            "config_version = 1\nsort = \"activity\"\n\n[settings]\nactive_palette = []\n",
+        )
+        .unwrap();
+        let cfg = Config::load_from(&path);
+        assert_eq!(
+            cfg.active_palette,
+            HEADER_COLORS.iter().map(|s| s.to_string()).collect::<Vec<_>>()
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn round_trips_settings_table() {
+        let dir = std::env::temp_dir().join(format!("smux-settings-rt-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.toml");
+        let cfg = Config {
+            default_mode: DefaultMode::Search,
+            new_group_color_policy: ColorPolicy::Static,
+            static_color: "magenta".to_string(),
+            active_palette: vec!["magenta".to_string(), "white".to_string()],
+            ..Default::default()
+        };
+        cfg.save_to(&path).unwrap();
+        let reloaded = Config::load_from(&path);
+        assert_eq!(reloaded.default_mode, DefaultMode::Search);
+        assert_eq!(reloaded.new_group_color_policy, ColorPolicy::Static);
+        assert_eq!(reloaded.static_color, "magenta");
+        assert_eq!(
+            reloaded.active_palette,
+            vec!["magenta".to_string(), "white".to_string()]
+        );
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

@@ -1,4 +1,6 @@
-use crate::model::{Group, Mode, PickerState, Row, Session, SortKey, Window, HEADER_COLORS};
+use crate::model::{
+    ColorPolicy, DefaultMode, Group, Mode, PickerState, Row, Session, SettingsRow, SortKey, Window,
+};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
@@ -30,7 +32,7 @@ const META_BUDGET: usize = 18;
 const POPUP_MARGIN: u16 = 2;
 
 const FOOTER_HINT: &str =
-    "/ search · 1-9 jump · ⇧JK move · g groups · s sort · z all · q quit";
+    "/ search · 1-9 jump · ⇧JK move · g groups · , settings · s sort · q quit";
 
 const SEARCH_FOOTER_HINT: &str = "↑↓ move · ⌃W word · ⌃U clear · Esc back";
 
@@ -118,6 +120,7 @@ pub fn draw(frame: &mut Frame, state: &PickerState) {
         Mode::Command => draw_command(frame, state, inner),
         Mode::Search => draw_search(frame, state, inner),
         Mode::Groups => draw_groups(frame, state, inner),
+        Mode::Settings => draw_settings(frame, state, inner),
     }
 }
 
@@ -167,7 +170,7 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
                     }
                     match section {
                         Some(gi) => {
-                            let color = group_color(&state.groups[gi], gi);
+                            let color = group_color(&state.groups[gi], gi, &state.active_palette);
                             push_section_header(&mut items, &state.groups[gi].name.to_uppercase(), list_area.width, color);
                             next_group = gi + 1;
                         }
@@ -302,7 +305,7 @@ fn draw_groups(frame: &mut Frame, state: &PickerState, inner: Rect) {
             // regardless of membership: dimming empty groups here can collide
             // with the DarkGray selection bar and render the name invisible
             // (issue #14).
-            let name_color = group_color(g, gi);
+            let name_color = group_color(g, gi, &state.active_palette);
             Line::from(vec![
                 Span::styled(g.name.to_uppercase(),
                     Style::default().fg(name_color).add_modifier(Modifier::BOLD)),
@@ -331,25 +334,145 @@ fn draw_groups(frame: &mut Frame, state: &PickerState, inner: Rect) {
     frame.render_widget(footer, footer_area);
 }
 
-/// Map a `HEADER_COLORS` name to a named ANSI color (never RGB, so headers
-/// follow the terminal theme). `magenta` is the Nord purple. Unknown names fall
-/// back to the accent so a hand-edited config can never crash the picker.
+const SETTINGS_FOOTER_HINT: &str =
+    "j/k move · h/l cycle · Space toggle · c color · Esc back";
+
+fn draw_settings(frame: &mut Frame, state: &PickerState, inner: Rect) {
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(0), Constraint::Length(2)])
+        .split(inner);
+    let list_area = chunks[0];
+    let footer_area = chunks[1];
+
+    let rows = state.settings_visible_rows();
+    // Computed once: PaletteColor rows below index into this instead of
+    // rebuilding the 16-entry palette Vec on every iteration.
+    let palette_entries = state.settings_palette_rows();
+    let mut items: Vec<ListItem> = Vec::new();
+    for (i, row) in rows.iter().enumerate() {
+        let selected = i == state.settings_cursor();
+        let line = match row {
+            SettingsRow::DefaultMode => {
+                settings_value_line("Default mode", default_mode_label(state.default_mode), selected)
+            }
+            SettingsRow::ColorPolicy => {
+                let mut spans = vec![
+                    Span::styled("New group color", Style::default().add_modifier(Modifier::BOLD)),
+                    Span::styled(
+                        format!("  {}", color_policy_label(state.new_group_color_policy)),
+                        secondary(selected),
+                    ),
+                ];
+                if state.new_group_color_policy == ColorPolicy::Static {
+                    spans.push(Span::raw("  "));
+                    spans.push(Span::styled(
+                        "██",
+                        Style::default().fg(color_from_name(&state.static_color)),
+                    ));
+                    spans.push(Span::styled(format!(" {}", state.static_color), secondary(selected)));
+                }
+                Line::from(spans)
+            }
+            SettingsRow::Palette => {
+                let glyph = if state.palette_expanded() { "▾" } else { "▸" };
+                Line::from(vec![
+                    Span::styled(format!("{glyph} "), secondary(selected)),
+                    Span::styled("Color palette", Style::default().add_modifier(Modifier::BOLD)),
+                    Span::styled(
+                        format!("  {} active", state.active_palette.len()),
+                        secondary(selected),
+                    ),
+                ])
+            }
+            SettingsRow::PaletteColor(idx) => {
+                let (name, active) = &palette_entries[*idx];
+                let checkbox = if *active { "[x]" } else { "[ ]" };
+                Line::from(vec![
+                    Span::raw("     "),
+                    Span::styled(checkbox.to_string(), secondary(selected)),
+                    Span::raw(" "),
+                    Span::styled("██", Style::default().fg(color_from_name(name))),
+                    Span::raw(" "),
+                    Span::raw(name.clone()),
+                ])
+            }
+        };
+        items.push(ListItem::new(line));
+    }
+
+    let list = List::new(items)
+        .highlight_style(Style::default().bg(SEL_BG).add_modifier(Modifier::BOLD));
+    let mut list_state = ListState::default();
+    list_state.select(Some(state.settings_cursor()));
+    frame.render_stateful_widget(list, list_area, &mut list_state);
+
+    let rule = "─".repeat(footer_area.width as usize);
+    let footer = Paragraph::new(vec![
+        Line::from(Span::styled(rule, Style::default().fg(DIM))),
+        Line::from(Span::styled(SETTINGS_FOOTER_HINT, Style::default().fg(DIM))),
+    ]);
+    frame.render_widget(footer, footer_area);
+}
+
+fn settings_value_line(label: &str, value: &str, selected: bool) -> Line<'static> {
+    Line::from(vec![
+        Span::styled(label.to_string(), Style::default().add_modifier(Modifier::BOLD)),
+        Span::styled(format!("  {value}"), secondary(selected)),
+    ])
+}
+
+fn default_mode_label(m: DefaultMode) -> &'static str {
+    match m {
+        DefaultMode::Command => "Command",
+        DefaultMode::Search => "Search",
+    }
+}
+
+fn color_policy_label(p: ColorPolicy) -> &'static str {
+    match p {
+        ColorPolicy::Rotate => "Rotate",
+        ColorPolicy::Random => "Random",
+        ColorPolicy::Static => "Static",
+    }
+}
+
+/// Map a named color to its ANSI `Color` (never RGB, so headers follow the
+/// terminal theme). `magenta` is the Nord purple. Unknown names fall back to
+/// the accent so a hand-edited config can never crash the picker.
 fn color_from_name(name: &str) -> Color {
     match name {
+        "black" => Color::Black,
+        "red" => Color::Red,
         "green" => Color::Green,
         "yellow" => Color::Yellow,
-        "magenta" => Color::Magenta,
         "blue" => Color::Blue,
-        "red" => Color::Red,
+        "magenta" => Color::Magenta,
+        "cyan" => Color::Cyan,
+        "gray" => Color::Gray,
+        "darkgray" => Color::DarkGray,
+        "lightred" => Color::LightRed,
+        "lightgreen" => Color::LightGreen,
+        "lightyellow" => Color::LightYellow,
+        "lightblue" => Color::LightBlue,
+        "lightmagenta" => Color::LightMagenta,
+        "lightcyan" => Color::LightCyan,
+        "white" => Color::White,
         _ => Color::Cyan,
     }
 }
 
 /// The header color for the group at `index`: its explicit color, or the
-/// positional default `HEADER_COLORS[index]` when unset.
-fn group_color(group: &Group, index: usize) -> Color {
+/// positional default (`active_palette[index % len]`). Falls back to the
+/// accent on an empty palette rather than dividing by zero (should not
+/// happen -- see `PickerState::group_cycle_color`'s guard -- but never
+/// panics if it somehow does).
+fn group_color(group: &Group, index: usize, active_palette: &[String]) -> Color {
     let name = if group.color.is_empty() {
-        HEADER_COLORS[index % HEADER_COLORS.len()]
+        if active_palette.is_empty() {
+            return ACCENT;
+        }
+        active_palette[index % active_palette.len()].as_str()
     } else {
         group.color.as_str()
     };
@@ -471,6 +594,7 @@ pub enum Input {
     Switch(usize),
     Focus(usize),
     EnterGroups,
+    EnterSettings,
     MoveUp,
     MoveDown,
     CycleSort,
@@ -513,6 +637,35 @@ pub fn map_group_key(key: KeyEvent) -> GroupInput {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SettingsInput {
+    Up,
+    Down,
+    Left,
+    Right,
+    Activate,
+    CycleStaticColor,
+    Exit,
+    None,
+}
+
+/// Key mapping for settings mode. `,` exits (mirroring how it also enters,
+/// same as `g` for Groups mode), alongside the usual `q`/`Esc`. The palette
+/// checklist has a fixed display order (`ALL_NAMED_COLORS` canonical order),
+/// so there is no reorder key here (unlike Groups mode's `⇧JK`).
+pub fn map_settings_key(key: KeyEvent) -> SettingsInput {
+    match key.code {
+        KeyCode::Char('j') | KeyCode::Down => SettingsInput::Down,
+        KeyCode::Char('k') | KeyCode::Up => SettingsInput::Up,
+        KeyCode::Char('l') | KeyCode::Right => SettingsInput::Right,
+        KeyCode::Char('h') | KeyCode::Left => SettingsInput::Left,
+        KeyCode::Enter | KeyCode::Char(' ') => SettingsInput::Activate,
+        KeyCode::Char('c') => SettingsInput::CycleStaticColor,
+        KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char(',') => SettingsInput::Exit,
+        _ => SettingsInput::None,
+    }
+}
+
 /// Key mapping while in search mode. Printable characters (including digits)
 /// build the query; movement uses arrows plus the fzf/vim Ctrl pairs.
 ///
@@ -550,6 +703,7 @@ pub fn map_key(key: KeyEvent) -> Input {
         KeyCode::Char('z') => Input::ToggleAll,
         KeyCode::Enter => Input::Select,
         KeyCode::Char('g') => Input::EnterGroups,
+        KeyCode::Char(',') => Input::EnterSettings,
         KeyCode::Char('K') if shift => Input::MoveUp,
         KeyCode::Char('J') if shift => Input::MoveDown,
         KeyCode::Char('s') => Input::CycleSort,
@@ -611,7 +765,7 @@ mod tests {
         let cfg = Config {
             groups: vec![Group { name: "PINNED".into(), members: vec!["pr-review".into()], color: String::new() }],
             manual_order: vec![],
-            sort: SortKey::Activity,
+            sort: SortKey::Activity, ..Default::default()
         };
         let state = PickerState::build(sessions, &cfg);
         let text = render_to_string(&state);
@@ -628,7 +782,7 @@ mod tests {
             Session { name: "alpha".into(), activity: 30, created: 1, attached: false,
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
         ];
-        let cfg = Config { groups: vec![], manual_order: vec![], sort: SortKey::Activity };
+        let cfg = Config { groups: vec![], manual_order: vec![], sort: SortKey::Activity, ..Default::default() };
         let state = PickerState::build(sessions, &cfg);
 
         let backend = TestBackend::new(60, 20);
@@ -665,7 +819,7 @@ mod tests {
             Session { name: "alpha".into(), activity: 30, created: 1, attached: false,
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
         ];
-        let cfg = Config { groups: vec![], manual_order: vec![], sort: SortKey::Activity };
+        let cfg = Config { groups: vec![], manual_order: vec![], sort: SortKey::Activity, ..Default::default() };
         let state = PickerState::build(sessions, &cfg); // cursor on alpha (row 0)
 
         let backend = TestBackend::new(60, 20);
@@ -733,7 +887,7 @@ mod tests {
                 attached: false,
                 windows: vec![Window { index: 0, name: "w".into(), active: true }],
             }];
-            let cfg = Config { groups: vec![], manual_order: vec![], sort };
+            let cfg = Config { groups: vec![], manual_order: vec![], sort, ..Default::default() };
             render_to_string(&PickerState::build(sessions, &cfg))
         };
         assert!(mode_text(SortKey::Activity).contains("recency"), "recency label");
@@ -760,7 +914,7 @@ mod tests {
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
         ];
         let cfg = Config { groups: vec![Group { name: "G".into(), members: vec!["claude".into()], color: String::new() }],
-                           manual_order: vec![], sort: SortKey::Activity };
+                           manual_order: vec![], sort: SortKey::Activity, ..Default::default() };
         let text = render_to_string(&PickerState::build(sessions, &cfg));
         assert!(!text.contains('★'), "pin star retired");
     }
@@ -780,7 +934,7 @@ mod tests {
                 Group { name: "config".into(), members: vec!["claude".into()], color: String::new() },
                 Group { name: "tools".into(), members: vec!["tent".into()], color: String::new() },
             ],
-            manual_order: vec![], sort: SortKey::Activity,
+            manual_order: vec![], sort: SortKey::Activity, ..Default::default()
         };
         let state = PickerState::build(sessions, &cfg);
         let text = render_to_string(&state);
@@ -807,7 +961,7 @@ mod tests {
                 Group { name: "config".into(), members: vec!["claude".into()], color: String::new() },
                 Group { name: "tools".into(), members: vec![], color: String::new() }, // empty shelf
             ],
-            manual_order: vec![], sort: SortKey::Activity,
+            manual_order: vec![], sort: SortKey::Activity, ..Default::default()
         };
         let state = PickerState::build(sessions, &cfg);
 
@@ -844,11 +998,12 @@ mod tests {
             Session { name: "main".into(), activity: 100, created: 1, attached: false,
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
         ];
-        let cfg = Config { groups: vec![], manual_order: vec![], sort: SortKey::Activity };
+        let cfg = Config { groups: vec![], manual_order: vec![], sort: SortKey::Activity, ..Default::default() };
         let state = PickerState::build(sessions, &cfg);
         let text = render_to_string(&state);
         assert!(text.contains("search"), "footer hint: search present");
         assert!(text.contains("groups"), "footer hint: groups present");
+        assert!(text.contains("settings"), "footer hint: settings present");
         assert!(text.contains("sort"), "footer hint: sort present");
         assert!(text.contains("quit"), "footer hint: quit present");
     }
@@ -861,7 +1016,7 @@ mod tests {
             Session { name: "other".into(), activity: 20, created: 2, attached: false,
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
         ];
-        let cfg = Config { groups: vec![], manual_order: vec![], sort: SortKey::Activity };
+        let cfg = Config { groups: vec![], manual_order: vec![], sort: SortKey::Activity, ..Default::default() };
         let state = PickerState::build(sessions, &cfg); // main #1, other #2
 
         let backend = TestBackend::new(60, 20);
@@ -912,7 +1067,7 @@ mod tests {
             Session { name: "short".into(), activity: 20, created: 2, attached: false,
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
         ];
-        let cfg = Config { groups: vec![], manual_order: vec![], sort: SortKey::Activity };
+        let cfg = Config { groups: vec![], manual_order: vec![], sort: SortKey::Activity, ..Default::default() };
         let state = PickerState::build(sessions, &cfg);
 
         let backend = TestBackend::new(80, 20);
@@ -941,7 +1096,7 @@ mod tests {
             Session { name: "beta".into(), activity: 20, created: 2, attached: false,
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
         ];
-        let cfg = Config { groups: vec![], manual_order: vec![], sort: SortKey::Activity };
+        let cfg = Config { groups: vec![], manual_order: vec![], sort: SortKey::Activity, ..Default::default() };
         let state = PickerState::build(sessions, &cfg);
 
         let backend = TestBackend::new(80, 20);
@@ -964,7 +1119,7 @@ mod tests {
             Session { name: "other".into(), activity: 20, created: 2, attached: false,
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
         ];
-        let cfg = Config { groups: vec![], manual_order: vec![], sort: SortKey::Activity };
+        let cfg = Config { groups: vec![], manual_order: vec![], sort: SortKey::Activity, ..Default::default() };
         let state = PickerState::build(sessions, &cfg);
 
         let backend = TestBackend::new(80, 20);
@@ -988,7 +1143,7 @@ mod tests {
             Session { name: "alpha".into(), activity: 30, created: 1, attached: false,
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
         ];
-        let cfg = Config { groups: vec![], manual_order: vec![], sort: SortKey::Activity };
+        let cfg = Config { groups: vec![], manual_order: vec![], sort: SortKey::Activity, ..Default::default() };
         let state = PickerState::build(sessions, &cfg);
 
         let (w, h) = (60u16, 20u16);
@@ -1056,7 +1211,7 @@ mod tests {
         let cfg = Config {
             groups: vec![Group { name: "PINNED".into(), members: vec!["pr-review".into()], color: String::new() }],
             manual_order: vec![],
-            sort: SortKey::Activity,
+            sort: SortKey::Activity, ..Default::default()
         };
         let mut state = PickerState::build(sessions, &cfg);
         state.enter_search();
@@ -1112,6 +1267,25 @@ mod tests {
     }
 
     #[test]
+    fn settings_keys_map_to_ops() {
+        assert_eq!(map_settings_key(key(KeyCode::Char('j'))), SettingsInput::Down);
+        assert_eq!(map_settings_key(key(KeyCode::Down)), SettingsInput::Down);
+        assert_eq!(map_settings_key(key(KeyCode::Char('k'))), SettingsInput::Up);
+        assert_eq!(map_settings_key(key(KeyCode::Up)), SettingsInput::Up);
+        assert_eq!(map_settings_key(key(KeyCode::Char('l'))), SettingsInput::Right);
+        assert_eq!(map_settings_key(key(KeyCode::Right)), SettingsInput::Right);
+        assert_eq!(map_settings_key(key(KeyCode::Char('h'))), SettingsInput::Left);
+        assert_eq!(map_settings_key(key(KeyCode::Left)), SettingsInput::Left);
+        assert_eq!(map_settings_key(key(KeyCode::Enter)), SettingsInput::Activate);
+        assert_eq!(map_settings_key(key(KeyCode::Char(' '))), SettingsInput::Activate);
+        assert_eq!(map_settings_key(key(KeyCode::Char('c'))), SettingsInput::CycleStaticColor);
+        assert_eq!(map_settings_key(key(KeyCode::Esc)), SettingsInput::Exit);
+        assert_eq!(map_settings_key(key(KeyCode::Char('q'))), SettingsInput::Exit);
+        assert_eq!(map_settings_key(key(KeyCode::Char(','))), SettingsInput::Exit);
+        assert_eq!(map_settings_key(key(KeyCode::Char('x'))), SettingsInput::None);
+    }
+
+    #[test]
     fn draw_colors_group_header_by_its_color_in_session_mode() {
         // An explicit group color paints its header; a color-less group falls
         // back to the positional default (HEADER_COLORS[0] == cyan == ACCENT).
@@ -1126,7 +1300,7 @@ mod tests {
                 Group { name: "config".into(), members: vec!["claude".into()], color: String::new() },
                 Group { name: "tools".into(), members: vec!["tent".into()], color: "magenta".into() },
             ],
-            manual_order: vec![], sort: SortKey::Activity,
+            manual_order: vec![], sort: SortKey::Activity, ..Default::default()
         };
         let state = PickerState::build(sessions, &cfg);
 
@@ -1158,7 +1332,7 @@ mod tests {
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
         ];
         let cfg = Config { groups: vec![Group { name: "config".into(), members: vec!["claude".into()], color: String::new() }],
-                           manual_order: vec![], sort: SortKey::Activity };
+                           manual_order: vec![], sort: SortKey::Activity, ..Default::default() };
         let mut st = PickerState::build(sessions, &cfg);
         st.enter_groups();
         if edit { st.group_start_rename(); }
@@ -1191,7 +1365,7 @@ mod tests {
         terminal.draw(|f| draw(f, &st)).unwrap();
         let buf = terminal.backend().buffer().clone();
 
-        let expected = group_color(&st.groups[gi], gi);
+        let expected = group_color(&st.groups[gi], gi, &st.active_palette);
         let mut found_visible_name_cell = false;
         for y in 0..buf.area.height {
             for x in 0..buf.area.width {
@@ -1222,7 +1396,7 @@ mod tests {
             Session { name: "alpha".into(), activity: 30, created: 1, attached: false,
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
         ];
-        let cfg = Config { groups: vec![], manual_order: vec![], sort: SortKey::Activity };
+        let cfg = Config { groups: vec![], manual_order: vec![], sort: SortKey::Activity, ..Default::default() };
         let state = PickerState::build(sessions, &cfg);
 
         // Smaller than 2*margin+1: must not panic and must keep its size.
@@ -1232,5 +1406,125 @@ mod tests {
         let buf = terminal.backend().buffer().clone();
         assert_eq!(buf.area.width, 3);
         assert_eq!(buf.area.height, 3);
+    }
+
+    #[test]
+    fn color_from_name_maps_all_sixteen_named_colors() {
+        assert_eq!(color_from_name("black"), Color::Black);
+        assert_eq!(color_from_name("red"), Color::Red);
+        assert_eq!(color_from_name("green"), Color::Green);
+        assert_eq!(color_from_name("yellow"), Color::Yellow);
+        assert_eq!(color_from_name("blue"), Color::Blue);
+        assert_eq!(color_from_name("magenta"), Color::Magenta);
+        assert_eq!(color_from_name("cyan"), Color::Cyan);
+        assert_eq!(color_from_name("gray"), Color::Gray);
+        assert_eq!(color_from_name("darkgray"), Color::DarkGray);
+        assert_eq!(color_from_name("lightred"), Color::LightRed);
+        assert_eq!(color_from_name("lightgreen"), Color::LightGreen);
+        assert_eq!(color_from_name("lightyellow"), Color::LightYellow);
+        assert_eq!(color_from_name("lightblue"), Color::LightBlue);
+        assert_eq!(color_from_name("lightmagenta"), Color::LightMagenta);
+        assert_eq!(color_from_name("lightcyan"), Color::LightCyan);
+        assert_eq!(color_from_name("white"), Color::White);
+        assert_eq!(color_from_name("bogus"), Color::Cyan, "unknown name falls back to the accent");
+    }
+
+    #[test]
+    fn draw_colors_group_header_from_active_palette_not_a_fixed_const() {
+        let sessions = vec![
+            Session { name: "claude".into(), activity: 30, created: 1, attached: false,
+                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+        ];
+        let cfg = Config {
+            groups: vec![Group { name: "config".into(), members: vec!["claude".into()], color: String::new() }],
+            active_palette: vec!["white".to_string()],
+            ..Default::default()
+        };
+        let state = PickerState::build(sessions, &cfg);
+
+        let backend = TestBackend::new(80, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| draw(f, &state)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+
+        let mut config_white = false;
+        for y in 0..buf.area.height {
+            let line: String = (0..buf.area.width).map(|x| buf[(x, y)].symbol()).collect();
+            if let Some(i) = line.find("CONFIG") {
+                config_white = buf[(i as u16, y)].style().fg == Some(Color::White);
+            }
+        }
+        assert!(config_white, "positional default reads the configured active_palette");
+    }
+
+    #[test]
+    fn comma_enters_settings_from_command_mode() {
+        assert_eq!(map_key(key(KeyCode::Char(','))), Input::EnterSettings);
+    }
+
+    #[test]
+    fn draw_shows_settings_footer_hint() {
+        let sessions = vec![
+            Session { name: "main".into(), activity: 100, created: 1, attached: false,
+                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+        ];
+        let cfg = Config::default();
+        let state = PickerState::build(sessions, &cfg);
+        let text = render_to_string(&state);
+        assert!(text.contains("settings"), "footer hint: settings present");
+    }
+
+    fn settings_view() -> PickerState {
+        let sessions = vec![Session { name: "a".into(), activity: 1, created: 1, attached: false,
+                                       windows: vec![Window { index: 0, name: "w".into(), active: true }] }];
+        let cfg = Config::default();
+        let mut st = PickerState::build(sessions, &cfg);
+        st.enter_settings();
+        st
+    }
+
+    #[test]
+    fn draw_settings_shows_three_rows_and_footer() {
+        let text = render_to_string(&settings_view());
+        assert!(text.contains("Default mode"));
+        assert!(text.contains("Command"));
+        assert!(text.contains("New group color"));
+        assert!(text.contains("Rotate"));
+        assert!(text.contains("Color palette"));
+        assert!(text.contains("active"));
+        assert!(text.contains("Esc"));
+    }
+
+    #[test]
+    fn draw_settings_expanded_palette_shows_swatches_and_checkboxes() {
+        let mut st = settings_view();
+        st.settings_move_cursor(2);
+        st.settings_step_right(); // expand
+        let text = render_to_string(&st);
+        assert!(text.contains("[x]"), "active color checked");
+        assert!(text.contains("[ ]"), "inactive color unchecked");
+        assert!(text.contains("cyan"));
+        assert!(text.contains("black"));
+    }
+
+    #[test]
+    fn draw_settings_shows_static_color_value_when_policy_is_static() {
+        let mut st = settings_view();
+        st.settings_move_cursor(1); // ColorPolicy row
+        st.settings_step_right(); // Rotate -> Random
+        st.settings_step_right(); // Random -> Static
+        st.static_color = "magenta".to_string();
+        let text = render_to_string(&st);
+        assert!(text.contains("Static"));
+        assert!(text.contains("magenta"), "the selected static color is visible on the row");
+    }
+
+    #[test]
+    fn draw_settings_does_not_show_a_color_value_for_rotate_or_random() {
+        let text = render_to_string(&settings_view()); // default policy is Rotate
+        // "Rotate" itself is on screen, but no color name should follow it
+        // since Rotate has no single fixed color to show.
+        assert!(text.contains("Rotate"));
+        assert!(!text.contains("██"), "no swatch for Rotate/Random policies");
     }
 }
