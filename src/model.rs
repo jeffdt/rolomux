@@ -33,7 +33,6 @@ pub enum DefaultMode {
 }
 
 impl DefaultMode {
-    #[allow(dead_code)]
     pub fn from_config_str(s: &str) -> DefaultMode {
         match s {
             "search" => DefaultMode::Search,
@@ -41,7 +40,6 @@ impl DefaultMode {
         }
     }
 
-    #[allow(dead_code)]
     pub fn as_config_str(self) -> &'static str {
         match self {
             DefaultMode::Command => "command",
@@ -52,7 +50,6 @@ impl DefaultMode {
     /// The other value. A 2-state cycle, so `h`, `l`, and `Enter`/`Space` on
     /// the Default Mode settings row all call this: there is no distinct
     /// "previous".
-    #[allow(dead_code)]
     pub fn next(self) -> DefaultMode {
         match self {
             DefaultMode::Command => DefaultMode::Search,
@@ -60,7 +57,6 @@ impl DefaultMode {
         }
     }
 
-    #[allow(dead_code)]
     pub fn as_mode(self) -> Mode {
         match self {
             DefaultMode::Command => Mode::Command,
@@ -80,7 +76,6 @@ pub enum ColorPolicy {
 }
 
 impl ColorPolicy {
-    #[allow(dead_code)]
     pub fn from_config_str(s: &str) -> ColorPolicy {
         match s {
             "random" => ColorPolicy::Random,
@@ -89,7 +84,6 @@ impl ColorPolicy {
         }
     }
 
-    #[allow(dead_code)]
     pub fn as_config_str(self) -> &'static str {
         match self {
             ColorPolicy::Rotate => "rotate",
@@ -98,7 +92,6 @@ impl ColorPolicy {
         }
     }
 
-    #[allow(dead_code)]
     pub fn next(self) -> ColorPolicy {
         match self {
             ColorPolicy::Rotate => ColorPolicy::Random,
@@ -107,7 +100,6 @@ impl ColorPolicy {
         }
     }
 
-    #[allow(dead_code)]
     pub fn prev(self) -> ColorPolicy {
         match self {
             ColorPolicy::Rotate => ColorPolicy::Static,
@@ -119,7 +111,6 @@ impl ColorPolicy {
 
 /// All 16 named ANSI terminal colors (never RGB), in a fixed canonical order.
 /// Backs the settings palette checklist and the Static-policy color cycle.
-#[allow(dead_code)]
 pub const ALL_NAMED_COLORS: [&str; 16] = [
     "black", "red", "green", "yellow", "blue", "magenta", "cyan", "gray",
     "darkgray", "lightred", "lightgreen", "lightyellow", "lightblue",
@@ -234,17 +225,11 @@ pub struct PickerState {
     pub group_cursor: usize,
     /// In-flight rename buffer; `Some` while a rename is in progress.
     pub group_edit: Option<String>,
-    #[allow(dead_code)]
     pub default_mode: DefaultMode,
-    #[allow(dead_code)]
     pub new_group_color_policy: ColorPolicy,
-    #[allow(dead_code)]
     pub static_color: String,
-    #[allow(dead_code)]
     pub active_palette: Vec<String>,
-    #[allow(dead_code)]
     settings_cursor: usize,
-    #[allow(dead_code)]
     palette_expanded: bool,
 }
 
@@ -604,25 +589,21 @@ impl PickerState {
     }
 
     /// Enter the full-screen settings overlay.
-    #[allow(dead_code)]
     pub fn enter_settings(&mut self) {
         self.mode = Mode::Settings;
     }
 
     /// Leave settings mode back to session command mode.
-    #[allow(dead_code)]
     pub fn exit_settings(&mut self) {
         self.mode = Mode::Command;
     }
 
     /// The current cursor position within the settings rows (Task 4).
-    #[allow(dead_code)]
     pub fn settings_cursor(&self) -> usize {
         self.settings_cursor
     }
 
     /// Whether the color-palette checklist is currently expanded (Task 4).
-    #[allow(dead_code)]
     pub fn palette_expanded(&self) -> bool {
         self.palette_expanded
     }
@@ -656,7 +637,6 @@ impl PickerState {
     }
 
     /// Move the settings cursor by `delta`, clamped to the valid range.
-    #[allow(dead_code)]
     pub fn settings_move_cursor(&mut self, delta: i32) {
         let len = self.settings_visible_rows().len() as i32;
         if len == 0 {
@@ -667,7 +647,6 @@ impl PickerState {
     }
 
     /// The settings row the cursor currently sits on.
-    #[allow(dead_code)]
     fn current_settings_row(&self) -> SettingsRow {
         let rows = self.settings_visible_rows();
         rows[self.settings_cursor.min(rows.len().saturating_sub(1))]
@@ -676,7 +655,6 @@ impl PickerState {
     /// `h` on the current settings row: step Default Mode / Color Policy
     /// backward, collapse the palette, or (from a palette color row) collapse
     /// and jump back to the Palette row.
-    #[allow(dead_code)]
     pub fn settings_step_left(&mut self) {
         match self.current_settings_row() {
             SettingsRow::DefaultMode => {
@@ -698,7 +676,6 @@ impl PickerState {
     /// `l` on the current settings row: step Default Mode / Color Policy
     /// forward, or expand the palette. A no-op on an already-expanded palette
     /// color row (there is nothing further to expand).
-    #[allow(dead_code)]
     pub fn settings_step_right(&mut self) {
         match self.current_settings_row() {
             SettingsRow::DefaultMode => {
@@ -717,7 +694,6 @@ impl PickerState {
     /// `Enter`/`Space` on the current settings row: steps Default Mode / Color
     /// Policy forward (same as `l`), or (Task 6) toggles a palette color's
     /// active state.
-    #[allow(dead_code)]
     pub fn settings_activate(&mut self) {
         match self.current_settings_row() {
             SettingsRow::DefaultMode => {
@@ -759,7 +735,6 @@ impl PickerState {
     /// Reorder the active color under the cursor by `delta` within the active
     /// set (Shift+J/K). A no-op on an inactive color or at either end of the
     /// active set.
-    #[allow(dead_code)]
     pub fn settings_reorder_palette_color(&mut self, delta: i32) {
         let rows = self.settings_visible_rows();
         let idx = match rows.get(self.settings_cursor) {
@@ -785,7 +760,6 @@ impl PickerState {
     }
 
     /// Move the settings cursor onto the given color's current display row.
-    #[allow(dead_code)]
     fn settings_focus_palette_color(&mut self, name: &str) {
         let entries = self.settings_palette_rows();
         let idx = match entries.iter().position(|(n, _)| n == name) {
@@ -801,7 +775,6 @@ impl PickerState {
     /// `c` on the Color Policy row while the policy is Static: cycle
     /// `static_color` through all 16 named colors (independent of the active
     /// palette). A no-op anywhere else, or when the policy isn't Static.
-    #[allow(dead_code)]
     pub fn settings_cycle_static_color(&mut self) {
         if self.current_settings_row() != SettingsRow::ColorPolicy {
             return;
