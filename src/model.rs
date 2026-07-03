@@ -217,6 +217,7 @@ pub enum SettingsRow {
 
 use crate::store::Config;
 use std::collections::HashSet;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 pub struct PickerState {
     all: Vec<Session>,
@@ -848,12 +849,18 @@ impl PickerState {
     }
 
     /// Append a new empty group after the last named group and begin naming it.
+    /// The header color is resolved from the current new-group-color policy:
+    /// Rotate leaves it unset (positional default, resolved at render/cycle
+    /// time from the live active palette); Random picks once now from the
+    /// active palette; Static uses the configured static color. Neither Random
+    /// nor Static retroactively touch any other group.
     pub fn group_new(&mut self) {
-        self.groups.push(Group {
-            name: String::new(),
-            members: Vec::new(),
-            color: String::new(),
-        });
+        let color = match self.new_group_color_policy {
+            ColorPolicy::Rotate => String::new(),
+            ColorPolicy::Random => pick_random_color(&self.active_palette, random_seed()),
+            ColorPolicy::Static => self.static_color.clone(),
+        };
+        self.groups.push(Group { name: String::new(), members: Vec::new(), color });
         self.group_cursor = self.groups.len() - 1;
         self.group_edit = Some(String::new());
     }
@@ -1068,6 +1075,25 @@ impl PickerState {
             self.focus_session(&name);
         }
     }
+}
+
+/// Deterministic pick for the Random new-group-color policy: `seed modulo
+/// palette.len()`. Empty palette yields an empty string (the caller treats
+/// that the same as an unset/positional color). Pure and directly testable
+/// with fixed seed literals; the one production call site (`group_new`)
+/// sources `seed` from `random_seed` below.
+pub fn pick_random_color(palette: &[String], seed: u64) -> String {
+    if palette.is_empty() {
+        return String::new();
+    }
+    palette[(seed as usize) % palette.len()].clone()
+}
+
+fn random_seed() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(0)
 }
 
 #[cfg(test)]
@@ -2136,5 +2162,50 @@ mod tests {
         assert_eq!(st.static_color, "gray", "not cleared by switching away from Static");
         st.settings_step_right(); st.settings_step_right(); // Random -> Static
         assert_eq!(st.static_color, "gray", "round-trips back without loss");
+    }
+
+    #[test]
+    fn pick_random_color_selects_by_seed_modulo_palette_len() {
+        let palette = vec!["a".to_string(), "b".to_string(), "c".to_string()];
+        assert_eq!(pick_random_color(&palette, 0), "a");
+        assert_eq!(pick_random_color(&palette, 1), "b");
+        assert_eq!(pick_random_color(&palette, 2), "c");
+        assert_eq!(pick_random_color(&palette, 3), "a", "wraps");
+    }
+
+    #[test]
+    fn pick_random_color_empty_palette_returns_empty_string() {
+        assert_eq!(pick_random_color(&[], 42), "");
+    }
+
+    #[test]
+    fn group_new_under_rotate_policy_leaves_color_empty() {
+        let mut st = grouped_state(); // default policy is Rotate
+        st.enter_groups();
+        st.group_new();
+        assert!(st.groups.last().unwrap().color.is_empty(), "unchanged Rotate behavior");
+    }
+
+    #[test]
+    fn group_new_under_static_policy_uses_the_configured_static_color() {
+        let mut st = grouped_state();
+        st.new_group_color_policy = ColorPolicy::Static;
+        st.static_color = "magenta".to_string();
+        st.enter_groups();
+        st.group_new();
+        assert_eq!(st.groups.last().unwrap().color, "magenta");
+    }
+
+    #[test]
+    fn group_new_under_random_policy_picks_from_the_active_palette() {
+        let mut st = grouped_state();
+        st.new_group_color_policy = ColorPolicy::Random;
+        st.enter_groups();
+        st.group_new();
+        let picked = st.groups.last().unwrap().color.clone();
+        assert!(
+            st.active_palette.contains(&picked),
+            "random pick must come from the active palette"
+        );
     }
 }
