@@ -22,6 +22,8 @@ pub struct Config {
     pub new_group_color_policy: ColorPolicy,
     pub static_color: String,
     pub active_palette: Vec<String>,
+    pub attached_color: String,
+    pub border_color: String,
 }
 
 /// The active palette a fresh `Config` starts with, and the fallback when a
@@ -40,6 +42,8 @@ impl Default for Config {
             new_group_color_policy: ColorPolicy::default(),
             static_color: "cyan".to_string(),
             active_palette: default_active_palette(),
+            attached_color: "cyan".to_string(),
+            border_color: "cyan".to_string(),
         }
     }
 }
@@ -63,6 +67,10 @@ struct RawSettings {
     static_color: Option<String>,
     #[serde(default)]
     active_palette: Option<Vec<String>>,
+    #[serde(default)]
+    attached_color: Option<String>,
+    #[serde(default)]
+    border_color: Option<String>,
 }
 
 #[derive(serde::Serialize)]
@@ -71,6 +79,8 @@ struct OutSettings {
     new_group_color_policy: String,
     static_color: String,
     active_palette: Vec<String>,
+    attached_color: String,
+    border_color: String,
 }
 
 #[derive(Deserialize, Default)]
@@ -148,6 +158,8 @@ impl Config {
             .map(ColorPolicy::from_config_str)
             .unwrap_or_default();
         let static_color = raw.settings.static_color.unwrap_or_else(|| "cyan".to_string());
+        let attached_color = raw.settings.attached_color.unwrap_or_else(|| "cyan".to_string());
+        let border_color = raw.settings.border_color.unwrap_or_else(|| "cyan".to_string());
         let active_palette = raw
             .settings
             .active_palette
@@ -161,6 +173,8 @@ impl Config {
             new_group_color_policy,
             static_color,
             active_palette,
+            attached_color,
+            border_color,
         }
     }
 
@@ -189,6 +203,8 @@ impl Config {
                 new_group_color_policy: self.new_group_color_policy.as_config_str().to_string(),
                 static_color: self.static_color.clone(),
                 active_palette: self.active_palette.clone(),
+                attached_color: self.attached_color.clone(),
+                border_color: self.border_color.clone(),
             },
         };
         let body = toml::to_string(&out).map_err(io::Error::other)?;
@@ -448,6 +464,8 @@ mod tests {
         assert_eq!(cfg.default_mode, DefaultMode::Command);
         assert_eq!(cfg.new_group_color_policy, ColorPolicy::Rotate);
         assert_eq!(cfg.static_color, "cyan");
+        assert_eq!(cfg.attached_color, "cyan");
+        assert_eq!(cfg.border_color, "cyan");
         assert_eq!(
             cfg.active_palette,
             HEADER_COLORS.iter().map(|s| s.to_string()).collect::<Vec<_>>()
@@ -465,6 +483,8 @@ mod tests {
         assert_eq!(cfg.default_mode, DefaultMode::Command);
         assert_eq!(cfg.new_group_color_policy, ColorPolicy::Rotate);
         assert_eq!(cfg.static_color, "cyan");
+        assert_eq!(cfg.attached_color, "cyan");
+        assert_eq!(cfg.border_color, "cyan");
         assert_eq!(
             cfg.active_palette,
             HEADER_COLORS.iter().map(|s| s.to_string()).collect::<Vec<_>>()
@@ -502,6 +522,8 @@ mod tests {
             new_group_color_policy: ColorPolicy::Static,
             static_color: "magenta".to_string(),
             active_palette: vec!["magenta".to_string(), "white".to_string()],
+            attached_color: "lightgreen".to_string(),
+            border_color: "yellow".to_string(),
             ..Default::default()
         };
         cfg.save_to(&path).unwrap();
@@ -509,6 +531,8 @@ mod tests {
         assert_eq!(reloaded.default_mode, DefaultMode::Search);
         assert_eq!(reloaded.new_group_color_policy, ColorPolicy::Static);
         assert_eq!(reloaded.static_color, "magenta");
+        assert_eq!(reloaded.attached_color, "lightgreen");
+        assert_eq!(reloaded.border_color, "yellow");
         assert_eq!(
             reloaded.active_palette,
             vec!["magenta".to_string(), "white".to_string()]

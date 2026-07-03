@@ -1,5 +1,6 @@
 use crate::model::{
     ColorPolicy, DefaultMode, Group, Mode, PickerState, Row, Session, SettingsRow, Window,
+    ALL_NAMED_COLORS,
 };
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
@@ -89,13 +90,14 @@ fn inset(area: Rect, margin: u16) -> Rect {
 
 pub fn draw(frame: &mut Frame, state: &PickerState) {
     let area = inset(frame.area(), POPUP_MARGIN);
+    let border_color = color_from_name(&state.border_color);
     let block = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(ACCENT))
+        .border_style(Style::default().fg(border_color))
         .title(Span::styled(
             " smux  session picker ",
-            Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+            Style::default().fg(border_color).add_modifier(Modifier::BOLD),
         ));
     let inner = block.inner(area);
     frame.render_widget(block, area);
@@ -128,6 +130,7 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
         Row::Window(..) => None,
     });
     let meta = MetaLayout::compute(session_refs, list_area.width);
+    let attached_color = color_from_name(&state.attached_color);
 
     let group_ids = state.ordered_group_ids();
     let mut items: Vec<ListItem> = Vec::new();
@@ -178,6 +181,7 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
                     number,
                     meta,
                     state.is_dormant(&sess.name),
+                    attached_color,
                 ));
             }
             Row::Window(si, wi) => {
@@ -226,7 +230,7 @@ fn draw_search(frame: &mut Frame, state: &PickerState, inner: Rect) {
     let prompt = Line::from(vec![
         Span::styled("search: ", Style::default().fg(DIM)),
         Span::raw(state.query.clone()),
-        Span::styled("▏", Style::default().fg(ACCENT)),
+        Span::styled("▏", Style::default().fg(color_from_name(&state.border_color))),
     ]);
     frame.render_widget(Paragraph::new(prompt), chunks[0]);
 
@@ -240,13 +244,14 @@ fn draw_search(frame: &mut Frame, state: &PickerState, inner: Rect) {
         ))));
     } else {
         let meta = MetaLayout::compute(results.iter().copied(), chunks[1].width);
+        let attached_color = color_from_name(&state.attached_color);
         for (i, sess) in results.iter().enumerate() {
             let selected = i == state.search_cursor();
             if selected {
                 selected_line = Some(items.len());
             }
             // Flat, collapsed, no jump number (None), normal metadata.
-            items.push(session_item(sess, false, selected, None, meta, state.is_dormant(&sess.name)));
+            items.push(session_item(sess, false, selected, None, meta, state.is_dormant(&sess.name), attached_color));
         }
     }
     let list = List::new(items)
@@ -283,7 +288,7 @@ fn draw_groups(frame: &mut Frame, state: &PickerState, inner: Rect) {
             let buf = state.group_edit_buffer().unwrap_or("");
             Line::from(vec![
                 Span::styled(buf.to_uppercase(), Style::default().add_modifier(Modifier::BOLD)),
-                Span::styled("▏", Style::default().fg(ACCENT)),
+                Span::styled("▏", Style::default().fg(color_from_name(&state.border_color))),
             ])
         } else {
             // Group mode always shows a group's real (flippable) header color,
@@ -340,6 +345,18 @@ fn draw_settings(frame: &mut Frame, state: &PickerState, inner: Rect) {
         let line = match row {
             SettingsRow::DefaultMode => {
                 settings_value_line("Default mode", default_mode_label(state.default_mode), selected)
+            }
+            SettingsRow::AttachedColor => {
+                settings_color_line("Attached session color", &state.attached_color, state.attached_color_expanded(), selected)
+            }
+            SettingsRow::AttachedColorOption(idx) => {
+                settings_color_option_line(ALL_NAMED_COLORS[*idx], &state.attached_color, selected)
+            }
+            SettingsRow::BorderColor => {
+                settings_color_line("Border color", &state.border_color, state.border_color_expanded(), selected)
+            }
+            SettingsRow::BorderColorOption(idx) => {
+                settings_color_option_line(ALL_NAMED_COLORS[*idx], &state.border_color, selected)
             }
             SettingsRow::ColorPolicy => {
                 let mut spans = vec![
@@ -404,6 +421,36 @@ fn settings_value_line(label: &str, value: &str, selected: bool) -> Line<'static
     Line::from(vec![
         Span::styled(label.to_string(), Style::default().add_modifier(Modifier::BOLD)),
         Span::styled(format!("  {value}"), secondary(selected)),
+    ])
+}
+
+/// Render a collapsed single-color settings row: an expand glyph, the bold
+/// label, a swatch, and the color's name. Shared by Attached session color
+/// and Border color.
+fn settings_color_line(label: &str, color_name: &str, expanded: bool, selected: bool) -> Line<'static> {
+    let glyph = if expanded { "▾" } else { "▸" };
+    Line::from(vec![
+        Span::styled(format!("{glyph} "), secondary(selected)),
+        Span::styled(label.to_string(), Style::default().add_modifier(Modifier::BOLD)),
+        Span::raw("  "),
+        Span::styled("██", Style::default().fg(color_from_name(color_name))),
+        Span::styled(format!(" {color_name}"), secondary(selected)),
+    ])
+}
+
+/// Render one child row of an expanded single-color picker: a radio glyph
+/// (`●` if `name` is the currently selected color, `○` otherwise), a swatch,
+/// and the name. Distinct from `PaletteColor`'s `[x]`/`[ ]` checkbox glyph,
+/// which communicates "pick many" instead of "pick one."
+fn settings_color_option_line(name: &str, current: &str, selected: bool) -> Line<'static> {
+    let radio = if name == current { "●" } else { "○" };
+    Line::from(vec![
+        Span::raw("     "),
+        Span::styled(radio.to_string(), secondary(selected)),
+        Span::raw(" "),
+        Span::styled("██", Style::default().fg(color_from_name(name))),
+        Span::raw(" "),
+        Span::raw(name.to_string()),
     ])
 }
 
@@ -531,11 +578,12 @@ fn session_item(
     number: Option<usize>,
     meta: MetaLayout,
     dormant: bool,
+    attached_color: Color,
 ) -> ListItem<'static> {
     let glyph = if expanded { "▾" } else { "▸" };
     let num = match number { Some(n) => format!("{n} "), None => "  ".to_string() };
     let name_style = if sess.attached {
-        Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)
+        Style::default().fg(attached_color).add_modifier(Modifier::BOLD)
     } else if dormant {
         secondary(selected)
     } else {
@@ -632,7 +680,7 @@ pub enum SettingsInput {
     Left,
     Right,
     Activate,
-    CycleStaticColor,
+    CycleColor,
     Exit,
     None,
 }
@@ -648,7 +696,7 @@ pub fn map_settings_key(key: KeyEvent) -> SettingsInput {
         KeyCode::Char('l') | KeyCode::Right => SettingsInput::Right,
         KeyCode::Char('h') | KeyCode::Left => SettingsInput::Left,
         KeyCode::Enter | KeyCode::Char(' ') => SettingsInput::Activate,
-        KeyCode::Char('c') => SettingsInput::CycleStaticColor,
+        KeyCode::Char('c') => SettingsInput::CycleColor,
         KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char(',') => SettingsInput::Exit,
         _ => SettingsInput::None,
     }
@@ -762,6 +810,49 @@ mod tests {
         assert!(text.contains("SESSIONS"), "sessions header present");
         assert!(text.contains("pr-review"), "pinned session present");
         assert!(text.contains("scratch"), "unpinned session present");
+    }
+
+    #[test]
+    fn border_and_title_use_the_configured_border_color() {
+        let sessions = vec![Session { name: "a".into(), activity: 1, created: 1, attached: false,
+                                       windows: vec![] }];
+        let cfg = Config { border_color: "magenta".to_string(), ..Default::default() };
+        let state = PickerState::build(sessions, &cfg);
+        let backend = TestBackend::new(80, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| draw(f, &state)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+        // Top-left border corner, inset by POPUP_MARGIN.
+        let corner = buf[(POPUP_MARGIN, POPUP_MARGIN)].style().fg;
+        assert_eq!(corner, Some(Color::Magenta), "border picks up the configured color");
+        let mut title_magenta = false;
+        for y in 0..buf.area.height {
+            let line: String = (0..buf.area.width).map(|x| buf[(x, y)].symbol()).collect();
+            if let Some(x) = line.find("session picker") {
+                title_magenta = buf[(x as u16, y)].style().fg == Some(Color::Magenta);
+            }
+        }
+        assert!(title_magenta, "title text picks up the configured border color");
+    }
+
+    #[test]
+    fn attached_session_name_uses_the_configured_attached_color() {
+        let sessions = vec![Session { name: "current".into(), activity: 1, created: 1, attached: true,
+                                       windows: vec![] }];
+        let cfg = Config { attached_color: "lightgreen".to_string(), ..Default::default() };
+        let state = PickerState::build(sessions, &cfg);
+        let backend = TestBackend::new(80, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| draw(f, &state)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+        let mut found_lightgreen = false;
+        for y in 0..buf.area.height {
+            let line: String = (0..buf.area.width).map(|x| buf[(x, y)].symbol()).collect();
+            if let Some(x) = line.find("current") {
+                found_lightgreen = buf[(x as u16, y)].style().fg == Some(Color::LightGreen);
+            }
+        }
+        assert!(found_lightgreen, "attached session name picks up the configured color");
     }
 
     #[test]
@@ -1301,7 +1392,7 @@ mod tests {
         assert_eq!(map_settings_key(key(KeyCode::Left)), SettingsInput::Left);
         assert_eq!(map_settings_key(key(KeyCode::Enter)), SettingsInput::Activate);
         assert_eq!(map_settings_key(key(KeyCode::Char(' '))), SettingsInput::Activate);
-        assert_eq!(map_settings_key(key(KeyCode::Char('c'))), SettingsInput::CycleStaticColor);
+        assert_eq!(map_settings_key(key(KeyCode::Char('c'))), SettingsInput::CycleColor);
         assert_eq!(map_settings_key(key(KeyCode::Esc)), SettingsInput::Exit);
         assert_eq!(map_settings_key(key(KeyCode::Char('q'))), SettingsInput::Exit);
         assert_eq!(map_settings_key(key(KeyCode::Char(','))), SettingsInput::Exit);
@@ -1520,9 +1611,44 @@ mod tests {
     }
 
     #[test]
+    fn draw_settings_shows_attached_and_border_color_rows() {
+        let text = render_to_string(&settings_view());
+        assert!(text.contains("Attached session color"));
+        assert!(text.contains("Border color"));
+        // Both default to cyan and render collapsed with a swatch + name.
+        assert_eq!(text.matches("cyan").count(), 2, "one swatch label per collapsed color row");
+    }
+
+    #[test]
+    fn draw_settings_expanded_attached_color_shows_radio_glyphs() {
+        let mut st = settings_view();
+        st.settings_move_cursor(1); // AttachedColor
+        st.settings_step_right(); // expand
+        let text = render_to_string(&st);
+        assert!(text.contains("●"), "the currently selected color is marked filled");
+        assert!(text.contains("○"), "unselected colors are marked hollow");
+        // "white" (the last option) sits below the 12-row test viewport once
+        // the list scrolls to keep the selected "cyan" row in view; assert on
+        // colors that are actually on screen instead (mirrors the sibling
+        // draw_settings_expanded_palette_shows_swatches_and_checkboxes test).
+        assert!(text.contains("black"));
+        assert!(text.contains("red"));
+    }
+
+    #[test]
+    fn draw_settings_expanded_border_color_shows_radio_glyphs() {
+        let mut st = settings_view();
+        st.settings_move_cursor(2); // BorderColor
+        st.settings_step_right();
+        let text = render_to_string(&st);
+        assert!(text.contains("●"));
+        assert!(text.contains("○"));
+    }
+
+    #[test]
     fn draw_settings_expanded_palette_shows_swatches_and_checkboxes() {
         let mut st = settings_view();
-        st.settings_move_cursor(2);
+        st.settings_move_cursor(4); // Palette
         st.settings_step_right(); // expand
         let text = render_to_string(&st);
         assert!(text.contains("[x]"), "active color checked");
@@ -1534,7 +1660,7 @@ mod tests {
     #[test]
     fn draw_settings_shows_static_color_value_when_policy_is_static() {
         let mut st = settings_view();
-        st.settings_move_cursor(1); // ColorPolicy row
+        st.settings_move_cursor(3); // ColorPolicy row
         st.settings_step_right(); // Rotate -> Random
         st.settings_step_right(); // Random -> Static
         st.static_color = "magenta".to_string();
@@ -1547,8 +1673,14 @@ mod tests {
     fn draw_settings_does_not_show_a_color_value_for_rotate_or_random() {
         let text = render_to_string(&settings_view()); // default policy is Rotate
         // "Rotate" itself is on screen, but no color name should follow it
-        // since Rotate has no single fixed color to show.
+        // since Rotate has no single fixed color to show. The only two
+        // swatches on screen are the always-present Attached/Border color
+        // rows; Rotate/Random must not add a third for the policy row.
         assert!(text.contains("Rotate"));
-        assert!(!text.contains("██"), "no swatch for Rotate/Random policies");
+        assert_eq!(
+            text.matches("██").count(),
+            2,
+            "no extra swatch for Rotate/Random policies beyond the Attached/Border color rows"
+        );
     }
 }
