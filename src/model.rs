@@ -25,6 +25,98 @@ impl SortKey {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum DefaultMode {
+    #[default]
+    Command,
+    Search,
+}
+
+impl DefaultMode {
+    pub fn from_config_str(s: &str) -> DefaultMode {
+        match s {
+            "search" => DefaultMode::Search,
+            _ => DefaultMode::Command,
+        }
+    }
+
+    pub fn as_config_str(self) -> &'static str {
+        match self {
+            DefaultMode::Command => "command",
+            DefaultMode::Search => "search",
+        }
+    }
+
+    /// The other value. A 2-state cycle, so `h`, `l`, and `Enter`/`Space` on
+    /// the Default Mode settings row all call this: there is no distinct
+    /// "previous".
+    pub fn next(self) -> DefaultMode {
+        match self {
+            DefaultMode::Command => DefaultMode::Search,
+            DefaultMode::Search => DefaultMode::Command,
+        }
+    }
+
+    pub fn as_mode(self) -> Mode {
+        match self {
+            DefaultMode::Command => Mode::Command,
+            DefaultMode::Search => Mode::Search,
+        }
+    }
+}
+
+/// Governs the header color assigned when a new group is created
+/// (`PickerState::group_new`). Never retroactively recolors existing groups.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ColorPolicy {
+    #[default]
+    Rotate,
+    Random,
+    Static,
+}
+
+impl ColorPolicy {
+    pub fn from_config_str(s: &str) -> ColorPolicy {
+        match s {
+            "random" => ColorPolicy::Random,
+            "static" => ColorPolicy::Static,
+            _ => ColorPolicy::Rotate,
+        }
+    }
+
+    pub fn as_config_str(self) -> &'static str {
+        match self {
+            ColorPolicy::Rotate => "rotate",
+            ColorPolicy::Random => "random",
+            ColorPolicy::Static => "static",
+        }
+    }
+
+    pub fn next(self) -> ColorPolicy {
+        match self {
+            ColorPolicy::Rotate => ColorPolicy::Random,
+            ColorPolicy::Random => ColorPolicy::Static,
+            ColorPolicy::Static => ColorPolicy::Rotate,
+        }
+    }
+
+    pub fn prev(self) -> ColorPolicy {
+        match self {
+            ColorPolicy::Rotate => ColorPolicy::Static,
+            ColorPolicy::Random => ColorPolicy::Rotate,
+            ColorPolicy::Static => ColorPolicy::Random,
+        }
+    }
+}
+
+/// All 16 named ANSI terminal colors (never RGB), in a fixed canonical order.
+/// Backs the settings palette checklist and the Static-policy color cycle.
+pub const ALL_NAMED_COLORS: [&str; 16] = [
+    "black", "red", "green", "yellow", "blue", "magenta", "cyan", "gray",
+    "darkgray", "lightred", "lightgreen", "lightyellow", "lightblue",
+    "lightmagenta", "lightcyan", "white",
+];
+
 /// Where the cursor starts when the picker opens. Like `SortKey`, this is a
 /// swappable seam: change the single `INITIAL_FOCUS` constant below to pick a
 /// policy without touching `build`.
@@ -47,19 +139,17 @@ pub const INITIAL_FOCUS: InitialFocus = InitialFocus::CurrentSession;
 
 /// Picker interaction mode. `Command` is the single-keystroke command UI;
 /// `Search` routes typed characters into a fuzzy-filter query; `Groups` is the
-/// full-screen group-management overlay. Which mode the picker launches in is
-/// the `DEFAULT_MODE` seam below (cf. `INITIAL_FOCUS`), so a future
-/// `default_mode` config key can select it without reworking the loop.
+/// full-screen group-management overlay; `Settings` is the full-screen
+/// settings overlay. Which mode the picker launches in is governed by the
+/// persisted `default_mode` preference (`Config::default_mode`, of type
+/// `DefaultMode`), read once at `build` time -- see `DefaultMode::as_mode`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
     Command,
     Search,
     Groups,
+    Settings,
 }
-
-/// The mode the picker starts in. Swap this one constant (or later wire it to
-/// config) to change the launch behavior.
-pub const DEFAULT_MODE: Mode = Mode::Command;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Window {
@@ -77,10 +167,10 @@ pub struct Session {
     pub windows: Vec<Window>,
 }
 
-/// Named header colors, in the order the color-flip cycles through them. These
-/// are the 16-color ANSI names (never RGB) so headers inherit the user's
-/// terminal theme; `magenta` is the purple in a Nord palette. An empty
-/// `Group::color` means "use the positional default" (`HEADER_COLORS[index]`).
+/// The default active color palette, seeded into a fresh `Config` when no
+/// `[settings]` table is present on disk (`store::Config::default`). Also
+/// the historical positional-default order. Named ANSI colors only (never
+/// RGB) so headers inherit the user's terminal theme.
 pub const HEADER_COLORS: [&str; 6] = ["cyan", "green", "yellow", "magenta", "blue", "red"];
 
 /// A user-named, ordered collection of sessions that renders as its own
@@ -107,8 +197,18 @@ pub enum Row {
     Window(usize, usize),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SettingsRow {
+    DefaultMode,
+    ColorPolicy,
+    Palette,
+    /// Index into `PickerState::settings_palette_rows()`'s display order.
+    PaletteColor(usize),
+}
+
 use crate::store::Config;
 use std::collections::HashSet;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 pub struct PickerState {
     all: Vec<Session>,
@@ -126,6 +226,12 @@ pub struct PickerState {
     pub group_cursor: usize,
     /// In-flight rename buffer; `Some` while a rename is in progress.
     pub group_edit: Option<String>,
+    pub default_mode: DefaultMode,
+    pub new_group_color_policy: ColorPolicy,
+    pub static_color: String,
+    pub active_palette: Vec<String>,
+    settings_cursor: usize,
+    palette_expanded: bool,
 }
 
 fn sort_value(s: &Session, key: SortKey) -> i64 {
@@ -161,11 +267,17 @@ impl PickerState {
             dormant: config.dormant.iter().cloned().collect(),
             cursor: 0,
             dirty: false,
-            mode: DEFAULT_MODE,
+            mode: config.default_mode.as_mode(),
             query: String::new(),
             search_cursor: 0,
             group_cursor: 0,
             group_edit: None,
+            default_mode: config.default_mode,
+            new_group_color_policy: config.new_group_color_policy,
+            static_color: config.static_color.clone(),
+            active_palette: config.active_palette.clone(),
+            settings_cursor: 0,
+            palette_expanded: false,
         };
         state.apply_initial_focus(focus, current);
         state
@@ -503,6 +615,174 @@ impl PickerState {
         self.mode = Mode::Command;
     }
 
+    /// Enter the full-screen settings overlay.
+    pub fn enter_settings(&mut self) {
+        self.mode = Mode::Settings;
+    }
+
+    /// Leave settings mode back to session command mode.
+    pub fn exit_settings(&mut self) {
+        self.mode = Mode::Command;
+    }
+
+    /// The current cursor position within the settings rows (Task 4).
+    pub fn settings_cursor(&self) -> usize {
+        self.settings_cursor
+    }
+
+    /// Whether the color-palette checklist is currently expanded (Task 4).
+    pub fn palette_expanded(&self) -> bool {
+        self.palette_expanded
+    }
+
+    /// The flat, ordered list of settings rows currently on screen. Mirrors the
+    /// session/window-tree shape of `visible_rows`: three top-level rows, with
+    /// 16 `PaletteColor` child rows spliced in only while the palette checklist
+    /// is expanded.
+    pub fn settings_visible_rows(&self) -> Vec<SettingsRow> {
+        let mut rows = vec![SettingsRow::DefaultMode, SettingsRow::ColorPolicy, SettingsRow::Palette];
+        if self.palette_expanded {
+            // settings_palette_rows() always emits exactly one entry per
+            // canonical color, so its length is always ALL_NAMED_COLORS.len();
+            // read the const directly instead of building the palette Vec.
+            for i in 0..ALL_NAMED_COLORS.len() {
+                rows.push(SettingsRow::PaletteColor(i));
+            }
+        }
+        rows
+    }
+
+    /// All 16 named colors in fixed `ALL_NAMED_COLORS` canonical order, each
+    /// paired with whether it's currently active. The order never changes as
+    /// colors are toggled, so checking/unchecking a color never reshuffles
+    /// the list.
+    pub fn settings_palette_rows(&self) -> Vec<(String, bool)> {
+        ALL_NAMED_COLORS
+            .iter()
+            .map(|name| (name.to_string(), self.active_palette.iter().any(|c| c == name)))
+            .collect()
+    }
+
+    /// Move the settings cursor by `delta`, clamped to the valid range.
+    pub fn settings_move_cursor(&mut self, delta: i32) {
+        let len = self.settings_visible_rows().len() as i32;
+        if len == 0 {
+            self.settings_cursor = 0;
+            return;
+        }
+        self.settings_cursor = (self.settings_cursor as i32 + delta).clamp(0, len - 1) as usize;
+    }
+
+    /// The settings row the cursor currently sits on.
+    fn current_settings_row(&self) -> SettingsRow {
+        let rows = self.settings_visible_rows();
+        rows[self.settings_cursor.min(rows.len().saturating_sub(1))]
+    }
+
+    /// `h` on the current settings row: step Default Mode / Color Policy
+    /// backward, collapse the palette, or (from a palette color row) collapse
+    /// and jump back to the Palette row.
+    pub fn settings_step_left(&mut self) {
+        match self.current_settings_row() {
+            SettingsRow::DefaultMode => {
+                self.default_mode = self.default_mode.next();
+                self.dirty = true;
+            }
+            SettingsRow::ColorPolicy => {
+                self.new_group_color_policy = self.new_group_color_policy.prev();
+                self.dirty = true;
+            }
+            SettingsRow::Palette => self.palette_expanded = false,
+            SettingsRow::PaletteColor(_) => {
+                self.palette_expanded = false;
+                self.settings_cursor = 2; // the Palette row is always index 2
+            }
+        }
+    }
+
+    /// `l` on the current settings row: step Default Mode / Color Policy
+    /// forward, or expand the palette. A no-op on an already-expanded palette
+    /// color row (there is nothing further to expand).
+    pub fn settings_step_right(&mut self) {
+        match self.current_settings_row() {
+            SettingsRow::DefaultMode => {
+                self.default_mode = self.default_mode.next();
+                self.dirty = true;
+            }
+            SettingsRow::ColorPolicy => {
+                self.new_group_color_policy = self.new_group_color_policy.next();
+                self.dirty = true;
+            }
+            SettingsRow::Palette => self.palette_expanded = true,
+            SettingsRow::PaletteColor(_) => {}
+        }
+    }
+
+    /// `Enter`/`Space` on the current settings row: steps Default Mode / Color
+    /// Policy forward (same as `l`), or (Task 6) toggles a palette color's
+    /// active state.
+    pub fn settings_activate(&mut self) {
+        match self.current_settings_row() {
+            SettingsRow::DefaultMode | SettingsRow::ColorPolicy => self.settings_step_right(),
+            SettingsRow::Palette => {}
+            SettingsRow::PaletteColor(_) => self.settings_toggle_palette_color(),
+        }
+    }
+
+    /// The palette-checklist index under the cursor, if the cursor is
+    /// currently on a `PaletteColor` row. Shared by the palette mutation
+    /// methods below so they resolve "which color" the same way `h`/`l`/`Enter`
+    /// resolve "which row".
+    fn current_palette_color_idx(&self) -> Option<usize> {
+        match self.current_settings_row() {
+            SettingsRow::PaletteColor(i) => Some(i),
+            _ => None,
+        }
+    }
+
+    /// Toggle the palette color under the cursor active/inactive. `active_palette`
+    /// is kept in `ALL_NAMED_COLORS` canonical order on every mutation, so
+    /// rotation/cycle order always matches the checklist's fixed display order
+    /// and toggling a color never reshuffles the list. Guarded: the last
+    /// active color can never be deactivated (several resolution paths
+    /// divide/index by `active_palette.len()`).
+    fn settings_toggle_palette_color(&mut self) {
+        let idx = match self.current_palette_color_idx() {
+            Some(i) => i,
+            None => return,
+        };
+        let name = ALL_NAMED_COLORS[idx];
+        if self.active_palette.iter().any(|c| c == name) {
+            if self.active_palette.len() <= 1 {
+                return;
+            }
+            self.active_palette.retain(|c| c != name);
+        } else {
+            self.active_palette.push(name.to_string());
+            self.active_palette
+                .sort_by_key(|c| ALL_NAMED_COLORS.iter().position(|n| n == c).unwrap_or(usize::MAX));
+        }
+        self.dirty = true;
+    }
+
+    /// `c` on the Color Policy row while the policy is Static: cycle
+    /// `static_color` through all 16 named colors (independent of the active
+    /// palette). A no-op anywhere else, or when the policy isn't Static.
+    pub fn settings_cycle_static_color(&mut self) {
+        if self.current_settings_row() != SettingsRow::ColorPolicy {
+            return;
+        }
+        if self.new_group_color_policy != ColorPolicy::Static {
+            return;
+        }
+        let idx = ALL_NAMED_COLORS
+            .iter()
+            .position(|c| *c == self.static_color)
+            .unwrap_or(0);
+        self.static_color = ALL_NAMED_COLORS[(idx + 1) % ALL_NAMED_COLORS.len()].to_string();
+        self.dirty = true;
+    }
+
     /// The current cursor position within the group list.
     pub fn group_cursor(&self) -> usize { self.group_cursor }
 
@@ -535,32 +815,45 @@ impl PickerState {
     }
 
     /// Append a new empty group after the last named group and begin naming it.
+    /// The header color is resolved from the current new-group-color policy:
+    /// Rotate leaves it unset (positional default, resolved at render/cycle
+    /// time from the live active palette); Random picks once now from the
+    /// active palette; Static uses the configured static color. Neither Random
+    /// nor Static retroactively touch any other group.
     pub fn group_new(&mut self) {
-        self.groups.push(Group {
-            name: String::new(),
-            members: Vec::new(),
-            color: String::new(),
-        });
+        let color = match self.new_group_color_policy {
+            ColorPolicy::Rotate => String::new(),
+            ColorPolicy::Random => pick_random_color(&self.active_palette, random_seed()),
+            ColorPolicy::Static => self.static_color.clone(),
+        };
+        self.groups.push(Group { name: String::new(), members: Vec::new(), color });
         self.group_cursor = self.groups.len() - 1;
         self.group_edit = Some(String::new());
     }
 
-    /// Advance the selected group's header color to the next in `HEADER_COLORS`,
-    /// wrapping around. Starts from the group's effective color (its explicit
-    /// name, or the positional default) and stores the result explicitly so it
-    /// no longer shifts when groups are reordered.
+    /// Advance the selected group's header color to the next in the live
+    /// `active_palette`, wrapping around. Starts from the group's effective
+    /// color (its explicit name, or the positional default) and stores the
+    /// result explicitly so it no longer shifts when groups are reordered.
+    /// Guarded against an empty palette (should not happen -- Settings mode's
+    /// min-1 toggle guard and the config loader's empty-palette fallback both
+    /// prevent it -- but never panics if it somehow does).
     pub fn group_cycle_color(&mut self) {
         let gi = self.group_cursor;
         if gi >= self.groups.len() {
             return;
         }
+        if self.active_palette.is_empty() {
+            return;
+        }
+        let palette = self.active_palette.clone();
         let current = if self.groups[gi].color.is_empty() {
-            HEADER_COLORS[gi % HEADER_COLORS.len()]
+            palette[gi % palette.len()].clone()
         } else {
-            self.groups[gi].color.as_str()
+            self.groups[gi].color.clone()
         };
-        let idx = HEADER_COLORS.iter().position(|c| *c == current).unwrap_or(0);
-        self.groups[gi].color = HEADER_COLORS[(idx + 1) % HEADER_COLORS.len()].to_string();
+        let idx = palette.iter().position(|c| c == &current).unwrap_or(0);
+        self.groups[gi].color = palette[(idx + 1) % palette.len()].clone();
         self.dirty = true;
     }
 
@@ -757,6 +1050,25 @@ impl PickerState {
     }
 }
 
+/// Deterministic pick for the Random new-group-color policy: `seed modulo
+/// palette.len()`. Empty palette yields an empty string (the caller treats
+/// that the same as an unset/positional color). Pure and directly testable
+/// with fixed seed literals; the one production call site (`group_new`)
+/// sources `seed` from `random_seed` below.
+pub fn pick_random_color(palette: &[String], seed: u64) -> String {
+    if palette.is_empty() {
+        return String::new();
+    }
+    palette[(seed as usize) % palette.len()].clone()
+}
+
+fn random_seed() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -781,12 +1093,61 @@ mod tests {
     }
 
     #[test]
+    fn default_mode_parses_with_command_fallback() {
+        assert_eq!(DefaultMode::from_config_str("search"), DefaultMode::Search);
+        assert_eq!(DefaultMode::from_config_str("command"), DefaultMode::Command);
+        assert_eq!(DefaultMode::from_config_str("garbage"), DefaultMode::Command);
+        assert_eq!(DefaultMode::default(), DefaultMode::Command);
+    }
+
+    #[test]
+    fn default_mode_next_toggles_and_maps_to_mode() {
+        assert_eq!(DefaultMode::Command.next(), DefaultMode::Search);
+        assert_eq!(DefaultMode::Search.next(), DefaultMode::Command);
+        assert_eq!(DefaultMode::Command.as_mode(), Mode::Command);
+        assert_eq!(DefaultMode::Search.as_mode(), Mode::Search);
+        assert_eq!(DefaultMode::Command.as_config_str(), "command");
+        assert_eq!(DefaultMode::Search.as_config_str(), "search");
+    }
+
+    #[test]
+    fn color_policy_parses_with_rotate_fallback() {
+        assert_eq!(ColorPolicy::from_config_str("random"), ColorPolicy::Random);
+        assert_eq!(ColorPolicy::from_config_str("static"), ColorPolicy::Static);
+        assert_eq!(ColorPolicy::from_config_str("rotate"), ColorPolicy::Rotate);
+        assert_eq!(ColorPolicy::from_config_str("garbage"), ColorPolicy::Rotate);
+        assert_eq!(ColorPolicy::default(), ColorPolicy::Rotate);
+    }
+
+    #[test]
+    fn color_policy_cycles_forward_and_backward() {
+        assert_eq!(ColorPolicy::Rotate.next(), ColorPolicy::Random);
+        assert_eq!(ColorPolicy::Random.next(), ColorPolicy::Static);
+        assert_eq!(ColorPolicy::Static.next(), ColorPolicy::Rotate);
+        assert_eq!(ColorPolicy::Rotate.prev(), ColorPolicy::Static);
+        assert_eq!(ColorPolicy::Static.prev(), ColorPolicy::Random);
+        assert_eq!(ColorPolicy::Random.prev(), ColorPolicy::Rotate);
+        assert_eq!(ColorPolicy::Rotate.as_config_str(), "rotate");
+        assert_eq!(ColorPolicy::Random.as_config_str(), "random");
+        assert_eq!(ColorPolicy::Static.as_config_str(), "static");
+    }
+
+    #[test]
+    fn all_named_colors_has_sixteen_unique_entries() {
+        assert_eq!(ALL_NAMED_COLORS.len(), 16);
+        let mut sorted = ALL_NAMED_COLORS.to_vec();
+        sorted.sort();
+        sorted.dedup();
+        assert_eq!(sorted.len(), 16, "no duplicate color names");
+    }
+
+    #[test]
     fn initial_focus_prefers_precise_current_over_attached() {
         // Ordered top is "a"; "b" carries the attached flag, but the precise
         // current (from $TMUX) is "c" -- the precise signal must win.
         let mut sessions = vec![s("a", 30, 1), s("b", 20, 2), s("c", 10, 3)];
         sessions[1].attached = true;
-        let cfg = Config { dormant: vec![], groups: vec![], manual_order: vec![], sort: SortKey::Activity };
+        let cfg = Config { groups: vec![], manual_order: vec![], sort: SortKey::Activity, ..Default::default() };
         let state =
             PickerState::build_with_focus(sessions, &cfg, InitialFocus::CurrentSession, Some("c"));
         assert_eq!(state.cursor_session_name().as_deref(), Some("c"));
@@ -797,7 +1158,7 @@ mod tests {
         // No precise current; the attached flag ("b") is the fallback.
         let mut sessions = vec![s("a", 30, 1), s("b", 10, 2)];
         sessions[1].attached = true;
-        let cfg = Config { dormant: vec![], groups: vec![], manual_order: vec![], sort: SortKey::Activity };
+        let cfg = Config { groups: vec![], manual_order: vec![], sort: SortKey::Activity, ..Default::default() };
         let state =
             PickerState::build_with_focus(sessions, &cfg, InitialFocus::CurrentSession, None);
         assert_eq!(state.cursor_session_name().as_deref(), Some("b"));
@@ -807,7 +1168,7 @@ mod tests {
     fn initial_focus_first_row_ignores_current_and_attached() {
         let mut sessions = vec![s("a", 30, 1), s("b", 10, 2)];
         sessions[1].attached = true;
-        let cfg = Config { dormant: vec![], groups: vec![], manual_order: vec![], sort: SortKey::Activity };
+        let cfg = Config { groups: vec![], manual_order: vec![], sort: SortKey::Activity, ..Default::default() };
         let state =
             PickerState::build_with_focus(sessions, &cfg, InitialFocus::FirstRow, Some("b"));
         assert_eq!(state.cursor, 0);
@@ -817,7 +1178,7 @@ mod tests {
     #[test]
     fn initial_focus_current_falls_back_to_first_row_when_nothing_matches() {
         let sessions = vec![s("a", 30, 1), s("b", 10, 2)];
-        let cfg = Config { dormant: vec![], groups: vec![], manual_order: vec![], sort: SortKey::Activity };
+        let cfg = Config { groups: vec![], manual_order: vec![], sort: SortKey::Activity, ..Default::default() };
         let state =
             PickerState::build_with_focus(sessions, &cfg, InitialFocus::CurrentSession, None);
         assert_eq!(state.cursor, 0);
@@ -829,7 +1190,7 @@ mod tests {
         // Canary for the shipped INITIAL_FOCUS default; update if it is swapped.
         let mut sessions = vec![s("a", 30, 1), s("b", 10, 2)];
         sessions[1].attached = true;
-        let cfg = Config { dormant: vec![], groups: vec![], manual_order: vec![], sort: SortKey::Activity };
+        let cfg = Config { groups: vec![], manual_order: vec![], sort: SortKey::Activity, ..Default::default() };
         let state = PickerState::build(sessions, &cfg);
         assert_eq!(state.cursor_session_name().as_deref(), Some("b"));
     }
@@ -837,7 +1198,7 @@ mod tests {
     #[test]
     fn refocus_current_moves_to_named_session_and_no_ops_on_none() {
         let sessions = vec![s("a", 30, 1), s("b", 10, 2)];
-        let cfg = Config { dormant: vec![], groups: vec![], manual_order: vec![], sort: SortKey::Activity };
+        let cfg = Config { groups: vec![], manual_order: vec![], sort: SortKey::Activity, ..Default::default() };
         let mut state = PickerState::build(sessions, &cfg); // no attached -> row 0 ("a")
         state.refocus_current(Some("b"));
         assert_eq!(state.cursor_session_name().as_deref(), Some("b"));
@@ -854,7 +1215,7 @@ mod tests {
                 Group { name: "TOOLS".into(), members: vec!["a".into()], color: String::new() },
             ],
             manual_order: vec![],
-            sort: SortKey::Activity,
+            sort: SortKey::Activity, ..Default::default()
         };
         let state = PickerState::build(sessions, &cfg);
         let names: Vec<&str> = state.ordered().iter().map(|s| s.name.as_str()).collect();
@@ -870,7 +1231,7 @@ mod tests {
     #[test]
     fn ordered_unpinned_by_created_when_configured() {
         let sessions = vec![s("a", 10, 100), s("b", 30, 50)];
-        let cfg = Config { dormant: vec![], groups: vec![], manual_order: vec![], sort: SortKey::Created };
+        let cfg = Config { groups: vec![], manual_order: vec![], sort: SortKey::Created, ..Default::default() };
         let state = PickerState::build(sessions, &cfg);
         let names: Vec<&str> = state.ordered().iter().map(|s| s.name.as_str()).collect();
         // created desc: a (100) before b (50)
@@ -880,7 +1241,7 @@ mod tests {
     #[test]
     fn ordered_breaks_ties_by_name_ascending() {
         let sessions = vec![s("zebra", 50, 1), s("apple", 50, 2)];
-        let cfg = Config { dormant: vec![], groups: vec![], manual_order: vec![], sort: SortKey::Activity };
+        let cfg = Config { groups: vec![], manual_order: vec![], sort: SortKey::Activity, ..Default::default() };
         let state = PickerState::build(sessions, &cfg);
         let names: Vec<&str> = state.ordered().iter().map(|s| s.name.as_str()).collect();
         // both have activity 50, so sort by name ascending: apple before zebra
@@ -894,7 +1255,7 @@ mod tests {
             Window { index: 0, name: "e".into(), active: true },
             Window { index: 1, name: "l".into(), active: false },
         ];
-        let cfg = Config { dormant: vec![], groups: vec![], manual_order: vec![], sort: SortKey::Activity };
+        let cfg = Config { groups: vec![], manual_order: vec![], sort: SortKey::Activity, ..Default::default() };
         let mut state = PickerState::build(sessions, &cfg);
 
         // Collapsed: two session rows only.
@@ -927,7 +1288,7 @@ mod tests {
             Window { index: 0, name: "e".into(), active: true },
             Window { index: 3, name: "l".into(), active: false },
         ];
-        let cfg = Config { dormant: vec![], groups: vec![], manual_order: vec![], sort: SortKey::Activity };
+        let cfg = Config { groups: vec![], manual_order: vec![], sort: SortKey::Activity, ..Default::default() };
         let mut state = PickerState::build(sessions, &cfg);
 
         // On the session row.
@@ -945,7 +1306,7 @@ mod tests {
         let cfg = Config {
             dormant: vec![], groups: vec![Group { name: "PINNED".into(), members: vec!["c".into()], color: String::new() }],
             manual_order: vec![],
-            sort: SortKey::Activity,
+            sort: SortKey::Activity, ..Default::default()
         };
         let mut state = PickerState::build(sessions, &cfg); // order: c, b, a
 
@@ -967,7 +1328,7 @@ mod tests {
         let cfg = Config {
             dormant: vec![], groups: vec![Group { name: "PINNED".into(), members: vec!["c".into()], color: String::new() }],
             manual_order: vec![],
-            sort: SortKey::Activity,
+            sort: SortKey::Activity, ..Default::default()
         };
         let mut state = PickerState::build(sessions, &cfg); // order: c, b, a
 
@@ -1001,7 +1362,7 @@ mod tests {
         // No manual placements yet: ungrouped read oldest -> newest (created asc),
         // so a freshly created session naturally lands at the bottom.
         let sessions = vec![s("a", 99, 3), s("b", 99, 1), s("c", 99, 2)];
-        let cfg = Config { dormant: vec![], groups: vec![], manual_order: vec![], sort: SortKey::Manual };
+        let cfg = Config { groups: vec![], manual_order: vec![], sort: SortKey::Manual, ..Default::default() };
         let state = PickerState::build(sessions, &cfg);
         let names: Vec<&str> = state.ordered().iter().map(|s| s.name.as_str()).collect();
         assert_eq!(names, vec!["b", "c", "a"]); // created 1, 2, 3
@@ -1016,7 +1377,7 @@ mod tests {
         let cfg = Config {
             dormant: vec![], groups: vec![Group { name: "PINNED".into(), members: vec!["d".into()], color: String::new() }],
             manual_order: vec!["d".into(), "c".into(), "a".into()],
-            sort: SortKey::Manual,
+            sort: SortKey::Manual, ..Default::default()
         };
         let state = PickerState::build(sessions, &cfg);
         let names: Vec<&str> = state.ordered().iter().map(|s| s.name.as_str()).collect();
@@ -1030,7 +1391,7 @@ mod tests {
         let cfg = Config {
             dormant: vec![], groups: vec![],
             manual_order: vec!["mid".into(), "old".into()],
-            sort: SortKey::Manual,
+            sort: SortKey::Manual, ..Default::default()
         };
         let state = PickerState::build(sessions, &cfg);
         let names: Vec<&str> = state.ordered().iter().map(|s| s.name.as_str()).collect();
@@ -1041,7 +1402,7 @@ mod tests {
     fn move_row_unpinned_in_manual_freezes_then_swaps_and_dirties() {
         // Manual + empty list => base order is created asc: a(1), b(2), c(3).
         let sessions = vec![s("a", 9, 1), s("b", 9, 2), s("c", 9, 3)];
-        let cfg = Config { dormant: vec![], groups: vec![], manual_order: vec![], sort: SortKey::Manual };
+        let cfg = Config { groups: vec![], manual_order: vec![], sort: SortKey::Manual, ..Default::default() };
         let mut state = PickerState::build(sessions, &cfg);
 
         state.focus_session("b");
@@ -1066,7 +1427,7 @@ mod tests {
     #[test]
     fn move_row_unpinned_is_noop_outside_manual_mode() {
         let sessions = vec![s("a", 30, 1), s("b", 20, 2)];
-        let cfg = Config { dormant: vec![], groups: vec![], manual_order: vec![], sort: SortKey::Activity };
+        let cfg = Config { groups: vec![], manual_order: vec![], sort: SortKey::Activity, ..Default::default() };
         let mut state = PickerState::build(sessions, &cfg);
         state.focus_session("b");
         state.move_row(1);
@@ -1080,7 +1441,7 @@ mod tests {
         let cfg = Config {
             dormant: vec![], groups: vec![Group { name: "PINNED".into(), members: vec!["a".into(), "b".into()], color: String::new() }],
             manual_order: vec![],
-            sort: SortKey::Activity,
+            sort: SortKey::Activity, ..Default::default()
         };
         let mut state = PickerState::build(sessions, &cfg);
         state.focus_session("a");
@@ -1092,7 +1453,7 @@ mod tests {
     #[test]
     fn cycle_sort_advances_mode_and_dirties() {
         let sessions = vec![s("a", 30, 1)];
-        let cfg = Config { dormant: vec![], groups: vec![], manual_order: vec![], sort: SortKey::Activity };
+        let cfg = Config { groups: vec![], manual_order: vec![], sort: SortKey::Activity, ..Default::default() };
         let mut state = PickerState::build(sessions, &cfg);
         state.cycle_sort();
         assert_eq!(state.sort, SortKey::Created);
@@ -1106,7 +1467,7 @@ mod tests {
     #[test]
     fn default_mode_is_command() {
         let sessions = vec![s("a", 30, 1)];
-        let cfg = Config { dormant: vec![], groups: vec![], manual_order: vec![], sort: SortKey::Activity };
+        let cfg = Config { groups: vec![], manual_order: vec![], sort: SortKey::Activity, ..Default::default() };
         let state = PickerState::build(sessions, &cfg);
         assert_eq!(state.mode, Mode::Command);
         assert!(state.query.is_empty());
@@ -1115,7 +1476,7 @@ mod tests {
     #[test]
     fn search_results_empty_query_is_normal_order() {
         let sessions = vec![s("a", 10, 1), s("b", 30, 2)];
-        let cfg = Config { dormant: vec![], groups: vec![], manual_order: vec![], sort: SortKey::Activity };
+        let cfg = Config { groups: vec![], manual_order: vec![], sort: SortKey::Activity, ..Default::default() };
         let state = PickerState::build(sessions, &cfg);
         let names: Vec<&str> = state.search_results().iter().map(|s| s.name.as_str()).collect();
         // Same as ordered(): activity desc -> b, a
@@ -1127,7 +1488,7 @@ mod tests {
         // "prr" matches pr-review (p,r,-,r) tightly and provision not at all
         // (only one 'r'), so pr-review must rank first and scratch is excluded.
         let sessions = vec![s("provision", 1, 1), s("pr-review", 1, 2), s("scratch", 1, 3)];
-        let cfg = Config { dormant: vec![], groups: vec![], manual_order: vec![], sort: SortKey::Activity };
+        let cfg = Config { groups: vec![], manual_order: vec![], sort: SortKey::Activity, ..Default::default() };
         let mut state = PickerState::build(sessions, &cfg);
         state.query = "prr".into();
         let names: Vec<&str> = state.search_results().iter().map(|s| s.name.as_str()).collect();
@@ -1139,7 +1500,7 @@ mod tests {
     #[test]
     fn enter_and_exit_search_preserves_match_under_command_cursor() {
         let sessions = vec![s("provision", 1, 1), s("pr-review", 1, 2), s("scratch", 1, 3)];
-        let cfg = Config { dormant: vec![], groups: vec![], manual_order: vec![], sort: SortKey::Activity };
+        let cfg = Config { groups: vec![], manual_order: vec![], sort: SortKey::Activity, ..Default::default() };
         let mut state = PickerState::build(sessions, &cfg);
 
         state.enter_search();
@@ -1160,7 +1521,7 @@ mod tests {
     #[test]
     fn query_change_resets_to_top_and_move_clamps() {
         let sessions = vec![s("alpha", 1, 1), s("alto", 1, 2), s("alarm", 1, 3)];
-        let cfg = Config { dormant: vec![], groups: vec![], manual_order: vec![], sort: SortKey::Activity };
+        let cfg = Config { groups: vec![], manual_order: vec![], sort: SortKey::Activity, ..Default::default() };
         let mut state = PickerState::build(sessions, &cfg);
         state.enter_search();
         state.search_push('a');
@@ -1179,7 +1540,7 @@ mod tests {
     #[test]
     fn search_selected_action_switches_to_highlighted() {
         let sessions = vec![s("provision", 1, 1), s("pr-review", 1, 2)];
-        let cfg = Config { dormant: vec![], groups: vec![], manual_order: vec![], sort: SortKey::Activity };
+        let cfg = Config { groups: vec![], manual_order: vec![], sort: SortKey::Activity, ..Default::default() };
         let mut state = PickerState::build(sessions, &cfg);
         state.enter_search();
         state.search_push('p');
@@ -1194,7 +1555,7 @@ mod tests {
     #[test]
     fn search_selected_action_is_none_with_no_matches() {
         let sessions = vec![s("alpha", 1, 1)];
-        let cfg = Config { dormant: vec![], groups: vec![], manual_order: vec![], sort: SortKey::Activity };
+        let cfg = Config { groups: vec![], manual_order: vec![], sort: SortKey::Activity, ..Default::default() };
         let mut state = PickerState::build(sessions, &cfg);
         state.enter_search();
         state.search_push('z');
@@ -1205,7 +1566,7 @@ mod tests {
     #[test]
     fn search_backspace_shrinks_query_and_clears_to_empty() {
         let sessions = vec![s("api-gateway", 30, 1), s("web", 20, 2)];
-        let cfg = Config { dormant: vec![], groups: vec![], manual_order: vec![], sort: SortKey::Activity };
+        let cfg = Config { groups: vec![], manual_order: vec![], sort: SortKey::Activity, ..Default::default() };
         let mut state = PickerState::build(sessions, &cfg);
 
         state.enter_search();
@@ -1234,7 +1595,7 @@ mod tests {
     #[test]
     fn search_delete_word_removes_trailing_word() {
         let sessions = vec![s("api-gateway", 30, 1)];
-        let cfg = Config { dormant: vec![], groups: vec![], manual_order: vec![], sort: SortKey::Activity };
+        let cfg = Config { groups: vec![], manual_order: vec![], sort: SortKey::Activity, ..Default::default() };
         let mut state = PickerState::build(sessions, &cfg);
 
         state.enter_search();
@@ -1259,7 +1620,7 @@ mod tests {
     #[test]
     fn search_clear_empties_query() {
         let sessions = vec![s("api-gateway", 30, 1)];
-        let cfg = Config { dormant: vec![], groups: vec![], manual_order: vec![], sort: SortKey::Activity };
+        let cfg = Config { groups: vec![], manual_order: vec![], sort: SortKey::Activity, ..Default::default() };
         let mut state = PickerState::build(sessions, &cfg);
 
         state.enter_search();
@@ -1280,7 +1641,7 @@ mod tests {
     #[test]
     fn toggle_all_expands_then_collapses_keeping_focus() {
         let sessions = vec![s("a", 30, 1), s("b", 20, 2)];
-        let cfg = Config { dormant: vec![], groups: vec![], manual_order: vec![], sort: SortKey::Activity };
+        let cfg = Config { groups: vec![], manual_order: vec![], sort: SortKey::Activity, ..Default::default() };
         let mut state = PickerState::build(sessions, &cfg);
 
         assert_eq!(state.visible_rows().len(), 2); // both collapsed
@@ -1300,7 +1661,7 @@ mod tests {
     #[test]
     fn toggle_dormant_flips_and_dirties() {
         let sessions = vec![s("a", 30, 1), s("b", 20, 2)];
-        let cfg = Config { groups: vec![], manual_order: vec![], sort: SortKey::Activity, dormant: vec![] };
+        let cfg = Config { groups: vec![], manual_order: vec![], sort: SortKey::Activity, ..Default::default() };
         let mut state = PickerState::build(sessions, &cfg); // cursor starts on "a"
 
         assert!(!state.is_dormant("a"));
@@ -1317,7 +1678,7 @@ mod tests {
     #[test]
     fn dormant_loads_from_config() {
         let sessions = vec![s("a", 30, 1)];
-        let cfg = Config { groups: vec![], manual_order: vec![], sort: SortKey::Activity, dormant: vec!["a".into()] };
+        let cfg = Config { groups: vec![], manual_order: vec![], sort: SortKey::Activity, dormant: vec!["a".into()], ..Default::default() };
         let state = PickerState::build(sessions, &cfg);
         assert!(state.is_dormant("a"));
     }
@@ -1329,7 +1690,7 @@ mod tests {
             Window { index: 0, name: "e".into(), active: true },
             Window { index: 1, name: "l".into(), active: false },
         ];
-        let cfg = Config { groups: vec![], manual_order: vec![], sort: SortKey::Activity, dormant: vec![] };
+        let cfg = Config { groups: vec![], manual_order: vec![], sort: SortKey::Activity, ..Default::default() };
         let mut state = PickerState::build(sessions, &cfg);
 
         state.expand();
@@ -1343,7 +1704,7 @@ mod tests {
     #[test]
     fn dormant_list_is_sorted_snapshot() {
         let sessions = vec![s("charlie", 1, 1), s("alpha", 1, 2), s("bravo", 1, 3)];
-        let cfg = Config { groups: vec![], manual_order: vec![], sort: SortKey::Activity, dormant: vec![] };
+        let cfg = Config { groups: vec![], manual_order: vec![], sort: SortKey::Activity, ..Default::default() };
         let mut state = PickerState::build(sessions, &cfg);
         state.focus_session("charlie");
         state.toggle_dormant();
@@ -1360,7 +1721,7 @@ mod tests {
                 Group { name: "G2".into(), members: vec!["b".into()], color: String::new() },
             ],
             manual_order: vec![],
-            sort: SortKey::Activity,
+            sort: SortKey::Activity, ..Default::default()
         };
         PickerState::build(sessions, &cfg)
     }
@@ -1457,6 +1818,26 @@ mod tests {
     }
 
     #[test]
+    fn group_cycle_color_uses_the_customized_active_palette() {
+        let mut st = grouped_state();
+        st.active_palette = vec!["white".to_string(), "black".to_string()];
+        st.enter_groups(); // cursor on group 0
+        st.group_cycle_color();
+        // group 0's positional default is active_palette[0 % 2] = "white"; flip advances to "black".
+        assert_eq!(st.groups[0].color, "black");
+    }
+
+    #[test]
+    fn group_cycle_color_is_a_guarded_noop_on_an_empty_active_palette() {
+        let mut st = grouped_state();
+        st.active_palette = vec![];
+        st.enter_groups();
+        st.group_cycle_color();
+        assert!(st.groups[0].color.is_empty(), "never panics or divides by zero");
+        assert!(!st.dirty);
+    }
+
+    #[test]
     fn group_edit_buffer_backspace_and_delete_word() {
         let mut st = grouped_state();
         st.enter_groups();
@@ -1469,6 +1850,49 @@ mod tests {
         assert_eq!(st.group_edit_buffer(), Some("G1 extra "));
         st.group_edit_backspace(); // drops trailing space
         assert_eq!(st.group_edit_buffer(), Some("G1 extra"));
+    }
+
+    #[test]
+    fn build_seeds_mode_and_fields_from_config_default_mode() {
+        let sessions = vec![s("a", 30, 1)];
+        let cfg = Config {
+            default_mode: DefaultMode::Search,
+            new_group_color_policy: ColorPolicy::Static,
+            static_color: "red".to_string(),
+            active_palette: vec!["red".to_string(), "white".to_string()],
+            ..Default::default()
+        };
+        let state = PickerState::build(sessions, &cfg);
+        assert_eq!(state.mode, Mode::Search, "startup mode follows config.default_mode");
+        assert_eq!(state.default_mode, DefaultMode::Search);
+        assert_eq!(state.new_group_color_policy, ColorPolicy::Static);
+        assert_eq!(state.static_color, "red");
+        assert_eq!(state.active_palette, vec!["red".to_string(), "white".to_string()]);
+    }
+
+    #[test]
+    fn live_mode_changes_never_rewrite_the_persisted_default() {
+        let sessions = vec![s("a", 30, 1)];
+        let cfg = Config { default_mode: DefaultMode::Search, ..Default::default() };
+        let mut state = PickerState::build(sessions, &cfg);
+        assert_eq!(state.mode, Mode::Search);
+        state.exit_search(); // navigates back to Command at runtime
+        assert_eq!(state.mode, Mode::Command);
+        assert_eq!(
+            state.default_mode,
+            DefaultMode::Search,
+            "startup preference is untouched by runtime navigation"
+        );
+    }
+
+    #[test]
+    fn enter_and_exit_settings_toggles_mode() {
+        let mut st = grouped_state();
+        assert_eq!(st.mode, Mode::Command);
+        st.enter_settings();
+        assert_eq!(st.mode, Mode::Settings);
+        st.exit_settings();
+        assert_eq!(st.mode, Mode::Command);
     }
 
     #[test]
@@ -1490,7 +1914,7 @@ mod tests {
                 Group { name: "G2".into(), members: vec!["c".into()], color: String::new() },
             ],
             manual_order: vec![],
-            sort: SortKey::Activity,
+            sort: SortKey::Activity, ..Default::default()
         };
         PickerState::build(sessions, &cfg)
     }
@@ -1565,6 +1989,261 @@ mod tests {
         assert_eq!(
             st.ordered_group_ids(),
             vec![Some(0), Some(0), Some(1), None, None]
+        );
+    }
+
+    fn settings_state() -> PickerState {
+        let sessions = vec![s("a", 1, 1)];
+        let cfg = Config::default();
+        PickerState::build(sessions, &cfg)
+    }
+
+    #[test]
+    fn settings_visible_rows_collapsed_shows_three_rows() {
+        let st = settings_state();
+        assert_eq!(
+            st.settings_visible_rows(),
+            vec![SettingsRow::DefaultMode, SettingsRow::ColorPolicy, SettingsRow::Palette]
+        );
+    }
+
+    #[test]
+    fn settings_palette_rows_lists_all_sixteen_in_fixed_canonical_order() {
+        let st = settings_state(); // default active_palette = HEADER_COLORS: cyan,green,yellow,magenta,blue,red
+        let rows = st.settings_palette_rows();
+        assert_eq!(rows.len(), 16);
+        // Order never changes with active/inactive status: it's always
+        // ALL_NAMED_COLORS canonical order, so a toggle never reshuffles it.
+        assert_eq!(&rows[0], &("black".to_string(), false));
+        assert_eq!(&rows[1], &("red".to_string(), true));
+        assert_eq!(&rows[2], &("green".to_string(), true));
+        assert_eq!(&rows[3], &("yellow".to_string(), true));
+        assert_eq!(&rows[4], &("blue".to_string(), true));
+        assert_eq!(&rows[5], &("magenta".to_string(), true));
+        assert_eq!(&rows[6], &("cyan".to_string(), true));
+        assert_eq!(&rows[7], &("gray".to_string(), false));
+    }
+
+    #[test]
+    fn settings_move_cursor_clamps_within_visible_rows() {
+        let mut st = settings_state();
+        assert_eq!(st.settings_cursor(), 0);
+        st.settings_move_cursor(-1);
+        assert_eq!(st.settings_cursor(), 0, "clamped at top");
+        st.settings_move_cursor(1);
+        assert_eq!(st.settings_cursor(), 1);
+        st.settings_move_cursor(99);
+        assert_eq!(st.settings_cursor(), 2, "clamped at bottom, collapsed (3 rows)");
+    }
+
+    #[test]
+    fn step_cycles_default_mode_in_either_direction() {
+        let mut st = settings_state(); // cursor on row 0, DefaultMode
+        assert_eq!(st.default_mode, DefaultMode::Command);
+        st.settings_step_right();
+        assert_eq!(st.default_mode, DefaultMode::Search);
+        st.settings_step_right();
+        assert_eq!(st.default_mode, DefaultMode::Command, "2-state cycle wraps");
+        st.settings_step_left();
+        assert_eq!(st.default_mode, DefaultMode::Search, "h also flips a 2-state toggle");
+        assert!(st.dirty);
+    }
+
+    #[test]
+    fn activate_also_cycles_default_mode_forward() {
+        let mut st = settings_state();
+        st.settings_activate();
+        assert_eq!(st.default_mode, DefaultMode::Search);
+    }
+
+    #[test]
+    fn step_cycles_color_policy_forward_and_backward() {
+        let mut st = settings_state();
+        st.settings_move_cursor(1); // row 1: ColorPolicy
+        assert_eq!(st.new_group_color_policy, ColorPolicy::Rotate);
+        st.settings_step_right();
+        assert_eq!(st.new_group_color_policy, ColorPolicy::Random);
+        st.settings_step_right();
+        assert_eq!(st.new_group_color_policy, ColorPolicy::Static);
+        st.settings_step_right();
+        assert_eq!(st.new_group_color_policy, ColorPolicy::Rotate, "wraps forward");
+        st.settings_step_left();
+        assert_eq!(st.new_group_color_policy, ColorPolicy::Static, "wraps backward");
+    }
+
+    #[test]
+    fn palette_expands_and_collapses_via_step_right_and_left() {
+        let mut st = settings_state();
+        st.settings_move_cursor(2); // row 2: Palette
+        assert!(!st.palette_expanded());
+        st.settings_step_right();
+        assert!(st.palette_expanded());
+        assert_eq!(st.settings_visible_rows().len(), 3 + 16);
+        st.settings_step_left();
+        assert!(!st.palette_expanded());
+        assert_eq!(st.settings_visible_rows().len(), 3);
+    }
+
+    #[test]
+    fn step_left_on_a_palette_color_row_collapses_and_refocuses_the_parent() {
+        let mut st = settings_state();
+        st.settings_move_cursor(2);
+        st.settings_step_right(); // expand
+        st.settings_move_cursor(1); // onto the first PaletteColor child
+        assert_eq!(st.settings_visible_rows()[st.settings_cursor()], SettingsRow::PaletteColor(0));
+        st.settings_step_left();
+        assert!(!st.palette_expanded());
+        assert_eq!(st.settings_cursor(), 2, "cursor returns to the Palette row");
+    }
+
+    #[test]
+    fn activate_toggles_a_palette_color_off() {
+        let mut st = settings_state();
+        st.settings_move_cursor(2);
+        st.settings_step_right(); // expand
+        let cyan_idx = st.settings_palette_rows().iter().position(|(n, _)| n == "cyan").unwrap();
+        st.settings_move_cursor(1 + cyan_idx as i32); // descend onto the "cyan" child row
+        assert_eq!(st.settings_palette_rows()[cyan_idx], ("cyan".to_string(), true));
+        st.settings_activate();
+        assert!(!st.active_palette.contains(&"cyan".to_string()));
+        assert!(st.dirty);
+    }
+
+    #[test]
+    fn activate_cannot_deactivate_the_last_active_color() {
+        let mut st = settings_state();
+        st.active_palette = vec!["cyan".to_string()];
+        st.settings_move_cursor(2);
+        st.settings_step_right();
+        let cyan_idx = st.settings_palette_rows().iter().position(|(n, _)| n == "cyan").unwrap();
+        st.settings_move_cursor(1 + cyan_idx as i32); // the only active color
+        st.settings_activate();
+        assert_eq!(st.active_palette, vec!["cyan".to_string()], "guard: last active color stays");
+    }
+
+    #[test]
+    fn activate_reactivates_an_inactive_color_at_its_canonical_position() {
+        let mut st = settings_state(); // active: cyan, green, yellow, magenta, blue, red
+        st.settings_move_cursor(2);
+        st.settings_step_right();
+        let black_idx = st.settings_palette_rows().iter().position(|(n, _)| n == "black").unwrap();
+        st.settings_move_cursor(1 + black_idx as i32); // descend onto the "black" child row
+        assert_eq!(st.settings_visible_rows()[st.settings_cursor()], SettingsRow::PaletteColor(black_idx));
+        st.settings_activate();
+        assert!(st.active_palette.contains(&"black".to_string()));
+        // "black" is first in ALL_NAMED_COLORS canonical order, so reactivating
+        // it inserts it at the front of active_palette, not the end: rotation
+        // order always matches the checklist's fixed display order.
+        assert_eq!(
+            st.active_palette.first(),
+            Some(&"black".to_string()),
+            "newly activated color is inserted at its canonical position"
+        );
+    }
+
+    #[test]
+    fn toggling_a_color_never_reorders_the_checklist() {
+        let mut st = settings_state();
+        st.settings_move_cursor(2);
+        st.settings_step_right(); // expand
+        let before: Vec<String> =
+            st.settings_palette_rows().into_iter().map(|(n, _)| n).collect();
+        let cyan_idx = before.iter().position(|n| n == "cyan").unwrap();
+        st.settings_move_cursor(1 + cyan_idx as i32);
+        st.settings_activate(); // toggle cyan off
+        let after: Vec<String> = st.settings_palette_rows().into_iter().map(|(n, _)| n).collect();
+        assert_eq!(before, after, "deactivating a color must not move any row");
+    }
+
+    #[test]
+    fn static_color_defaults_to_cyan() {
+        let st = settings_state();
+        assert_eq!(st.static_color, "cyan");
+    }
+
+    #[test]
+    fn c_key_only_cycles_static_color_when_policy_is_static() {
+        let mut st = settings_state();
+        st.settings_move_cursor(1); // ColorPolicy row, policy still Rotate
+        st.settings_cycle_static_color();
+        assert_eq!(st.static_color, "cyan", "no-op: policy is not Static");
+
+        st.settings_step_right(); // Rotate -> Random
+        st.settings_cycle_static_color();
+        assert_eq!(st.static_color, "cyan", "no-op: policy is Random, not Static");
+
+        st.settings_step_right(); // Random -> Static
+        assert_eq!(st.new_group_color_policy, ColorPolicy::Static);
+        st.settings_cycle_static_color();
+        assert_eq!(st.static_color, "gray", "cycles to the next of all 16 named colors after cyan");
+        assert!(st.dirty);
+    }
+
+    #[test]
+    fn c_key_is_a_noop_off_the_color_policy_row() {
+        let mut st = settings_state();
+        st.settings_move_cursor(1);
+        st.settings_step_right(); st.settings_step_right(); // -> Static
+        st.settings_move_cursor(-1); // back to DefaultMode row
+        st.settings_cycle_static_color();
+        assert_eq!(st.static_color, "cyan", "cursor must be on the Color Policy row");
+    }
+
+    #[test]
+    fn static_color_persists_across_policy_switches() {
+        let mut st = settings_state();
+        st.settings_move_cursor(1);
+        st.settings_step_right(); st.settings_step_right(); // -> Static
+        st.settings_cycle_static_color(); // cyan -> gray
+        assert_eq!(st.static_color, "gray");
+        st.settings_step_right(); // Static -> Rotate
+        assert_eq!(st.static_color, "gray", "not cleared by switching away from Static");
+        st.settings_step_right(); st.settings_step_right(); // Random -> Static
+        assert_eq!(st.static_color, "gray", "round-trips back without loss");
+    }
+
+    #[test]
+    fn pick_random_color_selects_by_seed_modulo_palette_len() {
+        let palette = vec!["a".to_string(), "b".to_string(), "c".to_string()];
+        assert_eq!(pick_random_color(&palette, 0), "a");
+        assert_eq!(pick_random_color(&palette, 1), "b");
+        assert_eq!(pick_random_color(&palette, 2), "c");
+        assert_eq!(pick_random_color(&palette, 3), "a", "wraps");
+    }
+
+    #[test]
+    fn pick_random_color_empty_palette_returns_empty_string() {
+        assert_eq!(pick_random_color(&[], 42), "");
+    }
+
+    #[test]
+    fn group_new_under_rotate_policy_leaves_color_empty() {
+        let mut st = grouped_state(); // default policy is Rotate
+        st.enter_groups();
+        st.group_new();
+        assert!(st.groups.last().unwrap().color.is_empty(), "unchanged Rotate behavior");
+    }
+
+    #[test]
+    fn group_new_under_static_policy_uses_the_configured_static_color() {
+        let mut st = grouped_state();
+        st.new_group_color_policy = ColorPolicy::Static;
+        st.static_color = "magenta".to_string();
+        st.enter_groups();
+        st.group_new();
+        assert_eq!(st.groups.last().unwrap().color, "magenta");
+    }
+
+    #[test]
+    fn group_new_under_random_policy_picks_from_the_active_palette() {
+        let mut st = grouped_state();
+        st.new_group_color_policy = ColorPolicy::Random;
+        st.enter_groups();
+        st.group_new();
+        let picked = st.groups.last().unwrap().color.clone();
+        assert!(
+            st.active_palette.contains(&picked),
+            "random pick must come from the active palette"
         );
     }
 }
