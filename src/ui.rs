@@ -1,5 +1,6 @@
 use crate::model::{
     ColorPolicy, DefaultMode, Group, Mode, PickerState, Row, Session, SettingsRow, Window,
+    ALL_NAMED_COLORS,
 };
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
@@ -341,6 +342,18 @@ fn draw_settings(frame: &mut Frame, state: &PickerState, inner: Rect) {
             SettingsRow::DefaultMode => {
                 settings_value_line("Default mode", default_mode_label(state.default_mode), selected)
             }
+            SettingsRow::AttachedColor => {
+                settings_color_line("Attached session color", &state.attached_color, state.attached_color_expanded(), selected)
+            }
+            SettingsRow::AttachedColorOption(idx) => {
+                settings_color_option_line(ALL_NAMED_COLORS[*idx], &state.attached_color, selected)
+            }
+            SettingsRow::BorderColor => {
+                settings_color_line("Border color", &state.border_color, state.border_color_expanded(), selected)
+            }
+            SettingsRow::BorderColorOption(idx) => {
+                settings_color_option_line(ALL_NAMED_COLORS[*idx], &state.border_color, selected)
+            }
             SettingsRow::ColorPolicy => {
                 let mut spans = vec![
                     Span::styled("New group color", Style::default().add_modifier(Modifier::BOLD)),
@@ -404,6 +417,36 @@ fn settings_value_line(label: &str, value: &str, selected: bool) -> Line<'static
     Line::from(vec![
         Span::styled(label.to_string(), Style::default().add_modifier(Modifier::BOLD)),
         Span::styled(format!("  {value}"), secondary(selected)),
+    ])
+}
+
+/// Render a collapsed single-color settings row: an expand glyph, the bold
+/// label, a swatch, and the color's name. Shared by Attached session color
+/// and Border color.
+fn settings_color_line(label: &str, color_name: &str, expanded: bool, selected: bool) -> Line<'static> {
+    let glyph = if expanded { "▾" } else { "▸" };
+    Line::from(vec![
+        Span::styled(format!("{glyph} "), secondary(selected)),
+        Span::styled(label.to_string(), Style::default().add_modifier(Modifier::BOLD)),
+        Span::raw("  "),
+        Span::styled("██", Style::default().fg(color_from_name(color_name))),
+        Span::styled(format!(" {color_name}"), secondary(selected)),
+    ])
+}
+
+/// Render one child row of an expanded single-color picker: a radio glyph
+/// (`●` if `name` is the currently selected color, `○` otherwise), a swatch,
+/// and the name. Distinct from `PaletteColor`'s `[x]`/`[ ]` checkbox glyph,
+/// which communicates "pick many" instead of "pick one."
+fn settings_color_option_line(name: &str, current: &str, selected: bool) -> Line<'static> {
+    let radio = if name == current { "●" } else { "○" };
+    Line::from(vec![
+        Span::raw("     "),
+        Span::styled(radio.to_string(), secondary(selected)),
+        Span::raw(" "),
+        Span::styled("██", Style::default().fg(color_from_name(name))),
+        Span::raw(" "),
+        Span::raw(name.to_string()),
     ])
 }
 
@@ -1520,9 +1563,44 @@ mod tests {
     }
 
     #[test]
+    fn draw_settings_shows_attached_and_border_color_rows() {
+        let text = render_to_string(&settings_view());
+        assert!(text.contains("Attached session color"));
+        assert!(text.contains("Border color"));
+        // Both default to cyan and render collapsed with a swatch + name.
+        assert_eq!(text.matches("cyan").count(), 2, "one swatch label per collapsed color row");
+    }
+
+    #[test]
+    fn draw_settings_expanded_attached_color_shows_radio_glyphs() {
+        let mut st = settings_view();
+        st.settings_move_cursor(1); // AttachedColor
+        st.settings_step_right(); // expand
+        let text = render_to_string(&st);
+        assert!(text.contains("●"), "the currently selected color is marked filled");
+        assert!(text.contains("○"), "unselected colors are marked hollow");
+        // "white" (the last option) sits below the 12-row test viewport once
+        // the list scrolls to keep the selected "cyan" row in view; assert on
+        // colors that are actually on screen instead (mirrors the sibling
+        // draw_settings_expanded_palette_shows_swatches_and_checkboxes test).
+        assert!(text.contains("black"));
+        assert!(text.contains("red"));
+    }
+
+    #[test]
+    fn draw_settings_expanded_border_color_shows_radio_glyphs() {
+        let mut st = settings_view();
+        st.settings_move_cursor(2); // BorderColor
+        st.settings_step_right();
+        let text = render_to_string(&st);
+        assert!(text.contains("●"));
+        assert!(text.contains("○"));
+    }
+
+    #[test]
     fn draw_settings_expanded_palette_shows_swatches_and_checkboxes() {
         let mut st = settings_view();
-        st.settings_move_cursor(2);
+        st.settings_move_cursor(4); // Palette
         st.settings_step_right(); // expand
         let text = render_to_string(&st);
         assert!(text.contains("[x]"), "active color checked");
@@ -1534,7 +1612,7 @@ mod tests {
     #[test]
     fn draw_settings_shows_static_color_value_when_policy_is_static() {
         let mut st = settings_view();
-        st.settings_move_cursor(1); // ColorPolicy row
+        st.settings_move_cursor(3); // ColorPolicy row
         st.settings_step_right(); // Rotate -> Random
         st.settings_step_right(); // Random -> Static
         st.static_color = "magenta".to_string();
@@ -1547,8 +1625,14 @@ mod tests {
     fn draw_settings_does_not_show_a_color_value_for_rotate_or_random() {
         let text = render_to_string(&settings_view()); // default policy is Rotate
         // "Rotate" itself is on screen, but no color name should follow it
-        // since Rotate has no single fixed color to show.
+        // since Rotate has no single fixed color to show. The only two
+        // swatches on screen are the always-present Attached/Border color
+        // rows; Rotate/Random must not add a third for the policy row.
         assert!(text.contains("Rotate"));
-        assert!(!text.contains("██"), "no swatch for Rotate/Random policies");
+        assert_eq!(
+            text.matches("██").count(),
+            2,
+            "no extra swatch for Rotate/Random policies beyond the Attached/Border color rows"
+        );
     }
 }
