@@ -1,4 +1,6 @@
-use crate::model::{Group, Mode, PickerState, Row, Session, SortKey, Window};
+use crate::model::{
+    ColorPolicy, DefaultMode, Group, Mode, PickerState, Row, Session, SettingsRow, SortKey, Window,
+};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
@@ -118,7 +120,7 @@ pub fn draw(frame: &mut Frame, state: &PickerState) {
         Mode::Command => draw_command(frame, state, inner),
         Mode::Search => draw_search(frame, state, inner),
         Mode::Groups => draw_groups(frame, state, inner),
-        Mode::Settings => {}, // Rendered in Task 12
+        Mode::Settings => draw_settings(frame, state, inner),
     }
 }
 
@@ -330,6 +332,94 @@ fn draw_groups(frame: &mut Frame, state: &PickerState, inner: Rect) {
         Line::from(Span::styled(GROUP_FOOTER_HINT, Style::default().fg(DIM))),
     ]);
     frame.render_widget(footer, footer_area);
+}
+
+const SETTINGS_FOOTER_HINT: &str =
+    "j/k move · h/l cycle · Space toggle · ⇧JK reorder · c color · Esc back";
+
+fn draw_settings(frame: &mut Frame, state: &PickerState, inner: Rect) {
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(0), Constraint::Length(2)])
+        .split(inner);
+    let list_area = chunks[0];
+    let footer_area = chunks[1];
+
+    let rows = state.settings_visible_rows();
+    let mut items: Vec<ListItem> = Vec::new();
+    for (i, row) in rows.iter().enumerate() {
+        let selected = i == state.settings_cursor();
+        let line = match row {
+            SettingsRow::DefaultMode => {
+                settings_value_line("Default mode", default_mode_label(state.default_mode), selected)
+            }
+            SettingsRow::ColorPolicy => settings_value_line(
+                "New group color",
+                color_policy_label(state.new_group_color_policy),
+                selected,
+            ),
+            SettingsRow::Palette => {
+                let glyph = if state.palette_expanded() { "▾" } else { "▸" };
+                Line::from(vec![
+                    Span::styled(format!("{glyph} "), secondary(selected)),
+                    Span::styled("Color palette", Style::default().add_modifier(Modifier::BOLD)),
+                    Span::styled(
+                        format!("  {} active", state.active_palette.len()),
+                        secondary(selected),
+                    ),
+                ])
+            }
+            SettingsRow::PaletteColor(idx) => {
+                let entries = state.settings_palette_rows();
+                let (name, active) = &entries[*idx];
+                let checkbox = if *active { "[x]" } else { "[ ]" };
+                Line::from(vec![
+                    Span::raw("     "),
+                    Span::styled(checkbox.to_string(), secondary(selected)),
+                    Span::raw(" "),
+                    Span::styled("██", Style::default().fg(color_from_name(name))),
+                    Span::raw(" "),
+                    Span::raw(name.clone()),
+                ])
+            }
+        };
+        items.push(ListItem::new(line));
+    }
+
+    let list = List::new(items)
+        .highlight_style(Style::default().bg(SEL_BG).add_modifier(Modifier::BOLD));
+    let mut list_state = ListState::default();
+    list_state.select(Some(state.settings_cursor()));
+    frame.render_stateful_widget(list, list_area, &mut list_state);
+
+    let rule = "─".repeat(footer_area.width as usize);
+    let footer = Paragraph::new(vec![
+        Line::from(Span::styled(rule, Style::default().fg(DIM))),
+        Line::from(Span::styled(SETTINGS_FOOTER_HINT, Style::default().fg(DIM))),
+    ]);
+    frame.render_widget(footer, footer_area);
+}
+
+fn settings_value_line(label: &str, value: &str, selected: bool) -> Line<'static> {
+    Line::from(vec![
+        Span::styled(label.to_string(), Style::default().add_modifier(Modifier::BOLD)),
+        Span::styled(format!("  {value}"), secondary(selected)),
+    ])
+}
+
+fn default_mode_label(m: DefaultMode) -> &'static str {
+    match m {
+        DefaultMode::Command => "Command",
+        DefaultMode::Search => "Search",
+    }
+}
+
+fn color_policy_label(p: ColorPolicy) -> &'static str {
+    match p {
+        ColorPolicy::Rotate => "Rotate",
+        ColorPolicy::Random => "Random",
+        ColorPolicy::Static => "Static",
+    }
 }
 
 /// Map a named color to its ANSI `Color` (never RGB, so headers follow the
@@ -1319,5 +1409,38 @@ mod tests {
         let state = PickerState::build(sessions, &cfg);
         let text = render_to_string(&state);
         assert!(text.contains("settings"), "footer hint: settings present");
+    }
+
+    fn settings_view() -> PickerState {
+        let sessions = vec![Session { name: "a".into(), activity: 1, created: 1, attached: false,
+                                       windows: vec![Window { index: 0, name: "w".into(), active: true }] }];
+        let cfg = Config::default();
+        let mut st = PickerState::build(sessions, &cfg);
+        st.enter_settings();
+        st
+    }
+
+    #[test]
+    fn draw_settings_shows_three_rows_and_footer() {
+        let text = render_to_string(&settings_view());
+        assert!(text.contains("Default mode"));
+        assert!(text.contains("Command"));
+        assert!(text.contains("New group color"));
+        assert!(text.contains("Rotate"));
+        assert!(text.contains("Color palette"));
+        assert!(text.contains("active"));
+        assert!(text.contains("Esc"));
+    }
+
+    #[test]
+    fn draw_settings_expanded_palette_shows_swatches_and_checkboxes() {
+        let mut st = settings_view();
+        st.settings_move_cursor(2);
+        st.settings_step_right(); // expand
+        let text = render_to_string(&st);
+        assert!(text.contains("[x]"), "active color checked");
+        assert!(text.contains("[ ]"), "inactive color unchecked");
+        assert!(text.contains("cyan"));
+        assert!(text.contains("black"));
     }
 }
