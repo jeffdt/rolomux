@@ -1365,7 +1365,7 @@ mod tests {
         terminal.draw(|f| draw(f, &st)).unwrap();
         let buf = terminal.backend().buffer().clone();
 
-        let expected = group_color(&st.groups[gi], gi);
+        let expected = group_color(&st.groups[gi], gi, &st.active_palette);
         let mut found_visible_name_cell = false;
         for y in 0..buf.area.height {
             for x in 0..buf.area.width {
