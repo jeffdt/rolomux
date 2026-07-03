@@ -132,6 +132,7 @@ fn event_loop(
                     Input::Focus(n) => state.focus_session_number(n),
                     Input::Quit => return Ok(None),
                     Input::None => {}
+                    Input::EnterSettings => {}, // Wired in Task 14
                 },
                 Mode::Search => match map_search_key(key) {
                     SearchInput::Char(c) => state.search_push(c),

@@ -30,7 +30,7 @@ const META_BUDGET: usize = 18;
 const POPUP_MARGIN: u16 = 2;
 
 const FOOTER_HINT: &str =
-    "/ search · 1-9 jump · ⇧JK move · g groups · s sort · z all · q quit";
+    "/ search · 1-9 jump · ⇧JK move · g groups · , settings · s sort · q quit";
 
 const SEARCH_FOOTER_HINT: &str = "↑↓ move · ⌃W word · ⌃U clear · Esc back";
 
@@ -489,6 +489,7 @@ pub enum Input {
     Switch(usize),
     Focus(usize),
     EnterGroups,
+    EnterSettings,
     MoveUp,
     MoveDown,
     CycleSort,
@@ -568,6 +569,7 @@ pub fn map_key(key: KeyEvent) -> Input {
         KeyCode::Char('z') => Input::ToggleAll,
         KeyCode::Enter => Input::Select,
         KeyCode::Char('g') => Input::EnterGroups,
+        KeyCode::Char(',') => Input::EnterSettings,
         KeyCode::Char('K') if shift => Input::MoveUp,
         KeyCode::Char('J') if shift => Input::MoveDown,
         KeyCode::Char('s') => Input::CycleSort,
@@ -867,6 +869,7 @@ mod tests {
         let text = render_to_string(&state);
         assert!(text.contains("search"), "footer hint: search present");
         assert!(text.contains("groups"), "footer hint: groups present");
+        assert!(text.contains("settings"), "footer hint: settings present");
         assert!(text.contains("sort"), "footer hint: sort present");
         assert!(text.contains("quit"), "footer hint: quit present");
     }
@@ -1299,5 +1302,22 @@ mod tests {
             }
         }
         assert!(config_white, "positional default reads the configured active_palette");
+    }
+
+    #[test]
+    fn comma_enters_settings_from_command_mode() {
+        assert_eq!(map_key(key(KeyCode::Char(','))), Input::EnterSettings);
+    }
+
+    #[test]
+    fn draw_shows_settings_footer_hint() {
+        let sessions = vec![
+            Session { name: "main".into(), activity: 100, created: 1, attached: false,
+                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+        ];
+        let cfg = Config::default();
+        let state = PickerState::build(sessions, &cfg);
+        let text = render_to_string(&state);
+        assert!(text.contains("settings"), "footer hint: settings present");
     }
 }
