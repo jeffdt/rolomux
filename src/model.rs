@@ -797,6 +797,25 @@ impl PickerState {
         }
     }
 
+    /// `c` on the Color Policy row while the policy is Static: cycle
+    /// `static_color` through all 16 named colors (independent of the active
+    /// palette). A no-op anywhere else, or when the policy isn't Static.
+    #[allow(dead_code)]
+    pub fn settings_cycle_static_color(&mut self) {
+        if self.current_settings_row() != SettingsRow::ColorPolicy {
+            return;
+        }
+        if self.new_group_color_policy != ColorPolicy::Static {
+            return;
+        }
+        let idx = ALL_NAMED_COLORS
+            .iter()
+            .position(|c| *c == self.static_color)
+            .unwrap_or(0);
+        self.static_color = ALL_NAMED_COLORS[(idx + 1) % ALL_NAMED_COLORS.len()].to_string();
+        self.dirty = true;
+    }
+
     /// The current cursor position within the group list.
     pub fn group_cursor(&self) -> usize { self.group_cursor }
 
@@ -2070,5 +2089,52 @@ mod tests {
         st.settings_reorder_palette_color(-1);
         assert_eq!(st.active_palette, before, "inactive colors are not reorderable");
         assert!(!st.dirty);
+    }
+
+    #[test]
+    fn static_color_defaults_to_cyan() {
+        let st = settings_state();
+        assert_eq!(st.static_color, "cyan");
+    }
+
+    #[test]
+    fn c_key_only_cycles_static_color_when_policy_is_static() {
+        let mut st = settings_state();
+        st.settings_move_cursor(1); // ColorPolicy row, policy still Rotate
+        st.settings_cycle_static_color();
+        assert_eq!(st.static_color, "cyan", "no-op: policy is not Static");
+
+        st.settings_step_right(); // Rotate -> Random
+        st.settings_cycle_static_color();
+        assert_eq!(st.static_color, "cyan", "no-op: policy is Random, not Static");
+
+        st.settings_step_right(); // Random -> Static
+        assert_eq!(st.new_group_color_policy, ColorPolicy::Static);
+        st.settings_cycle_static_color();
+        assert_eq!(st.static_color, "gray", "cycles to the next of all 16 named colors after cyan");
+        assert!(st.dirty);
+    }
+
+    #[test]
+    fn c_key_is_a_noop_off_the_color_policy_row() {
+        let mut st = settings_state();
+        st.settings_move_cursor(1);
+        st.settings_step_right(); st.settings_step_right(); // -> Static
+        st.settings_move_cursor(-1); // back to DefaultMode row
+        st.settings_cycle_static_color();
+        assert_eq!(st.static_color, "cyan", "cursor must be on the Color Policy row");
+    }
+
+    #[test]
+    fn static_color_persists_across_policy_switches() {
+        let mut st = settings_state();
+        st.settings_move_cursor(1);
+        st.settings_step_right(); st.settings_step_right(); // -> Static
+        st.settings_cycle_static_color(); // cyan -> gray
+        assert_eq!(st.static_color, "gray");
+        st.settings_step_right(); // Static -> Rotate
+        assert_eq!(st.static_color, "gray", "not cleared by switching away from Static");
+        st.settings_step_right(); st.settings_step_right(); // Random -> Static
+        assert_eq!(st.static_color, "gray", "round-trips back without loss");
     }
 }
