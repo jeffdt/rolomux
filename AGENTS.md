@@ -180,6 +180,14 @@ already checked out.
    then confirm `smux --version`. If `~/.tmux.conf`'s `bind S` was temporarily
    pointed at a dev build (`target/release/smux`) for testing, revert its `exec`
    to `exec smux` and `tmux source-file ~/.tmux.conf`.
+6. If this was the final PR for the work (no agreed-upon follow-up or
+   multi-PR split), clean up rather than leaving the worktree lying around:
+   confirm the linked issue actually closed (`Closes #N` closes it on merge,
+   but check `gh issue view N --json state,closed` rather than assuming; `gh
+   issue close N` by hand if it didn't), then run `wt remove` from inside the
+   feature worktree (it deletes the worktree and the now-merged branch, and
+   switches the shell back to the `main` worktree on its own). Offer to `git
+   pull` the merge into that `main` worktree rather than doing it silently.
 
 Currently Apple Silicon only. Supporting Intel means adding
 `x86_64-apple-darwin` to the release matrix and an Intel branch in the formula.
