@@ -176,10 +176,10 @@ pub struct Session {
     pub windows: Vec<Window>,
 }
 
-/// Named header colors, in the order the color-flip cycles through them. These
-/// are the 16-color ANSI names (never RGB) so headers inherit the user's
-/// terminal theme; `magenta` is the purple in a Nord palette. An empty
-/// `Group::color` means "use the positional default" (`HEADER_COLORS[index]`).
+/// The default active color palette, seeded into a fresh `Config` when no
+/// `[settings]` table is present on disk (`store::Config::default`). Also
+/// the historical positional-default order. Named ANSI colors only (never
+/// RGB) so headers inherit the user's terminal theme.
 pub const HEADER_COLORS: [&str; 6] = ["cyan", "green", "yellow", "magenta", "blue", "red"];
 
 /// A user-named, ordered collection of sessions that renders as its own
@@ -865,22 +865,29 @@ impl PickerState {
         self.group_edit = Some(String::new());
     }
 
-    /// Advance the selected group's header color to the next in `HEADER_COLORS`,
-    /// wrapping around. Starts from the group's effective color (its explicit
-    /// name, or the positional default) and stores the result explicitly so it
-    /// no longer shifts when groups are reordered.
+    /// Advance the selected group's header color to the next in the live
+    /// `active_palette`, wrapping around. Starts from the group's effective
+    /// color (its explicit name, or the positional default) and stores the
+    /// result explicitly so it no longer shifts when groups are reordered.
+    /// Guarded against an empty palette (should not happen -- Settings mode's
+    /// min-1 toggle guard and the config loader's empty-palette fallback both
+    /// prevent it -- but never panics if it somehow does).
     pub fn group_cycle_color(&mut self) {
         let gi = self.group_cursor;
         if gi >= self.groups.len() {
             return;
         }
+        if self.active_palette.is_empty() {
+            return;
+        }
+        let palette = self.active_palette.clone();
         let current = if self.groups[gi].color.is_empty() {
-            HEADER_COLORS[gi % HEADER_COLORS.len()]
+            palette[gi % palette.len()].clone()
         } else {
-            self.groups[gi].color.as_str()
+            self.groups[gi].color.clone()
         };
-        let idx = HEADER_COLORS.iter().position(|c| *c == current).unwrap_or(0);
-        self.groups[gi].color = HEADER_COLORS[(idx + 1) % HEADER_COLORS.len()].to_string();
+        let idx = palette.iter().position(|c| c == &current).unwrap_or(0);
+        self.groups[gi].color = palette[(idx + 1) % palette.len()].clone();
         self.dirty = true;
     }
 
@@ -1787,6 +1794,26 @@ mod tests {
         st.groups[2].color = HEADER_COLORS[HEADER_COLORS.len() - 1].to_string();
         st.group_cycle_color();
         assert_eq!(st.groups[2].color, HEADER_COLORS[0]);
+    }
+
+    #[test]
+    fn group_cycle_color_uses_the_customized_active_palette() {
+        let mut st = grouped_state();
+        st.active_palette = vec!["white".to_string(), "black".to_string()];
+        st.enter_groups(); // cursor on group 0
+        st.group_cycle_color();
+        // group 0's positional default is active_palette[0 % 2] = "white"; flip advances to "black".
+        assert_eq!(st.groups[0].color, "black");
+    }
+
+    #[test]
+    fn group_cycle_color_is_a_guarded_noop_on_an_empty_active_palette() {
+        let mut st = grouped_state();
+        st.active_palette = vec![];
+        st.enter_groups();
+        st.group_cycle_color();
+        assert!(st.groups[0].color.is_empty(), "never panics or divides by zero");
+        assert!(!st.dirty);
     }
 
     #[test]
