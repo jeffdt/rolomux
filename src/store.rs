@@ -1,4 +1,4 @@
-use crate::model::{ColorPolicy, DefaultMode, Group, SortKey, HEADER_COLORS};
+use crate::model::{ColorPolicy, DefaultMode, Group, HEADER_COLORS};
 use serde::Deserialize;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -7,13 +7,16 @@ use std::path::{Path, PathBuf};
 // tolerated by serde defaults (i.e. a rename or a semantic change, not a
 // plain new-field addition). Add the migration step in `Config::migrate`
 // and a matching test. See AGENTS.md "Configuration".
-pub const CONFIG_VERSION: u32 = 1;
+//
+// v1 -> v2: dropped `sort` (issue #15, sort-mode cycling removed). No
+// transform needed: the field is simply no longer read or written, and no
+// existing data (`groups`, `manual_order`) is affected.
+pub const CONFIG_VERSION: u32 = 2;
 
 #[derive(Debug, Clone)]
 pub struct Config {
     pub groups: Vec<Group>,
     pub manual_order: Vec<String>,
-    pub sort: SortKey,
     pub dormant: Vec<String>,
     pub default_mode: DefaultMode,
     pub new_group_color_policy: ColorPolicy,
@@ -32,7 +35,6 @@ impl Default for Config {
         Config {
             groups: Vec::new(),
             manual_order: Vec::new(),
-            sort: SortKey::default(),
             dormant: Vec::new(),
             default_mode: DefaultMode::default(),
             new_group_color_policy: ColorPolicy::default(),
@@ -83,8 +85,9 @@ struct RawConfig {
     groups: Vec<RawGroup>,
     #[serde(default)]
     manual_order: Vec<String>,
-    #[serde(default)]
-    sort: Option<String>,
+    // `sort` (v1 and earlier) is intentionally not modeled here: serde
+    // ignores unknown fields by default, so a v1 file with `sort = "..."`
+    // still loads cleanly, and the value is dropped on next save.
     #[serde(default)]
     dormant: Vec<String>,
     #[serde(default)]
@@ -104,7 +107,6 @@ struct OutConfig {
     config_version: u32,
     groups: Vec<OutGroup>,
     manual_order: Vec<String>,
-    sort: String,
     dormant: Vec<String>,
     settings: OutSettings,
 }
@@ -154,10 +156,6 @@ impl Config {
         Config {
             groups,
             manual_order: raw.manual_order,
-            sort: raw
-                .sort
-                .map(|s| SortKey::from_config_str(&s))
-                .unwrap_or_default(),
             dormant: raw.dormant,
             default_mode,
             new_group_color_policy,
@@ -185,11 +183,6 @@ impl Config {
                 })
                 .collect(),
             manual_order: self.manual_order.clone(),
-            sort: match self.sort {
-                SortKey::Activity => "activity".into(),
-                SortKey::Created => "created".into(),
-                SortKey::Manual => "manual".into(),
-            },
             dormant,
             settings: OutSettings {
                 default_mode: self.default_mode.as_config_str().to_string(),
@@ -237,7 +230,6 @@ mod tests {
     fn missing_file_yields_defaults() {
         let cfg = Config::load_from(Path::new("/nonexistent/smux/config.toml"));
         assert!(cfg.groups.is_empty());
-        assert_eq!(cfg.sort, SortKey::Activity);
         assert!(cfg.dormant.is_empty());
     }
 
@@ -249,7 +241,6 @@ mod tests {
         let cfg = Config {
             groups: vec![],
             manual_order: vec![],
-            sort: SortKey::Activity,
             dormant: vec!["zebra".into(), "alpha".into()],
             ..Default::default()
         };
@@ -265,7 +256,6 @@ mod tests {
         let mut cfg = Config {
             groups: vec![],
             manual_order: vec![],
-            sort: SortKey::Activity,
             dormant: vec!["a".into(), "gone".into()],
             ..Default::default()
         };
@@ -275,15 +265,11 @@ mod tests {
     }
 
     #[test]
-    fn load_then_save_round_trips_pins_and_sort() {
+    fn load_then_save_round_trips_pins() {
         let dir = std::env::temp_dir().join(format!("smux-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("config.toml");
-        std::fs::write(
-            &path,
-            "pinned = [\"pr-review\", \"my session\"]\nsort = \"created\"\n",
-        )
-        .unwrap();
+        std::fs::write(&path, "pinned = [\"pr-review\", \"my session\"]\n").unwrap();
 
         // Legacy pinned field migrates to a single PINNED group.
         let cfg = Config::load_from(&path);
@@ -293,36 +279,28 @@ mod tests {
             cfg.groups[0].members,
             vec!["pr-review".to_string(), "my session".to_string()]
         );
-        assert_eq!(cfg.sort, SortKey::Created);
 
         let out = dir.join("out.toml");
         cfg.save_to(&out).unwrap();
         let reloaded = Config::load_from(&out);
         assert_eq!(reloaded.groups, cfg.groups);
-        assert_eq!(reloaded.sort, SortKey::Created);
 
         std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
-    fn round_trips_manual_sort_and_order() {
+    fn round_trips_manual_order() {
         let dir = std::env::temp_dir().join(format!("smux-manual-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("config.toml");
-        std::fs::write(
-            &path,
-            "pinned = []\nmanual_order = [\"a\", \"my session\"]\nsort = \"manual\"\n",
-        )
-        .unwrap();
+        std::fs::write(&path, "pinned = []\nmanual_order = [\"a\", \"my session\"]\n").unwrap();
 
         let cfg = Config::load_from(&path);
-        assert_eq!(cfg.sort, SortKey::Manual);
         assert_eq!(cfg.manual_order, vec!["a".to_string(), "my session".to_string()]);
 
         let out = dir.join("out.toml");
         cfg.save_to(&out).unwrap();
         let reloaded = Config::load_from(&out);
-        assert_eq!(reloaded.sort, SortKey::Manual);
         assert_eq!(reloaded.manual_order, cfg.manual_order);
 
         std::fs::remove_dir_all(&dir).ok();
@@ -333,7 +311,7 @@ mod tests {
         let mut cfg = Config {
             dormant: vec![], groups: vec![],
             manual_order: vec!["a".into(), "gone".into(), "b".into()],
-            sort: SortKey::Manual, ..Default::default()
+            ..Default::default()
         };
         let live = vec!["a".to_string(), "b".to_string()];
         let changed = cfg.reconcile(&live);
@@ -359,10 +337,36 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("smux-ver-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("config.toml");
-        let cfg = Config { groups: vec![], manual_order: vec![], sort: SortKey::Activity, ..Default::default() };
+        let cfg = Config { groups: vec![], manual_order: vec![], ..Default::default() };
         cfg.save_to(&path).unwrap();
         let written = std::fs::read_to_string(&path).unwrap();
         assert!(written.contains(&format!("config_version = {CONFIG_VERSION}")));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn v1_sort_field_is_dropped_on_load_and_resave() {
+        let dir = std::env::temp_dir().join(format!("smux-sortdrop-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.toml");
+        std::fs::write(
+            &path,
+            "config_version = 1\ngroups = [{ name = \"PINNED\", members = [\"a\"] }]\nsort = \"activity\"\n",
+        )
+        .unwrap();
+
+        // Loads without error despite the stale `sort` key.
+        let cfg = Config::load_from(&path);
+        assert_eq!(cfg.groups.len(), 1);
+        assert_eq!(cfg.groups[0].name, "PINNED");
+
+        // Next save no longer writes `sort` at all.
+        let out = dir.join("out.toml");
+        cfg.save_to(&out).unwrap();
+        let written = std::fs::read_to_string(&out).unwrap();
+        assert!(!written.contains("sort"), "sort field should be dropped: {written}");
+        assert!(written.contains(&format!("config_version = {CONFIG_VERSION}")));
+
         std::fs::remove_dir_all(&dir).ok();
     }
 
@@ -414,7 +418,7 @@ mod tests {
                 Group { name: "TOOLS".into(), members: vec![], color: String::new() },
             ],
             manual_order: vec![],
-            sort: SortKey::Manual, ..Default::default()
+            ..Default::default()
         };
         cfg.save_to(&path).unwrap();
         let reloaded = Config::load_from(&path);
@@ -427,7 +431,7 @@ mod tests {
         let mut cfg = Config {
             dormant: vec![], groups: vec![Group { name: "G".into(), members: vec!["a".into(), "gone".into()], color: String::new() }],
             manual_order: vec![],
-            sort: SortKey::Manual, ..Default::default()
+            ..Default::default()
         };
         let live = vec!["a".to_string()];
         assert!(cfg.reconcile(&live));

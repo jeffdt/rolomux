@@ -16,17 +16,17 @@ These are the reasons the project exists. Changes should preserve them.
 
 - **Fast and on-demand.** Opens in well under 100ms. Gathers all state in a
   single tmux subprocess call, renders, and exits. No daemon, no caching layer.
-- **Named groups first, then sorted.** Sessions are curated into an arbitrary
-  number of durable, user-named groups that stay on top in a user-defined order;
-  everything else falls into the residual `SESSIONS` bucket, which follows the
-  active sort mode. Three modes cycle in the picker (the `s` key): recency, age
-  (creation), and manual; the mode governs only `SESSIONS` (named groups are
-  always manual order). In `SESSIONS` manual mode the order is user-defined and
-  reordered with the same `⇧J/⇧K` keys; new/unlisted sessions sink to the bottom.
-  Groups, their order, the active mode, and the manual order all persist across
-  tmux restarts. Groups are durable: they survive empty and vanish only via an
-  explicit delete (there is intentionally no auto-prune). A legacy single
-  `pinned` list migrates to one group named `PINNED`.
+- **Named groups first, then always manual.** Sessions are curated into an
+  arbitrary number of durable, user-named groups that stay on top in a
+  user-defined order; everything else falls into the residual `SESSIONS`
+  bucket, which is also always in manual order (there is no sort-mode
+  cycling — this tool is for people who curate their layout by hand). The
+  order is user-defined and reordered with the same `⇧J/⇧K` keys;
+  new/unlisted sessions sink to the bottom. Groups, their order, and the
+  manual order all persist across tmux restarts. Groups are durable: they
+  survive empty and vanish only via an explicit delete (there is
+  intentionally no auto-prune). A legacy single `pinned` list migrates to
+  one group named `PINNED`.
 - **Two altitudes, two modes.** Session mode operates on sessions (switch, jump,
   move a session across group boundaries with `⇧J/⇧K`, search). A dedicated
   full-screen group mode (`g`) operates only on group structure (create, rename,
@@ -68,8 +68,7 @@ These are deliberate and have driven past work. Do not reverse them casually.
   focuses and expands a session without switching (uses the legacy ESC-prefix
   Meta encoding crossterm decodes to `KeyModifiers::ALT`; no kitty protocol).
 - **Test seams.** tmux access sits behind a trait so the UI and model are
-  testable without a live tmux; the sort algorithm sits behind an enum so it
-  can be swapped. Keep new I/O behind seams like these.
+  testable without a live tmux. Keep new I/O behind seams like these.
 - **Graceful no-op on tmux failure.** Switch/select actions swallow non-zero
   tmux exit status rather than crashing the popup. This is intentional for a
   transient popup UI.
@@ -80,7 +79,7 @@ These are deliberate and have driven past work. Do not reverse them casually.
 - **Fuzzy search is in-process, compile-time only.** The matcher uses the
   `nucleo-matcher` crate; it is a build-time dependency and does not change the
   runtime dep (still just tmux). The `Mode` enum and `DEFAULT_MODE` constant
-  mirror the existing `INITIAL_FOCUS`/`SortKey` seams and are the hook for a
+  mirror the existing `INITIAL_FOCUS` seam and are the hook for a
   future `default_mode` config key (deferred, not shipped). During search,
   section headers and 1-9 jump numbers are suppressed by design (digits are
   query text; numbers cannot be stable when results re-rank on every keystroke).
@@ -93,12 +92,11 @@ User config persists to `$XDG_CONFIG_HOME/smux/config.toml` (else
 `~/.config/smux/config.toml`): a `[[groups]]` array (each with a `name`, an
 ordered `members` list, and an optional `color` from the named palette in
 `HEADER_COLORS`; empty/absent means the positional default, and `c` in group
-mode flips it), a `manual_order` list (the user-defined order for the
-`SESSIONS` manual sort mode), and a `sort` key (`activity`, `created`, or
-`manual`). A legacy top-level `pinned` list is still read and migrates to a
-single group named `PINNED`. Users normally never edit it by hand; the picker
-writes it on group/membership/reorder/sort-cycle. Groups are never auto-pruned;
-`reconcile` drops dead members but keeps the group.
+mode flips it), and a `manual_order` list (the user-defined order for the
+residual `SESSIONS` bucket). A legacy top-level `pinned` list is still read
+and migrates to a single group named `PINNED`. Users normally never edit it
+by hand; the picker writes it on group/membership/reorder changes. Groups
+are never auto-pruned; `reconcile` drops dead members but keeps the group.
 
 ### Config migrations
 

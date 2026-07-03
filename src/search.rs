@@ -7,7 +7,7 @@ use nucleo_matcher::{Config, Matcher, Utf32Str};
 /// model's name-ascending tie-break. `query` is assumed non-empty.
 ///
 /// This is the only place the fuzzy matcher is touched, so the matcher can be
-/// swapped without disturbing the model or UI (cf. the `SortKey` seam).
+/// swapped without disturbing the model or UI (cf. the `INITIAL_FOCUS` seam).
 pub fn rank(query: &str, candidates: &[impl AsRef<str>]) -> Vec<usize> {
     let atom = Atom::new(
         query,
