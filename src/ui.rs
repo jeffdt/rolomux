@@ -298,9 +298,11 @@ fn draw_groups(frame: &mut Frame, state: &PickerState, inner: Rect) {
                 Span::styled("▏", Style::default().fg(ACCENT)),
             ])
         } else {
-            // Empty groups read as dimmed shelves, matching session mode;
-            // populated groups show their (flippable) header color.
-            let name_color = if g.members.is_empty() { DIM } else { group_color(g, gi) };
+            // Group mode always shows a group's real (flippable) header color,
+            // regardless of membership: dimming empty groups here can collide
+            // with the DarkGray selection bar and render the name invisible
+            // (issue #14).
+            let name_color = group_color(g, gi);
             Line::from(vec![
                 Span::styled(g.name.to_uppercase(),
                     Style::default().fg(name_color).add_modifier(Modifier::BOLD)),
@@ -1170,6 +1172,39 @@ mod tests {
         assert!(text.contains("· 1"), "member count");
         assert!(text.contains("SESSIONS"), "residual anchor");
         assert!(text.contains("Enter rename"), "group footer");
+    }
+
+    #[test]
+    fn draw_groups_selected_empty_group_name_is_visible() {
+        // Issue #14: a newly created (empty) group sits selected against the
+        // DarkGray highlight bar. Dimming its name to DarkGray for being empty
+        // renders DarkGray-on-DarkGray: an invisible name. Group-mode names
+        // must always show the group's real color, regardless of membership.
+        let mut st = groups_view(false);
+        st.group_new();
+        for c in "test".chars() { st.group_edit_push(c); }
+        st.group_commit_rename();
+        let gi = st.group_cursor();
+
+        let backend = TestBackend::new(80, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| draw(f, &st)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+
+        let expected = group_color(&st.groups[gi], gi);
+        let mut found_visible_name_cell = false;
+        for y in 0..buf.area.height {
+            for x in 0..buf.area.width {
+                let cell = &buf[(x, y)];
+                if cell.style().bg == Some(Color::DarkGray) && cell.style().fg == Some(expected) {
+                    found_visible_name_cell = true;
+                }
+                let invisible = cell.style().bg == Some(Color::DarkGray)
+                    && cell.style().fg == Some(Color::DarkGray);
+                assert!(!invisible, "selected empty group row has DarkGray-on-DarkGray cell at x={x}, y={y}");
+            }
+        }
+        assert!(found_visible_name_cell, "selected empty group name renders in its real header color");
     }
 
     #[test]
