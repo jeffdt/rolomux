@@ -1,4 +1,4 @@
-use crate::model::{Group, Mode, PickerState, Row, Session, SortKey, Window, HEADER_COLORS};
+use crate::model::{Group, Mode, PickerState, Row, Session, SortKey, Window};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
@@ -168,7 +168,7 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
                     }
                     match section {
                         Some(gi) => {
-                            let color = group_color(&state.groups[gi], gi);
+                            let color = group_color(&state.groups[gi], gi, &state.active_palette);
                             push_section_header(&mut items, &state.groups[gi].name.to_uppercase(), list_area.width, color);
                             next_group = gi + 1;
                         }
@@ -303,7 +303,7 @@ fn draw_groups(frame: &mut Frame, state: &PickerState, inner: Rect) {
             // regardless of membership: dimming empty groups here can collide
             // with the DarkGray selection bar and render the name invisible
             // (issue #14).
-            let name_color = group_color(g, gi);
+            let name_color = group_color(g, gi, &state.active_palette);
             Line::from(vec![
                 Span::styled(g.name.to_uppercase(),
                     Style::default().fg(name_color).add_modifier(Modifier::BOLD)),
@@ -332,25 +332,42 @@ fn draw_groups(frame: &mut Frame, state: &PickerState, inner: Rect) {
     frame.render_widget(footer, footer_area);
 }
 
-/// Map a `HEADER_COLORS` name to a named ANSI color (never RGB, so headers
-/// follow the terminal theme). `magenta` is the Nord purple. Unknown names fall
-/// back to the accent so a hand-edited config can never crash the picker.
+/// Map a named color to its ANSI `Color` (never RGB, so headers follow the
+/// terminal theme). `magenta` is the Nord purple. Unknown names fall back to
+/// the accent so a hand-edited config can never crash the picker.
 fn color_from_name(name: &str) -> Color {
     match name {
+        "black" => Color::Black,
+        "red" => Color::Red,
         "green" => Color::Green,
         "yellow" => Color::Yellow,
-        "magenta" => Color::Magenta,
         "blue" => Color::Blue,
-        "red" => Color::Red,
+        "magenta" => Color::Magenta,
+        "cyan" => Color::Cyan,
+        "gray" => Color::Gray,
+        "darkgray" => Color::DarkGray,
+        "lightred" => Color::LightRed,
+        "lightgreen" => Color::LightGreen,
+        "lightyellow" => Color::LightYellow,
+        "lightblue" => Color::LightBlue,
+        "lightmagenta" => Color::LightMagenta,
+        "lightcyan" => Color::LightCyan,
+        "white" => Color::White,
         _ => Color::Cyan,
     }
 }
 
 /// The header color for the group at `index`: its explicit color, or the
-/// positional default `HEADER_COLORS[index]` when unset.
-fn group_color(group: &Group, index: usize) -> Color {
+/// positional default (`active_palette[index % len]`). Falls back to the
+/// accent on an empty palette rather than dividing by zero (should not
+/// happen -- see `PickerState::group_cycle_color`'s guard -- but never
+/// panics if it somehow does).
+fn group_color(group: &Group, index: usize, active_palette: &[String]) -> Color {
     let name = if group.color.is_empty() {
-        HEADER_COLORS[index % HEADER_COLORS.len()]
+        if active_palette.is_empty() {
+            return ACCENT;
+        }
+        active_palette[index % active_palette.len()].as_str()
     } else {
         group.color.as_str()
     };
@@ -1233,5 +1250,54 @@ mod tests {
         let buf = terminal.backend().buffer().clone();
         assert_eq!(buf.area.width, 3);
         assert_eq!(buf.area.height, 3);
+    }
+
+    #[test]
+    fn color_from_name_maps_all_sixteen_named_colors() {
+        assert_eq!(color_from_name("black"), Color::Black);
+        assert_eq!(color_from_name("red"), Color::Red);
+        assert_eq!(color_from_name("green"), Color::Green);
+        assert_eq!(color_from_name("yellow"), Color::Yellow);
+        assert_eq!(color_from_name("blue"), Color::Blue);
+        assert_eq!(color_from_name("magenta"), Color::Magenta);
+        assert_eq!(color_from_name("cyan"), Color::Cyan);
+        assert_eq!(color_from_name("gray"), Color::Gray);
+        assert_eq!(color_from_name("darkgray"), Color::DarkGray);
+        assert_eq!(color_from_name("lightred"), Color::LightRed);
+        assert_eq!(color_from_name("lightgreen"), Color::LightGreen);
+        assert_eq!(color_from_name("lightyellow"), Color::LightYellow);
+        assert_eq!(color_from_name("lightblue"), Color::LightBlue);
+        assert_eq!(color_from_name("lightmagenta"), Color::LightMagenta);
+        assert_eq!(color_from_name("lightcyan"), Color::LightCyan);
+        assert_eq!(color_from_name("white"), Color::White);
+        assert_eq!(color_from_name("bogus"), Color::Cyan, "unknown name falls back to the accent");
+    }
+
+    #[test]
+    fn draw_colors_group_header_from_active_palette_not_a_fixed_const() {
+        let sessions = vec![
+            Session { name: "claude".into(), activity: 30, created: 1, attached: false,
+                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+        ];
+        let cfg = Config {
+            groups: vec![Group { name: "config".into(), members: vec!["claude".into()], color: String::new() }],
+            active_palette: vec!["white".to_string()],
+            ..Default::default()
+        };
+        let state = PickerState::build(sessions, &cfg);
+
+        let backend = TestBackend::new(80, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| draw(f, &state)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+
+        let mut config_white = false;
+        for y in 0..buf.area.height {
+            let line: String = (0..buf.area.width).map(|x| buf[(x, y)].symbol()).collect();
+            if let Some(i) = line.find("CONFIG") {
+                config_white = buf[(i as u16, y)].style().fg == Some(Color::White);
+            }
+        }
+        assert!(config_white, "positional default reads the configured active_palette");
     }
 }
