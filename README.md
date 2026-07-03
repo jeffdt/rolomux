@@ -8,8 +8,9 @@ purpose, so it feels familiar rather than like a whole new tool to learn.
 named groups whose order you choose: a CONFIG group for your editor/AI config, a
 TOOLS group for local dev stacks, whatever fits how you work. Everything else,
 the throwaway sessions you spin up for research or a feature and then abandon,
-sorts below under SESSIONS by recency. Each session still expands into its
-windows, so you keep the tree view.
+sits below under SESSIONS in the order you arrange it, with new sessions
+landing at the bottom. Each session still expands into its windows, so you
+keep the tree view.
 
 ![Rust](https://img.shields.io/badge/Rust-2021-orange?logo=rust&logoColor=white)
 ![TUI](https://img.shields.io/badge/TUI-ratatui-1f6feb)
@@ -37,8 +38,9 @@ Reload tmux and press `prefix + Shift+S`.
 ## How it works
 
 - **Grouped first.** Sessions you sort into named groups stay on top in your
-  order; everything else sorts below under SESSIONS by recency (or creation).
-  Groups, their order, and the sort mode persist across tmux restarts.
+  order; everything else sits below under SESSIONS in the order you set with
+  `⇧J`/`⇧K`, with new sessions landing at the bottom. Groups, their order, and
+  the SESSIONS order persist across tmux restarts.
 - **Group management mode.** Press `g` for a dedicated view to create, rename,
   delete, and reorder groups. Move sessions between groups from the picker with
   `⇧J` / `⇧K`. Groups are durable: they stay even when empty, until you delete
@@ -62,7 +64,6 @@ Reload tmux and press `prefix + Shift+S`.
 | `z` | Expand or collapse all |
 | `⇧J` / `⇧K` | Move the selected session across group boundaries (down / up) |
 | `g` | Open group-management mode |
-| `s` | Cycle the SESSIONS sort mode (recency, age, manual) |
 | `/` | Enter search mode (type to filter, `↵` switch, `Esc` back) |
 | `q` / `Esc` | Quit |
 
@@ -89,8 +90,9 @@ Press `g` to open group-management mode, a full-screen view of just your groups
 | `⇧J` / `⇧K` | Reorder the selected group down / up |
 | `Esc` / `q` / `g` | Back to the picker |
 
-Named groups are always in the manual order you set; only the residual SESSIONS
-bucket follows the `s` sort mode. Each group's header takes a color from your
+Named groups and the residual SESSIONS bucket are both always in the order you
+set with `⇧J`/`⇧K`; new or unlisted sessions land at the bottom of SESSIONS.
+Each group's header takes a color from your
 terminal theme (cyan, green, yellow, magenta, blue, red); new groups rotate
 through them, `c` flips a group's color, and empty groups show grayed out until
 you fill them.
@@ -109,11 +111,9 @@ config.
 
 ## Configuration
 
-Groups and sort order persist to `~/.config/smux/config.toml`:
+Groups and session order persist to `~/.config/smux/config.toml`:
 
 ```toml
-sort = "activity"  # "activity", "created", or "manual"
-
 [[groups]]
 name = "CONFIG"
 members = ["workbench", "config-tmux"]
