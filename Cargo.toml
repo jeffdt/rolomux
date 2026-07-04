@@ -1,6 +1,6 @@
 [package]
 name = "rolomux"
-version = "0.14.0"
+version = "0.15.0"
 edition = "2021"
 description = "A fast tmux session picker with pinned sessions and a collapsible window tree"
 license = "MIT"
