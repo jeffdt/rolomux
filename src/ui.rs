@@ -182,6 +182,7 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
                     meta,
                     state.is_dormant(&sess.name),
                     attached_color,
+                    None,
                 ));
             }
             Row::Window(si, wi) => {
@@ -245,13 +246,25 @@ fn draw_search(frame: &mut Frame, state: &PickerState, inner: Rect) {
     } else {
         let meta = MetaLayout::compute(results.iter().copied(), chunks[1].width);
         let attached_color = color_from_name(&state.attached_color);
+        // Widest age string among tagged rows, so every tag in this render
+        // starts at the same column regardless of its own row's age width.
+        let age_width = results
+            .iter()
+            .filter(|s| state.group_index_of(&s.name).is_some())
+            .map(|s| activity_age(s.activity).chars().count())
+            .max()
+            .unwrap_or(0);
         for (i, sess) in results.iter().enumerate() {
             let selected = i == state.search_cursor();
             if selected {
                 selected_line = Some(items.len());
             }
+            let group_tag = state.group_index_of(&sess.name).map(|gi| {
+                let age_pad = age_width.saturating_sub(activity_age(sess.activity).chars().count());
+                (state.groups[gi].name.clone(), group_color(&state.groups[gi], gi, &state.active_palette), age_pad)
+            });
             // Flat, collapsed, no jump number (None), normal metadata.
-            items.push(session_item(sess, false, selected, None, meta, state.is_dormant(&sess.name), attached_color));
+            items.push(session_item(sess, false, selected, None, meta, state.is_dormant(&sess.name), attached_color, group_tag));
         }
     }
     let list = List::new(items)
@@ -571,6 +584,7 @@ impl MetaLayout {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn session_item(
     sess: &Session,
     expanded: bool,
@@ -579,6 +593,7 @@ fn session_item(
     meta: MetaLayout,
     dormant: bool,
     attached_color: Color,
+    group_tag: Option<(String, Color, usize)>,
 ) -> ListItem<'static> {
     let glyph = if expanded { "▾" } else { "▸" };
     let num = match number { Some(n) => format!("{n} "), None => "  ".to_string() };
@@ -594,7 +609,7 @@ fn session_item(
     let count = window_count(sess.windows.len());
     let count_pad = meta.count_width.saturating_sub(count.chars().count());
     let age = activity_age(sess.activity);
-    ListItem::new(Line::from(vec![
+    let mut spans = vec![
         Span::styled(num, secondary(selected)),
         Span::styled(format!("{glyph} "), secondary(selected)),
         Span::styled(sess.name.clone(), name_style),
@@ -602,7 +617,17 @@ fn session_item(
             format!("{}{count}{} · {age}", " ".repeat(pad), " ".repeat(count_pad)),
             secondary(selected),
         ),
-    ]))
+    ];
+    // age_pad brings every tagged row's age up to the widest age string among
+    // this render's tagged rows, so tags line up in a column even though ages
+    // ("4h" vs "53m") naturally differ in width. Untagged rows (command mode,
+    // residual search matches) never receive a pad, so their line is unchanged.
+    if let Some((tag, color, age_pad)) = group_tag {
+        spans.push(Span::styled(" ".repeat(age_pad), secondary(selected)));
+        spans.push(Span::styled(" · ", secondary(selected)));
+        spans.push(Span::styled(tag.to_uppercase(), Style::default().fg(color)));
+    }
+    ListItem::new(Line::from(spans))
 }
 
 fn window_item(win: &Window, last: bool, selected: bool) -> ListItem<'static> {
@@ -1346,7 +1371,7 @@ mod tests {
     #[test]
     fn draw_search_hides_headers_and_numbers() {
         let text = render_to_string(&searching_state("pr"));
-        assert!(!text.contains("PINNED"), "no section headers in search");
+        assert!(!text.contains("PINNED ─"), "no PINNED section header (rule) in search");
         assert!(!text.contains("SESSIONS"), "no section headers in search");
         // No jump-number gutter: the pr-review row must not start with "1 ".
         for line in text.lines() {
@@ -1361,6 +1386,114 @@ mod tests {
         let text = render_to_string(&searching_state("zzzzz"));
         assert!(text.contains("no matches"), "empty-state line present");
         assert!(text.contains("Esc"), "search footer present");
+    }
+
+    #[test]
+    fn draw_search_shows_grouped_sessions_tag_in_group_color() {
+        // Lowercase group name so the assertion actually exercises
+        // session_item's `.to_uppercase()` call (a fixture already in caps
+        // would pass even if the uppercasing were silently dropped).
+        let sessions = vec![Session {
+            name: "pr-review".into(), activity: 30, created: 1, attached: false,
+            windows: vec![Window { index: 0, name: "w".into(), active: true }],
+        }];
+        let cfg = Config {
+            dormant: vec![], groups: vec![Group { name: "work".into(), members: vec!["pr-review".into()], color: String::new() }],
+            manual_order: vec![],
+            ..Default::default()
+        };
+        let mut state = PickerState::build(sessions, &cfg);
+        state.enter_search();
+        state.search_push('p');
+        state.search_push('r');
+
+        let text = render_to_string(&state);
+        let mut found = false;
+        for line in text.lines() {
+            if line.contains("pr-review") {
+                assert!(line.contains("WORK"), "grouped match carries its uppercased group tag: {line:?}");
+                found = true;
+            }
+        }
+        assert!(found, "pr-review row must be present");
+
+        // Expected color comes from group_color() itself, mirroring the
+        // pattern in draw_groups_selected_empty_group_name_is_visible, so
+        // this stays correct even if the default palette order changes.
+        let expected_color = group_color(&state.groups[0], 0, &state.active_palette);
+        let backend = TestBackend::new(80, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| draw(f, &state)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+        let mut tag_fg: Option<Color> = None;
+        for y in 0..buf.area.height {
+            for x in 0..buf.area.width {
+                if buf[(x, y)].symbol() != "W" || x + 4 >= buf.area.width {
+                    continue;
+                }
+                let is_work = "WORK".chars().enumerate().all(|(i, c)| {
+                    buf[((x + i as u16), y)].symbol() == c.to_string().as_str()
+                });
+                if is_work {
+                    tag_fg = buf[(x, y)].style().fg;
+                    break;
+                }
+            }
+            if tag_fg.is_some() {
+                break;
+            }
+        }
+        assert_eq!(tag_fg, Some(expected_color), "WORK group's tag color matches group_color()");
+    }
+
+    #[test]
+    fn draw_search_ungrouped_session_has_no_tag() {
+        let text = render_to_string(&searching_state("scratch"));
+        for line in text.lines() {
+            if line.contains("scratch") {
+                assert!(!line.contains("PINNED"), "ungrouped match carries no group tag: {line:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn draw_search_aligns_tags_across_differing_age_widths() {
+        // Two sessions in the same group with deliberately different age
+        // string widths ("40m" vs "5h") must still show their DEV tag at the
+        // same column; before the age_pad fix, the 3-char age pushed its
+        // tag one column right of the 2-char age's tag.
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
+        let sessions = vec![
+            Session { name: "short-age".into(), activity: now - 5 * 3600, created: 1, attached: false,
+                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+            Session { name: "long-age".into(), activity: now - 40 * 60, created: 2, attached: false,
+                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+        ];
+        let cfg = Config {
+            dormant: vec![], groups: vec![Group {
+                name: "dev".into(),
+                members: vec!["short-age".into(), "long-age".into()],
+                color: String::new(),
+            }],
+            manual_order: vec![],
+            ..Default::default()
+        };
+        let mut state = PickerState::build(sessions, &cfg);
+        state.enter_search();
+        state.search_push('a');
+        state.search_push('g');
+        state.search_push('e');
+
+        let text = render_to_string(&state);
+        let mut columns: Vec<usize> = Vec::new();
+        for line in text.lines() {
+            if line.contains("short-age") || line.contains("long-age") {
+                let col = line.find("DEV").expect("DEV tag present on both rows");
+                columns.push(col);
+            }
+        }
+        assert_eq!(columns.len(), 2, "both rows must be present");
+        assert_eq!(columns[0], columns[1], "tags must align despite differing age widths: {columns:?}");
     }
 
     #[test]
