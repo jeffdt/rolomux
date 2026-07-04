@@ -18,21 +18,21 @@ use tmux::{apply_action, RealTmux, Tmux};
 use ui::{draw, map_group_key, map_key, map_search_key, map_settings_key, GroupInput, Input, SearchInput, SettingsInput};
 
 const HELP: &str = "\
-smux - a fast tmux session picker
+rolomux - a fast tmux session picker
 
 Usage:
-  smux            Launch the picker (intended via `tmux popup -E`)
-  smux --version  Print version and exit
-  smux --help     Print this help and exit
+  rolomux            Launch the picker (intended via `tmux popup -E`)
+  rolomux --version  Print version and exit
+  rolomux --help     Print this help and exit
 
 Bind it in ~/.tmux.conf, e.g.:
-  bind S display-popup -E -B -w 84 -h 60% \"exec smux\"";
+  bind S display-popup -E -B -w 84 -h 60% \"exec rolomux\"";
 
 fn main() -> io::Result<()> {
     if let Some(arg) = std::env::args().nth(1) {
         match arg.as_str() {
             "-V" | "--version" => {
-                println!("smux {}", env!("CARGO_PKG_VERSION"));
+                println!("rolomux {}", env!("CARGO_PKG_VERSION"));
                 return Ok(());
             }
             "-h" | "--help" => {
@@ -40,7 +40,7 @@ fn main() -> io::Result<()> {
                 return Ok(());
             }
             other => {
-                eprintln!("smux: unknown argument '{other}'\n\n{HELP}");
+                eprintln!("rolomux: unknown argument '{other}'\n\n{HELP}");
                 std::process::exit(2);
             }
         }
