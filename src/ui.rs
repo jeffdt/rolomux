@@ -685,10 +685,8 @@ pub enum GroupInput { Up, Down, MoveUp, MoveDown, New, Rename, CycleColor, Delet
 pub fn map_group_key(key: KeyEvent) -> GroupInput {
     let shift = key.modifiers.contains(KeyModifiers::SHIFT);
     match key.code {
-        KeyCode::Char('J') if shift => GroupInput::MoveDown,
-        KeyCode::Char('K') if shift => GroupInput::MoveUp,
-        KeyCode::Down if shift => GroupInput::MoveDown,
-        KeyCode::Up if shift => GroupInput::MoveUp,
+        KeyCode::Char('J') | KeyCode::Down if shift => GroupInput::MoveDown,
+        KeyCode::Char('K') | KeyCode::Up if shift => GroupInput::MoveUp,
         KeyCode::Char('j') | KeyCode::Down => GroupInput::Down,
         KeyCode::Char('k') | KeyCode::Up => GroupInput::Up,
         KeyCode::Char('n') => GroupInput::New,
@@ -759,10 +757,8 @@ pub fn map_search_key(key: KeyEvent) -> SearchInput {
 pub fn map_key(key: KeyEvent) -> Input {
     let shift = key.modifiers.contains(KeyModifiers::SHIFT);
     match key.code {
-        KeyCode::Char('K') if shift => Input::MoveUp,
-        KeyCode::Char('J') if shift => Input::MoveDown,
-        KeyCode::Up if shift => Input::MoveUp,
-        KeyCode::Down if shift => Input::MoveDown,
+        KeyCode::Char('K') | KeyCode::Up if shift => Input::MoveUp,
+        KeyCode::Char('J') | KeyCode::Down if shift => Input::MoveDown,
         KeyCode::Char('j') | KeyCode::Down => Input::Down,
         KeyCode::Char('k') | KeyCode::Up => Input::Up,
         KeyCode::Char('l') | KeyCode::Right => Input::Expand,
