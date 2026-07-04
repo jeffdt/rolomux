@@ -18,13 +18,13 @@ pub trait Tmux {
 }
 
 pub struct RealTmux {
-    /// The server socket smux was launched from (`$TMUX`'s first field). `None`
-    /// when smux runs outside tmux, in which case tmux's default socket is used.
+    /// The server socket rolomux was launched from (`$TMUX`'s first field). `None`
+    /// when rolomux runs outside tmux, in which case tmux's default socket is used.
     socket: Option<String>,
 }
 
 impl RealTmux {
-    /// Bind to the tmux server smux was launched from, resolved from `$TMUX`.
+    /// Bind to the tmux server rolomux was launched from, resolved from `$TMUX`.
     /// Without this, every subprocess would talk to tmux's *default* socket, so
     /// a picker launched from a non-default socket would see the wrong server's
     /// sessions (or none) and switch-client would target the wrong server.
@@ -160,7 +160,7 @@ pub fn current_session(raw: &str, tmux_env: Option<&str>) -> Option<String> {
 }
 
 /// Normalize the field separator in `-F` output. tmux 3.5 renders the `0x1F`
-/// unit separator smux uses in its format as the literal 4-character octal
+/// unit separator rolomux uses in its format as the literal 4-character octal
 /// escape `\037` instead of the raw control byte; left as-is, every line becomes
 /// a single unsplittable field and the picker sees zero sessions. Convert the
 /// escape back to the real separator. Records stay newline-separated either way.
