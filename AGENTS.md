@@ -1,14 +1,20 @@
 # AGENTS.md
 
-Orientation for agents and humans working on smux. This file holds durable
+Orientation for agents and humans working on rolomux. This file holds durable
 intent and conventions, not a file-by-file map (that goes stale). Read the
 source for current structure.
 
 ## What this is
 
-smux is a fast terminal UI that replaces tmux's built-in `prefix + s` session
+rolomux is a fast terminal UI that replaces tmux's built-in `prefix + s` session
 picker. It is a standalone compiled binary that tmux launches on demand via
 `tmux popup -E`; it is not a tmux plugin and runs no background process.
+
+## Versioning
+
+There is no dated plan to reach `1.0.0`. It's an open milestone reserved for
+a deliberate decision that the feature set and config schema are stable, not
+something a routine change (like a rename) should trigger incidentally.
 
 ## Goals
 
@@ -88,8 +94,8 @@ These are deliberate and have driven past work. Do not reverse them casually.
 
 ## Configuration
 
-User config persists to `$XDG_CONFIG_HOME/smux/config.toml` (else
-`~/.config/smux/config.toml`): a `[[groups]]` array (each with a `name`, an
+User config persists to `$XDG_CONFIG_HOME/rolomux/config.toml` (else
+`~/.config/rolomux/config.toml`): a `[[groups]]` array (each with a `name`, an
 ordered `members` list, and an optional `color` from the named palette in
 `HEADER_COLORS`; empty/absent means the positional default, and `c` in group
 mode flips it), and a `manual_order` list (the user-defined order for the
@@ -113,24 +119,24 @@ category must ship with a matching migration step, a unit test in
 has real users on installed binaries now, so a config file must never fail to
 load or silently lose data across a version upgrade. A file with a
 `config_version` newer than this binary's `CONFIG_VERSION` (e.g. a colleague
-running a newer smux) must also load cleanly without misfiring an old
+running a newer rolomux) must also load cleanly without misfiring an old
 migration — current-shape fields are just read as-is.
 
 ## Packaging and distribution
 
-smux ships as a prebuilt binary through a personal Homebrew tap, mirroring the
+rolomux ships as a prebuilt binary through a personal Homebrew tap, mirroring the
 `jeffdt/teleport` pattern:
 
 - A `v*` git tag triggers `release.yml`, which builds the
   `aarch64-apple-darwin` binary and attaches it to the GitHub Release.
-- `jeffdt/homebrew-tap` carries `Formula/smux.rb`, a binary formula that
+- `jeffdt/homebrew-tap` carries `Formula/rolomux.rb`, a binary formula that
   downloads that asset by pinned `sha256`. Install with
-  `brew install jeffdt/tap/smux`.
+  `brew install jeffdt/tap/rolomux`.
 - **The tmux keybind is not part of the package.** It lives in the user's
   dotfiles (`~/.tmux.conf`), e.g.
-  `bind s display-popup -E -B -w 84 -h 60% "exec smux"`. Distribution ships the
+  `bind s display-popup -E -B -w 84 -h 60% "exec rolomux"`. Distribution ships the
   binary; the bind travels with the user's config. The popup is launched
-  borderless (`-B`) at a fixed 84-column width; smux draws its own framed card
+  borderless (`-B`) at a fixed 84-column width; rolomux draws its own framed card
   inset by a 2-cell buffer ring (`POPUP_MARGIN` in `ui.rs`), so the picker reads
   as a compact, evenly-bordered panel rather than filling a large popup.
 
@@ -149,7 +155,7 @@ Shipped changes reach `main` via PR (see "Working in this repo"), and the
 version bump rides in that PR. Once it has merged, cut the tag and update the
 tap. The tap is a separate repo, `jeffdt/homebrew-tap`; clone it if it isn't
 already checked out. `scripts/release.sh` expects it at `~/code/homebrew-tap`;
-set `SMUX_TAP_DIR` if it lives elsewhere.
+set `ROLOMUX_TAP_DIR` if it lives elsewhere.
 
 `scripts/release.sh` automates the mechanical steps:
 
@@ -163,16 +169,16 @@ set `SMUX_TAP_DIR` if it lives elsewhere.
    `scripts/release.sh cut`. It reads the version already on `main` (no bump
    decision left -- that was step 1), tags and pushes `vX.Y.Z`, waits for
    `release.yml` (which builds and attaches a single asset named
-   **`smux-aarch64-apple-darwin`** to the GitHub Release), downloads and
+   **`rolomux-aarch64-apple-darwin`** to the GitHub Release), downloads and
    hashes that asset, updates and validates `jeffdt/homebrew-tap`'s
-   `Formula/smux.rb`, pushes the tap, and runs `brew update && brew upgrade
-   jeffdt/tap/smux` locally, ending on a confirmed `smux --version`. It
+   `Formula/rolomux.rb`, pushes the tap, and runs `brew update && brew upgrade
+   jeffdt/tap/rolomux` locally, ending on a confirmed `rolomux --version`. It
    refuses to run off `main`, with a dirty tree, or against a tag that
    already exists, rather than guessing.
 
 The formula carries `depends_on arch: :arm64` and `depends_on :macos` and a
 top-level `url` (the version is scanned from the URL, e.g.
-`.../download/vX.Y.Z/smux-...`; there is no separate `version` line) so the
+`.../download/vX.Y.Z/rolomux-...`; there is no separate `version` line) so the
 tap's `brew test-bot` CI passes -- keep that shape by hand if editing the
 formula outside the script (a nested `on_macos`/`version`-line formula fails
 `readall`/`audit`). `release.sh cut` only ever rewrites the `url` and `sha256`
@@ -183,7 +189,7 @@ Two things the script doesn't cover -- finish these by hand after `cut`
 succeeds:
 
 - If `~/.tmux.conf`'s `bind s` was temporarily pointed at a dev build
-  (`target/release/smux`) for testing, revert its `exec` to `exec smux` and
+  (`target/release/rolomux`) for testing, revert its `exec` to `exec rolomux` and
   `tmux source-file ~/.tmux.conf`.
 - If this was the final PR for the work (no agreed-upon follow-up or
   multi-PR split), clean up rather than leaving the worktree lying around:
@@ -208,19 +214,19 @@ and updating `scripts/release.sh`'s asset handling.
   running picker, not just green test output. Use the `mux` wrapper
   (`~/.claude/scripts/mux`; see the `tmux` skill) rather than raw `tmux`:
   `cargo build --release` then
-  `tab=$(mux spawn --workspace caller --cwd "$PWD" --cmd "$PWD/target/release/smux" --title smux-preview)`
+  `tab=$(mux spawn --workspace caller --cwd "$PWD" --cmd "$PWD/target/release/rolomux" --title rolomux-preview)`
   then `tmux set-window-option -t "$tab" remain-on-exit on` (`mux` has no
   set-option verb, so that one step stays raw tmux, targeted by the exact tab
   token `mux spawn` printed, never ambiguous). `--workspace caller` targets
   the calling pane's own session robustly; omit `--focus` so the new window
   doesn't steal focus. Do NOT hand `mux spawn --cmd` a command wrapped in
-  `exec`: smux exits on any selection/quit keypress, and an `exec`'d window
+  `exec`: rolomux exits on any selection/quit keypress, and an `exec`'d window
   vanishes with the process, so the preview disappears the moment it's
   touched; `--cmd` alone runs it as a plain foreground command in a fresh
   shell, so `remain-on-exit` can keep the window open afterward. This is for
   unattended runs: the picker sits at its prompt waiting for input, so when
   Jeff returns to the session the feature is previewable straight from the
-  command line. smux detects the current session normally in a plain pane
+  command line. rolomux detects the current session normally in a plain pane
   (`$TMUX` is set), so no popup is required.
 
   A prior version of this note told agents to run bare
