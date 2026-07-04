@@ -1376,48 +1376,60 @@ mod tests {
 
     #[test]
     fn draw_search_shows_grouped_sessions_tag_in_group_color() {
-        let text = render_to_string(&searching_state("pr"));
+        // Lowercase group name so the assertion actually exercises
+        // session_item's `.to_uppercase()` call (a fixture already in caps
+        // would pass even if the uppercasing were silently dropped).
+        let sessions = vec![Session {
+            name: "pr-review".into(), activity: 30, created: 1, attached: false,
+            windows: vec![Window { index: 0, name: "w".into(), active: true }],
+        }];
+        let cfg = Config {
+            dormant: vec![], groups: vec![Group { name: "work".into(), members: vec!["pr-review".into()], color: String::new() }],
+            manual_order: vec![],
+            ..Default::default()
+        };
+        let mut state = PickerState::build(sessions, &cfg);
+        state.enter_search();
+        state.search_push('p');
+        state.search_push('r');
+
+        let text = render_to_string(&state);
         let mut found = false;
         for line in text.lines() {
             if line.contains("pr-review") {
-                assert!(line.contains("PINNED"), "grouped match carries its group tag: {line:?}");
+                assert!(line.contains("WORK"), "grouped match carries its uppercased group tag: {line:?}");
                 found = true;
             }
         }
         assert!(found, "pr-review row must be present");
 
-        let backend_state = searching_state("pr");
+        // Expected color comes from group_color() itself, mirroring the
+        // pattern in draw_groups_selected_empty_group_name_is_visible, so
+        // this stays correct even if the default palette order changes.
+        let expected_color = group_color(&state.groups[0], 0, &state.active_palette);
         let backend = TestBackend::new(80, 20);
         let mut terminal = Terminal::new(backend).unwrap();
-        terminal.draw(|f| draw(f, &backend_state)).unwrap();
+        terminal.draw(|f| draw(f, &state)).unwrap();
         let buf = terminal.backend().buffer().clone();
-        let mut tag_cyan = false;
+        let mut tag_fg: Option<Color> = None;
         for y in 0..buf.area.height {
-            // Collect cells by column, not by calling .symbol() which can combine chars
             for x in 0..buf.area.width {
-                let sym = buf[(x, y)].symbol();
-                if sym == "P" && x + 5 < buf.area.width {
-                    // Check if this is the start of "PINNED"
-                    let mut is_pinned = true;
-                    for (i, expected_char) in "PINNED".chars().enumerate() {
-                        let actual_sym = buf[((x + i as u16), y)].symbol();
-                        if actual_sym != expected_char.to_string().as_str() {
-                            is_pinned = false;
-                            break;
-                        }
-                    }
-                    if is_pinned {
-                        // Check the color of the first character
-                        tag_cyan = buf[(x, y)].style().fg == Some(Color::Cyan);
-                        break;
-                    }
+                if buf[(x, y)].symbol() != "W" || x + 4 >= buf.area.width {
+                    continue;
+                }
+                let is_work = "WORK".chars().enumerate().all(|(i, c)| {
+                    buf[((x + i as u16), y)].symbol() == c.to_string().as_str()
+                });
+                if is_work {
+                    tag_fg = buf[(x, y)].style().fg;
+                    break;
                 }
             }
-            if tag_cyan {
+            if tag_fg.is_some() {
                 break;
             }
         }
-        assert!(tag_cyan, "color-less PINNED group's tag uses positional default (cyan)");
+        assert_eq!(tag_fg, Some(expected_color), "WORK group's tag color matches group_color()");
     }
 
     #[test]
