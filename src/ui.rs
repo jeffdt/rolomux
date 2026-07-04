@@ -96,7 +96,7 @@ pub fn draw(frame: &mut Frame, state: &PickerState) {
         .border_type(BorderType::Rounded)
         .border_style(Style::default().fg(border_color))
         .title(Span::styled(
-            " rolomux  session picker ",
+            " rolomux ",
             Style::default().fg(border_color).add_modifier(Modifier::BOLD),
         ));
     let inner = block.inner(area);
@@ -853,7 +853,7 @@ mod tests {
         let mut title_magenta = false;
         for y in 0..buf.area.height {
             let line: String = (0..buf.area.width).map(|x| buf[(x, y)].symbol()).collect();
-            if let Some(x) = line.find("session picker") {
+            if let Some(x) = line.find("rolomux") {
                 title_magenta = buf[(x as u16, y)].style().fg == Some(Color::Magenta);
             }
         }
