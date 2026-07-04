@@ -231,11 +231,11 @@ impl Config {
 pub fn config_path() -> PathBuf {
     if let Ok(x) = std::env::var("XDG_CONFIG_HOME") {
         if !x.is_empty() {
-            return PathBuf::from(x).join("smux").join("config.toml");
+            return PathBuf::from(x).join("rolomux").join("config.toml");
         }
     }
     let home = std::env::var("HOME").unwrap_or_default();
-    PathBuf::from(home).join(".config").join("smux").join("config.toml")
+    PathBuf::from(home).join(".config").join("rolomux").join("config.toml")
 }
 
 #[cfg(test)]
@@ -244,14 +244,14 @@ mod tests {
 
     #[test]
     fn missing_file_yields_defaults() {
-        let cfg = Config::load_from(Path::new("/nonexistent/smux/config.toml"));
+        let cfg = Config::load_from(Path::new("/nonexistent/rolomux/config.toml"));
         assert!(cfg.groups.is_empty());
         assert!(cfg.dormant.is_empty());
     }
 
     #[test]
     fn round_trips_dormant_sessions() {
-        let dir = std::env::temp_dir().join(format!("smux-dormant-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("rolomux-dormant-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("config.toml");
         let cfg = Config {
@@ -282,7 +282,7 @@ mod tests {
 
     #[test]
     fn load_then_save_round_trips_pins() {
-        let dir = std::env::temp_dir().join(format!("smux-test-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("rolomux-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("config.toml");
         std::fs::write(&path, "pinned = [\"pr-review\", \"my session\"]\n").unwrap();
@@ -306,7 +306,7 @@ mod tests {
 
     #[test]
     fn round_trips_manual_order() {
-        let dir = std::env::temp_dir().join(format!("smux-manual-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("rolomux-manual-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("config.toml");
         std::fs::write(&path, "pinned = []\nmanual_order = [\"a\", \"my session\"]\n").unwrap();
@@ -337,7 +337,7 @@ mod tests {
 
     #[test]
     fn legacy_pinned_migrates_to_single_group() {
-        let dir = std::env::temp_dir().join(format!("smux-mig-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("rolomux-mig-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("config.toml");
         std::fs::write(&path, "pinned = [\"a\", \"b\"]\nsort = \"activity\"\n").unwrap();
@@ -350,7 +350,7 @@ mod tests {
 
     #[test]
     fn save_stamps_current_config_version() {
-        let dir = std::env::temp_dir().join(format!("smux-ver-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("rolomux-ver-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("config.toml");
         let cfg = Config { groups: vec![], manual_order: vec![], ..Default::default() };
@@ -362,7 +362,7 @@ mod tests {
 
     #[test]
     fn v1_sort_field_is_dropped_on_load_and_resave() {
-        let dir = std::env::temp_dir().join(format!("smux-sortdrop-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("rolomux-sortdrop-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("config.toml");
         std::fs::write(
@@ -391,7 +391,7 @@ mod tests {
         // A file already stamped at the current version is never re-migrated,
         // even if it happens to still carry a stale `pinned` list (e.g. from
         // manual editing). Version gating, not field presence, decides.
-        let dir = std::env::temp_dir().join(format!("smux-nomig-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("rolomux-nomig-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("config.toml");
         std::fs::write(
@@ -406,10 +406,10 @@ mod tests {
 
     #[test]
     fn config_version_ahead_of_current_loads_without_migration() {
-        // A colleague on a newer smux writes a higher config_version than
+        // A colleague on a newer rolomux writes a higher config_version than
         // this binary knows about; loading it must not panic or misfire an
         // old migration, just read the current-shape fields as-is.
-        let dir = std::env::temp_dir().join(format!("smux-future-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("rolomux-future-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("config.toml");
         std::fs::write(
@@ -425,7 +425,7 @@ mod tests {
 
     #[test]
     fn round_trips_named_groups() {
-        let dir = std::env::temp_dir().join(format!("smux-grp-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("rolomux-grp-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("config.toml");
         let cfg = Config {
@@ -474,7 +474,7 @@ mod tests {
 
     #[test]
     fn legacy_config_without_settings_table_defaults_cleanly() {
-        let dir = std::env::temp_dir().join(format!("smux-nosettings-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("rolomux-nosettings-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("config.toml");
         // A config_version=1 file from before [settings] existed.
@@ -496,7 +496,7 @@ mod tests {
     fn empty_active_palette_on_disk_falls_back_to_default() {
         // Guards the same invariant the settings-mode min-1 UI guard protects at
         // runtime: a hand-edited config can never load a zero-length palette.
-        let dir = std::env::temp_dir().join(format!("smux-emptypal-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("rolomux-emptypal-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("config.toml");
         std::fs::write(
@@ -514,7 +514,7 @@ mod tests {
 
     #[test]
     fn round_trips_settings_table() {
-        let dir = std::env::temp_dir().join(format!("smux-settings-rt-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("rolomux-settings-rt-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("config.toml");
         let cfg = Config {

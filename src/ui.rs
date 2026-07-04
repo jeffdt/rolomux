@@ -28,7 +28,7 @@ const META_GAP: usize = 2;
 const META_BUDGET: usize = 18;
 /// Uniform buffer between the picker's border and the popup edge. The popup is
 /// launched borderless (`tmux display-popup -B`), so this blank ring is the
-/// only separation between smux's frame and the surrounding tmux panes; it
+/// only separation between rolomux's frame and the surrounding tmux panes; it
 /// keeps the picker from sitting flush against busy content behind the popup.
 const POPUP_MARGIN: u16 = 2;
 
@@ -96,7 +96,7 @@ pub fn draw(frame: &mut Frame, state: &PickerState) {
         .border_type(BorderType::Rounded)
         .border_style(Style::default().fg(border_color))
         .title(Span::styled(
-            " smux  session picker ",
+            " rolomux  session picker ",
             Style::default().fg(border_color).add_modifier(Modifier::BOLD),
         ));
     let inner = block.inner(area);
@@ -830,7 +830,7 @@ mod tests {
         };
         let state = PickerState::build(sessions, &cfg);
         let text = render_to_string(&state);
-        assert!(text.contains("smux"), "title present");
+        assert!(text.contains("rolomux"), "title present");
         assert!(text.contains("PINNED"), "pinned header present");
         assert!(text.contains("SESSIONS"), "sessions header present");
         assert!(text.contains("pr-review"), "pinned session present");

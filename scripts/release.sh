@@ -12,14 +12,14 @@
 #       for release.yml, hashes the asset, updates jeffdt/homebrew-tap,
 #       and upgrades the local install.
 #
-# Set SMUX_TAP_DIR if the tap isn't checked out at ~/code/homebrew-tap.
+# Set ROLOMUX_TAP_DIR if the tap isn't checked out at ~/code/homebrew-tap.
 
 set -euo pipefail
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 CARGO_TOML="$REPO_ROOT/Cargo.toml"
-TAP_DIR="${SMUX_TAP_DIR:-$HOME/code/homebrew-tap}"
-ASSET="smux-aarch64-apple-darwin"
+TAP_DIR="${ROLOMUX_TAP_DIR:-$HOME/code/homebrew-tap}"
+ASSET="rolomux-aarch64-apple-darwin"
 
 current_version() {
     grep -m1 '^version = ' "$CARGO_TOML" | sed -E 's/version = "(.*)"/\1/'
@@ -103,13 +103,13 @@ cmd_cut() {
     echo "    sha256: $sha"
 
     if [[ ! -d "$TAP_DIR" ]]; then
-        echo "error: tap not found at $TAP_DIR (set SMUX_TAP_DIR)" >&2
+        echo "error: tap not found at $TAP_DIR (set ROLOMUX_TAP_DIR)" >&2
         exit 1
     fi
 
-    echo "==> Updating $TAP_DIR/Formula/smux.rb"
+    echo "==> Updating $TAP_DIR/Formula/rolomux.rb"
     (cd "$TAP_DIR" && git pull --ff-only)
-    local formula="$TAP_DIR/Formula/smux.rb"
+    local formula="$TAP_DIR/Formula/rolomux.rb"
     sed -i '' -E "s#download/v[0-9]+\.[0-9]+\.[0-9]+/$ASSET#download/$tag/$ASSET#" "$formula"
     sed -i '' -E "s/sha256 \"[a-f0-9]+\"/sha256 \"$sha\"/" "$formula"
 
@@ -119,14 +119,14 @@ cmd_cut() {
     (cd "$TAP_DIR" && brew audit --except=installed --tap=jeffdt/tap)
 
     echo "==> Pushing tap"
-    (cd "$TAP_DIR" && git add Formula/smux.rb && git commit -m "Bump smux to $version" && git push)
+    (cd "$TAP_DIR" && git add Formula/rolomux.rb && git commit -m "Bump rolomux to $version" && git push)
 
     echo "==> Upgrading local install"
     brew update
-    brew upgrade jeffdt/tap/smux
-    smux --version
+    brew upgrade jeffdt/tap/rolomux
+    rolomux --version
 
-    echo "==> Done. smux $version is live."
+    echo "==> Done. rolomux $version is live."
 }
 
 case "${1:-}" in

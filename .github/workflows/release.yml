@@ -34,10 +34,10 @@ jobs:
         run: cargo build --release --target ${{ matrix.target }}
 
       - name: Stage binary
-        run: cp target/${{ matrix.target }}/release/smux smux-${{ matrix.target }}
+        run: cp target/${{ matrix.target }}/release/rolomux rolomux-${{ matrix.target }}
 
       - name: Upload to release
         uses: softprops/action-gh-release@v3
         with:
-          files: smux-${{ matrix.target }}
+          files: rolomux-${{ matrix.target }}
           generate_release_notes: true
