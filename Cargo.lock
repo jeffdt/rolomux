@@ -354,6 +354,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "rolomux"
+version = "0.13.0"
+dependencies = [
+ "crossterm",
+ "nucleo-matcher",
+ "ratatui",
+ "serde",
+ "toml",
+]
+
+[[package]]
 name = "rustix"
 version = "0.38.44"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -459,17 +470,6 @@ name = "smallvec"
 version = "1.15.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8ed6a63f02c8539c91a8685a86f4099661ba3da017932f6ebbea6de3f0fa7c90"
-
-[[package]]
-name = "smux"
-version = "0.12.0"
-dependencies = [
- "crossterm",
- "nucleo-matcher",
- "ratatui",
- "serde",
- "toml",
-]
 
 [[package]]
 name = "static_assertions"

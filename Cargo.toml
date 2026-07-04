@@ -1,14 +1,14 @@
 [package]
-name = "smux"
-version = "0.12.0"
+name = "rolomux"
+version = "0.13.0"
 edition = "2021"
 description = "A fast tmux session picker with pinned sessions and a collapsible window tree"
 license = "MIT"
-repository = "https://github.com/jeffdt/smux"
+repository = "https://github.com/jeffdt/rolomux"
 authors = ["Jeff DiTeodoro"]
 
 [[bin]]
-name = "smux"
+name = "rolomux"
 path = "src/main.rs"
 
 [dependencies]
