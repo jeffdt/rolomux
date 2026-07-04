@@ -1,16 +1,11 @@
 # smux
 
-An alternative to tmux's `prefix + s` session picker that adds named session
-groups without giving up the tree view. It stays close to the native picker on
-purpose, so it feels familiar rather than like a whole new tool to learn.
+A slick tmux session picker that sorts your sessions into color-coded groups to bring some zen to tmux.
 
-**Group the sessions you keep coming back to** so they always sit at the top in
-named groups whose order you choose: a CONFIG group for your editor/AI config, a
-TOOLS group for local dev stacks, whatever fits how you work. Everything else,
-the throwaway sessions you spin up for research or a feature and then abandon,
-sits below under SESSIONS in the order you arrange it, with new sessions
-landing at the bottom. Each session still expands into its windows, so you
-keep the tree view.
+Set up the groups that match how you work: a CONFIG group for the tools you're tweaking, a DEV group for what you're building, throwaway groups for whatever projects you're working on right now.
+Anything you haven't sorted yet just sinks to the bottom, out of the way but never lost.
+
+It's a productivity tool first, so it's designed to feel intuitive the moment you launch it, but it's configurable to ensure it fits your workflow.
 
 ![Rust](https://img.shields.io/badge/Rust-2021-orange?logo=rust&logoColor=white)
 ![TUI](https://img.shields.io/badge/TUI-ratatui-1f6feb)
@@ -18,39 +13,43 @@ keep the tree view.
 ![Platform](https://img.shields.io/badge/platform-macOS%20(Apple%20Silicon)-lightgrey)
 ![Vibe coded](https://img.shields.io/badge/vibe%20coded-100%25-ff69b4)
 
+![smux session picker](docs/images/screenshot.png)
+
 ## Install
 
 ```sh
 brew install jeffdt/tap/smux
 ```
 
-Then add a keybind to `~/.tmux.conf`:
+Then add a keybind to `~/.tmux.conf` to pop it open:
 
 ```tmux
-bind S display-popup -E -B -w 84 -h 60% "exec smux"
+bind s display-popup -E -B -w 84 -h 60% "exec smux"
 ```
 
-`-B` drops tmux's popup border so smux's own framed card is the only border;
-the fixed 84-column width and 60% height keep it a compact, centered panel.
-
-Reload tmux and press `prefix + Shift+S`.
+Reload tmux and press `prefix + s`.
 
 ## How it works
 
-- **Grouped first.** Sessions you sort into named groups stay on top in your
-  order; everything else sits below under SESSIONS in the order you set with
-  `⇧J`/`⇧K`, with new sessions landing at the bottom. Groups, their order, and
-  the SESSIONS order persist across tmux restarts.
-- **Group management mode.** Press `g` for a dedicated view to create, rename,
-  delete, and reorder groups. Move sessions between groups from the picker with
-  `⇧J` / `⇧K`. Groups are durable: they stay even when empty, until you delete
-  them.
-- **Expandable tree.** Each session expands into its windows, choose-tree style.
-- **On demand, no daemon.** tmux launches it via `tmux popup -E`; it makes one
-  tmux query, renders, and exits. Its own overhead is a couple of milliseconds,
-  so it opens about as fast as tmux can answer.
-- **Fuzzy search built in.** Press `/` to filter sessions by name; matching is
-  in-process with no extra runtime dependency.
+- **Create your groups.** Press `g` to jump into group management mode, where you can create, rename and color code your groups.
+- **Sort your sessions.** Move your sessions between groups with `⇧J`/`⇧K`. Once sorted, they stay there, in that order.
+  New sessions drop in at the bottom of a designated catchall group, waiting to be sorted (think of it like a triage queue).
+  Groups and their ordering persist across tmux restarts.
+  Groups will stick around (even when empty) until you delete them.
+- **Expandable tree.** Each session can be expanded to peek at the list of windows inside it.
+- **On demand, no daemon.** tmux launches it via `tmux popup -E`; it makes one tmux query, renders, and exits.
+  Its own overhead is a couple of milliseconds, so it opens about as fast as tmux can answer.
+- **Fuzzy search built in.** Press `/` to filter sessions by name; matching is in-process with no extra runtime dependency. If this is your preferred way of working, tweak the settings to always launch in search mode.
+- **Dim the sessions you're not using.** Press `d` to mark a session dormant; it stays in place but renders in a dimmed state to indicate that it's on the back burner. Press `d` again on a dormant session when it's time to bring it back to life. Dormant sessions are still fully usable, but reduced visual noise helps you stay laser focused on the sessions that matter right now.
+- **Configurable colors.** Press `,` to open Settings and tune the color of the application border, palette used for group headers, and more. Uses your terminal's ANSI colors to ensure it harmonizes with your existing terminal themes.
+
+**Note:** smux depends on (and promotes) good tmux hygiene.
+Get in the habit of naming your sessions and windows so you can make sense of them later.
+You can reinforce this habit with your binds for creating sessions and windows, immediately prompting you for the name at creation time:
+```tmux
+bind c new-window -c "#{pane_current_path}" \; command-prompt -I "" "rename-window '%%'"
+bind C new-session \; command-prompt -I "" "rename-session '%%'" \; command-prompt -I "" "rename-window '%%'"
+```
 
 ## Keys
 
@@ -58,62 +57,84 @@ Reload tmux and press `prefix + Shift+S`.
 | --- | --- |
 | `↵` | Switch to the selected session/window and close |
 | `1`-`9` | Switch to that session immediately |
-| `M-1`-`M-9` | Focus and expand that session (Option/Alt) |
+| `M-1`-`M-9` | Highlight and expand that session (Option/Alt) |
 | `j` / `k` | Move the cursor (also `↓` / `↑`) |
-| `l` / `h` | Expand / collapse a session |
-| `z` | Expand or collapse all |
-| `⇧J` / `⇧K` | Move the selected session across group boundaries (down / up) |
+| `l` / `h` | Expand / collapse a session's window tree (also `→` / `←`) |
+| `z` | Expand or collapse window trees for all sessions |
+| `⇧J` / `⇧K` | Move the selected session up or down within its group, or into the neighboring group |
 | `g` | Open group-management mode |
+| `,` | Open settings |
+| `d` | Toggle dormant (dim) on the selected session |
 | `/` | Enter search mode (type to filter, `↵` switch, `Esc` back) |
 | `q` / `Esc` | Quit |
 
-`M-` is Meta (Option on macOS). Your terminal must send Option as Meta: in
-Ghostty set `macos-option-as-alt = true` (iTerm2: "Left Option key → Esc+";
-Terminal.app: "Use Option as Meta key"). On Linux it is automatic.
+`M-` is Meta (Option on macOS).
+Your terminal must send Option as Meta: in Ghostty set `macos-option-as-alt = true` (iTerm2: "Left Option key → Esc+"; Terminal.app: "Use Option as Meta key").
+On Linux it is automatic.
 
-At the top of its group, `⇧K` lifts a session out to the bottom of the group
-above; at the bottom, `⇧J` drops it to the top of the group below. Moving a
-session down out of the last group ungroups it back into SESSIONS.
+When a session is at the top of its group, `⇧K` jumps it up to the group above it; when it's at the bottom, `⇧J` drops it into the group below it.
 
 ### Groups
 
-Press `g` to open group-management mode, a full-screen view of just your groups
-(sessions stay in the picker). It is built to be frictionless once you are in:
+Press `g` to open group-management mode, a full-screen view of your current groups.
+Once inside:
 
 | Key | Action |
 | --- | --- |
-| `j` / `k` | Move between groups (also `↓` / `↑`) |
-| `↵` / `r` | Rename the selected group inline |
+| `j` / `k` | Navigate between groups (also `↓` / `↑`) |
+| `↵` / `r` | Rename the selected group |
 | `n` | Create a new group and name it |
 | `d` | Delete the selected group (its sessions fall back to SESSIONS) |
 | `c` | Cycle the selected group's header color |
 | `⇧J` / `⇧K` | Reorder the selected group down / up |
 | `Esc` / `q` / `g` | Back to the picker |
 
-Named groups and the residual SESSIONS bucket are both always in the order you
-set with `⇧J`/`⇧K`; new or unlisted sessions land at the bottom of SESSIONS.
-Each group's header takes a color from your
-terminal theme (cyan, green, yellow, magenta, blue, red); new groups rotate
-through them, `c` flips a group's color, and empty groups show grayed out until
-you fill them.
+As you create groups, they'll be assigned a color from your terminal theme (cyan, green, yellow, magenta, blue, red); new groups rotate through them, `c` flips a group's color, and empty groups show grayed out until you fill them.
 
 ### Search
 
-Press `/` to enter search mode. Type any part of a session name; results are
-re-ranked fuzzy best-match-first with the top result auto-selected as you type.
-`Enter` switches to the highlighted session; `Esc` returns to command mode with
-the cursor left on the match. Move within results with `↑`/`↓` (or `Ctrl-n`/
-`Ctrl-p`, `Ctrl-j`/`Ctrl-k`). `Backspace` deletes the last character.
+Press `/` to enter search mode.
+Type any part of a session name; results are ranked best-match-first, with the top result auto-selected as you type.
+`Enter` switches to the highlighted session; `Esc` returns to command mode with the cursor left on the match.
+Move within results with `↑`/`↓` (or `Ctrl-n`/`Ctrl-p`, `Ctrl-j`/`Ctrl-k`).
+`Backspace` deletes the last character, `Ctrl-W` (or `Option/Alt` + `Backspace`) deletes the last word, and `Ctrl-U` clears the query.
 
-While searching, section headers and jump numbers (1-9) are hidden; the list is
-flat and collapsed. Search is read-only: it never groups, reorders, or writes
-config.
+While searching, section headers and jump numbers (1-9) are hidden; the list is flat and collapsed.
+
+### Dormant sessions
+
+Press `d` to mark the selected session dormant; it renders dimmed in place as a "not in active rotation" cue.
+It's purely visual: a dormant session keeps its jump number, group membership, and position, and nothing else about it changes.
+Press `d` again to undim.
+The dormant set persists across restarts.
+Think of it as one more optional tool in your kit to help you organize your sessions, if you find it helpful.
+
+### Settings
+
+Press `,` to open Settings, a full-screen view of picker-wide preferences:
+
+- **Default mode.** Whether the picker opens in Command mode or straight into Search.
+- **Attached session color.** The color used to highlight the session your tmux client is currently attached to.
+- **Border color.** smux's own border frame color.
+- **New group color.** How a newly created group picks its header color: Rotate through the palette in order, pick a Random color each time, or always use one Static color.
+- **Color palette.** Which of the 16 colors from your terminal theme are in the rotation for new group headers.
+
+| Key | Action |
+| --- | --- |
+| `j` / `k` | Move between rows (also `↓` / `↑`) |
+| `h` / `l` | Cycle a value / expand-collapse a color picker (also `←` / `→`) |
+| `Space` / `Enter` | Toggle or activate the selected row |
+| `c` | Cycle the selected color row |
+| `Esc` / `q` / `,` | Back to the picker |
 
 ## Configuration
 
-Groups and session order persist to `~/.config/smux/config.toml`:
+Groups, session order, dormant sessions, and settings persist to `~/.config/smux/config.toml`:
 
 ```toml
+manual_order = ["etsy"]
+dormant = ["zen-mod"]
+
 [[groups]]
 name = "CONFIG"
 members = ["workbench", "config-tmux"]
@@ -122,11 +143,36 @@ members = ["workbench", "config-tmux"]
 name = "TOOLS"
 members = ["dev-stack"]
 color = "magenta"  # optional; omit to use the rotating default
+
+[settings]
+default_mode = "command"           # or "search"
+new_group_color_policy = "rotate"  # or "random", "static"
+attached_color = "cyan"
+border_color = "cyan"
 ```
 
-You normally don't edit this by hand; create groups and reorder from the picker
-and it saves automatically. An older `pinned = [...]` config still loads: its
-entries migrate into a single group named PINNED.
+You normally don't edit this by hand; groups, order, dormant status, and settings all save automatically as you use the picker.
+
+## Motivation
+
+Agent-driven development has stretched our expectations on parallelism/multitasking to the extreme, and the biggest challenge is now context switching and staying organized.
+And while there are brand new tools popping up every day to launch and manage agents, tmux is an extremely mature, stable, and full-featured app that solved parallelism decades ago.
+It just lacks a few key qualities for keeping things organized.
+It isn't going to become vaporware, it's not going to have weird bugs that nobody catches because the userbase is too small, and its APIs are stable and easy for an agent to manipulate.
+It makes more sense to solve that organization gap than to throw it away and build some new tool altogether.
+
+## Design philosophy
+
+I want this tool to be fun to use, nice to look at, unobtrusive, and low-commitment.
+It places a high value on aesthetics but remembers it is a productivity tool first and foremost.
+It doesn't hook into your tmux session and watch for sessions being created or destroyed; it relies on live data available at the time it's invoked.
+It stores everything in a simple TOML file you could hand-edit if you desire, but should never have to.
+It's minimalist and clean in presentation and prefers to spend its complexity on customization.
+As a tool intended to be used all day every day, it should aim for zero friction.
+If a workflow takes two keystrokes instead of one, there would ideally be a setting that makes it one keystroke, for the people that plan to invoke that workflow every time they launch it.
+It favors your existing terminal palette over complete color customization to ensure it always feels like a "native" tool and not something bolted on later.
+Any new features must make the tool easier or more fun to use.
+Bloat is an enemy that must be actively kept at bay.
 
 ## Disclaimer
 
