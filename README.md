@@ -37,6 +37,7 @@ Reload tmux and press `prefix + s`.
   Groups and their ordering persist across tmux restarts.
   Groups will stick around (even when empty) until you delete them.
 - **Expandable tree.** Each session can be expanded to peek at the list of windows inside it.
+- **Color-coded gutter.** Every session (and its windows, once expanded) shows a thin colored bar matching its group's header color, so it's visually obvious which group a row belongs to even when you've scrolled past the header.
 - **On demand, no daemon.** tmux launches it via `tmux popup -E`; it makes one tmux query, renders, and exits.
   Its own overhead is a couple of milliseconds, so it opens about as fast as tmux can answer.
 - **Fuzzy search built in.** Press `/` to filter sessions by name; matching is in-process with no extra runtime dependency. If this is your preferred way of working, tweak the settings to always launch in search mode.
