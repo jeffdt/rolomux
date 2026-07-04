@@ -1,4 +1,4 @@
-# smux
+# rolomux
 
 A slick tmux session picker that sorts your sessions into color-coded groups to bring some zen to tmux.
 
@@ -13,18 +13,18 @@ It's a productivity tool first, so it's designed to feel intuitive the moment yo
 ![Platform](https://img.shields.io/badge/platform-macOS%20(Apple%20Silicon)-lightgrey)
 ![Vibe coded](https://img.shields.io/badge/vibe%20coded-100%25-ff69b4)
 
-![smux session picker](docs/images/screenshot.png)
+![rolomux session picker](docs/images/screenshot.png)
 
 ## Install
 
 ```sh
-brew install jeffdt/tap/smux
+brew install jeffdt/tap/rolomux
 ```
 
 Then add a keybind to `~/.tmux.conf` to pop it open:
 
 ```tmux
-bind s display-popup -E -B -w 84 -h 60% "exec smux"
+bind s display-popup -E -B -w 84 -h 60% "exec rolomux"
 ```
 
 Reload tmux and press `prefix + s`.
@@ -43,7 +43,7 @@ Reload tmux and press `prefix + s`.
 - **Dim the sessions you're not using.** Press `d` to mark a session dormant; it stays in place but renders in a dimmed state to indicate that it's on the back burner. Press `d` again on a dormant session when it's time to bring it back to life. Dormant sessions are still fully usable, but reduced visual noise helps you stay laser focused on the sessions that matter right now.
 - **Configurable colors.** Press `,` to open Settings and tune the color of the application border, palette used for group headers, and more. Uses your terminal's ANSI colors to ensure it harmonizes with your existing terminal themes.
 
-**Note:** smux depends on (and promotes) good tmux hygiene.
+**Note:** rolomux depends on (and promotes) good tmux hygiene.
 Get in the habit of naming your sessions and windows so you can make sense of them later.
 You can reinforce this habit with your binds for creating sessions and windows, immediately prompting you for the name at creation time:
 ```tmux
@@ -115,7 +115,7 @@ Press `,` to open Settings, a full-screen view of picker-wide preferences:
 
 - **Default mode.** Whether the picker opens in Command mode or straight into Search.
 - **Attached session color.** The color used to highlight the session your tmux client is currently attached to.
-- **Border color.** smux's own border frame color.
+- **Border color.** rolomux's own border frame color.
 - **New group color.** How a newly created group picks its header color: Rotate through the palette in order, pick a Random color each time, or always use one Static color.
 - **Color palette.** Which of the 16 colors from your terminal theme are in the rotation for new group headers.
 
@@ -129,7 +129,7 @@ Press `,` to open Settings, a full-screen view of picker-wide preferences:
 
 ## Configuration
 
-Groups, session order, dormant sessions, and settings persist to `~/.config/smux/config.toml`:
+Groups, session order, dormant sessions, and settings persist to `~/.config/rolomux/config.toml`:
 
 ```toml
 manual_order = ["etsy"]
