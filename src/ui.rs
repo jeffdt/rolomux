@@ -31,6 +31,10 @@ const META_BUDGET: usize = 18;
 /// only separation between rolomux's frame and the surrounding tmux panes; it
 /// keeps the picker from sitting flush against busy content behind the popup.
 const POPUP_MARGIN: u16 = 2;
+/// Rows reserved right under the top border for the letterhead divider and a
+/// blank breathing-room row, separating the title's chrome from the first
+/// group header so content doesn't start flush against it.
+const TITLE_CHROME_ROWS: u16 = 2;
 
 const FOOTER_HINT: &str =
     "/ search · 1-9 · ⇧JK mv · g groups · , settings · d dim · q quit";
@@ -91,22 +95,36 @@ fn inset(area: Rect, margin: u16) -> Rect {
 pub fn draw(frame: &mut Frame, state: &PickerState) {
     let area = inset(frame.area(), POPUP_MARGIN);
     let border_color = color_from_name(&state.border_color);
+    let border_style = Style::default().fg(border_color);
     let block = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(border_color))
-        .title(Span::styled(
-            " rolomux ",
-            Style::default().fg(border_color).add_modifier(Modifier::BOLD),
-        ));
+        .border_style(border_style)
+        .title(Line::from(vec![
+            Span::styled("─", border_style),
+            Span::styled("‹ rolomux ›", border_style.add_modifier(Modifier::BOLD | Modifier::ITALIC)),
+        ]));
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(TITLE_CHROME_ROWS), Constraint::Min(0)])
+        .split(inner);
+    let chrome_area = chunks[0];
+    let content = chunks[1];
+
+    let rule = "─".repeat(chrome_area.width as usize);
+    frame.render_widget(
+        Paragraph::new(Line::from(Span::styled(rule, Style::default().fg(DIM)))),
+        chrome_area,
+    );
+
     match state.mode {
-        Mode::Command => draw_command(frame, state, inner),
-        Mode::Search => draw_search(frame, state, inner),
-        Mode::Groups => draw_groups(frame, state, inner),
-        Mode::Settings => draw_settings(frame, state, inner),
+        Mode::Command => draw_command(frame, state, content),
+        Mode::Search => draw_search(frame, state, content),
+        Mode::Groups => draw_groups(frame, state, content),
+        Mode::Settings => draw_settings(frame, state, content),
     }
 }
 
