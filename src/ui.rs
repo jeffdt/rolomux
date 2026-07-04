@@ -246,13 +246,22 @@ fn draw_search(frame: &mut Frame, state: &PickerState, inner: Rect) {
     } else {
         let meta = MetaLayout::compute(results.iter().copied(), chunks[1].width);
         let attached_color = color_from_name(&state.attached_color);
+        // Widest age string among tagged rows, so every tag in this render
+        // starts at the same column regardless of its own row's age width.
+        let age_width = results
+            .iter()
+            .filter(|s| state.group_index_of(&s.name).is_some())
+            .map(|s| activity_age(s.activity).chars().count())
+            .max()
+            .unwrap_or(0);
         for (i, sess) in results.iter().enumerate() {
             let selected = i == state.search_cursor();
             if selected {
                 selected_line = Some(items.len());
             }
             let group_tag = state.group_index_of(&sess.name).map(|gi| {
-                (state.groups[gi].name.clone(), group_color(&state.groups[gi], gi, &state.active_palette))
+                let age_pad = age_width.saturating_sub(activity_age(sess.activity).chars().count());
+                (state.groups[gi].name.clone(), group_color(&state.groups[gi], gi, &state.active_palette), age_pad)
             });
             // Flat, collapsed, no jump number (None), normal metadata.
             items.push(session_item(sess, false, selected, None, meta, state.is_dormant(&sess.name), attached_color, group_tag));
@@ -584,7 +593,7 @@ fn session_item(
     meta: MetaLayout,
     dormant: bool,
     attached_color: Color,
-    group_tag: Option<(String, Color)>,
+    group_tag: Option<(String, Color, usize)>,
 ) -> ListItem<'static> {
     let glyph = if expanded { "▾" } else { "▸" };
     let num = match number { Some(n) => format!("{n} "), None => "  ".to_string() };
@@ -609,7 +618,12 @@ fn session_item(
             secondary(selected),
         ),
     ];
-    if let Some((tag, color)) = group_tag {
+    // age_pad brings every tagged row's age up to the widest age string among
+    // this render's tagged rows, so tags line up in a column even though ages
+    // ("4h" vs "53m") naturally differ in width. Untagged rows (command mode,
+    // residual search matches) never receive a pad, so their line is unchanged.
+    if let Some((tag, color, age_pad)) = group_tag {
+        spans.push(Span::styled(" ".repeat(age_pad), secondary(selected)));
         spans.push(Span::styled(" · ", secondary(selected)));
         spans.push(Span::styled(tag.to_uppercase(), Style::default().fg(color)));
     }
@@ -1440,6 +1454,46 @@ mod tests {
                 assert!(!line.contains("PINNED"), "ungrouped match carries no group tag: {line:?}");
             }
         }
+    }
+
+    #[test]
+    fn draw_search_aligns_tags_across_differing_age_widths() {
+        // Two sessions in the same group with deliberately different age
+        // string widths ("40m" vs "5h") must still show their DEV tag at the
+        // same column; before the age_pad fix, the 3-char age pushed its
+        // tag one column right of the 2-char age's tag.
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
+        let sessions = vec![
+            Session { name: "short-age".into(), activity: now - 5 * 3600, created: 1, attached: false,
+                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+            Session { name: "long-age".into(), activity: now - 40 * 60, created: 2, attached: false,
+                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+        ];
+        let cfg = Config {
+            dormant: vec![], groups: vec![Group {
+                name: "dev".into(),
+                members: vec!["short-age".into(), "long-age".into()],
+                color: String::new(),
+            }],
+            manual_order: vec![],
+            ..Default::default()
+        };
+        let mut state = PickerState::build(sessions, &cfg);
+        state.enter_search();
+        state.search_push('a');
+        state.search_push('g');
+        state.search_push('e');
+
+        let text = render_to_string(&state);
+        let mut columns: Vec<usize> = Vec::new();
+        for line in text.lines() {
+            if line.contains("short-age") || line.contains("long-age") {
+                let col = line.find("DEV").expect("DEV tag present on both rows");
+                columns.push(col);
+            }
+        }
+        assert_eq!(columns.len(), 2, "both rows must be present");
+        assert_eq!(columns[0], columns[1], "tags must align despite differing age widths: {columns:?}");
     }
 
     #[test]
