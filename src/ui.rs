@@ -182,6 +182,7 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
                     meta,
                     state.is_dormant(&sess.name),
                     attached_color,
+                    None,
                 ));
             }
             Row::Window(si, wi) => {
@@ -250,8 +251,11 @@ fn draw_search(frame: &mut Frame, state: &PickerState, inner: Rect) {
             if selected {
                 selected_line = Some(items.len());
             }
+            let group_tag = state.group_index_of(&sess.name).map(|gi| {
+                (state.groups[gi].name.clone(), group_color(&state.groups[gi], gi, &state.active_palette))
+            });
             // Flat, collapsed, no jump number (None), normal metadata.
-            items.push(session_item(sess, false, selected, None, meta, state.is_dormant(&sess.name), attached_color));
+            items.push(session_item(sess, false, selected, None, meta, state.is_dormant(&sess.name), attached_color, group_tag));
         }
     }
     let list = List::new(items)
@@ -571,6 +575,7 @@ impl MetaLayout {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn session_item(
     sess: &Session,
     expanded: bool,
@@ -579,6 +584,7 @@ fn session_item(
     meta: MetaLayout,
     dormant: bool,
     attached_color: Color,
+    group_tag: Option<(String, Color)>,
 ) -> ListItem<'static> {
     let glyph = if expanded { "▾" } else { "▸" };
     let num = match number { Some(n) => format!("{n} "), None => "  ".to_string() };
@@ -594,7 +600,7 @@ fn session_item(
     let count = window_count(sess.windows.len());
     let count_pad = meta.count_width.saturating_sub(count.chars().count());
     let age = activity_age(sess.activity);
-    ListItem::new(Line::from(vec![
+    let mut spans = vec![
         Span::styled(num, secondary(selected)),
         Span::styled(format!("{glyph} "), secondary(selected)),
         Span::styled(sess.name.clone(), name_style),
@@ -602,7 +608,12 @@ fn session_item(
             format!("{}{count}{} · {age}", " ".repeat(pad), " ".repeat(count_pad)),
             secondary(selected),
         ),
-    ]))
+    ];
+    if let Some((tag, color)) = group_tag {
+        spans.push(Span::styled(" · ", secondary(selected)));
+        spans.push(Span::styled(tag.to_uppercase(), Style::default().fg(color)));
+    }
+    ListItem::new(Line::from(spans))
 }
 
 fn window_item(win: &Window, last: bool, selected: bool) -> ListItem<'static> {
@@ -1346,7 +1357,7 @@ mod tests {
     #[test]
     fn draw_search_hides_headers_and_numbers() {
         let text = render_to_string(&searching_state("pr"));
-        assert!(!text.contains("PINNED"), "no section headers in search");
+        assert!(!text.contains("PINNED ─"), "no PINNED section header (rule) in search");
         assert!(!text.contains("SESSIONS"), "no section headers in search");
         // No jump-number gutter: the pr-review row must not start with "1 ".
         for line in text.lines() {
@@ -1361,6 +1372,62 @@ mod tests {
         let text = render_to_string(&searching_state("zzzzz"));
         assert!(text.contains("no matches"), "empty-state line present");
         assert!(text.contains("Esc"), "search footer present");
+    }
+
+    #[test]
+    fn draw_search_shows_grouped_sessions_tag_in_group_color() {
+        let text = render_to_string(&searching_state("pr"));
+        let mut found = false;
+        for line in text.lines() {
+            if line.contains("pr-review") {
+                assert!(line.contains("PINNED"), "grouped match carries its group tag: {line:?}");
+                found = true;
+            }
+        }
+        assert!(found, "pr-review row must be present");
+
+        let backend_state = searching_state("pr");
+        let backend = TestBackend::new(80, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| draw(f, &backend_state)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+        let mut tag_cyan = false;
+        for y in 0..buf.area.height {
+            // Collect cells by column, not by calling .symbol() which can combine chars
+            for x in 0..buf.area.width {
+                let sym = buf[(x, y)].symbol();
+                if sym == "P" && x + 5 < buf.area.width {
+                    // Check if this is the start of "PINNED"
+                    let mut is_pinned = true;
+                    for (i, expected_char) in "PINNED".chars().enumerate() {
+                        let actual_sym = buf[((x + i as u16), y)].symbol();
+                        if actual_sym != expected_char.to_string().as_str() {
+                            is_pinned = false;
+                            break;
+                        }
+                    }
+                    if is_pinned {
+                        // Check the color of the first character
+                        tag_cyan = buf[(x, y)].style().fg == Some(Color::Cyan);
+                        break;
+                    }
+                }
+            }
+            if tag_cyan {
+                break;
+            }
+        }
+        assert!(tag_cyan, "color-less PINNED group's tag uses positional default (cyan)");
+    }
+
+    #[test]
+    fn draw_search_ungrouped_session_has_no_tag() {
+        let text = render_to_string(&searching_state("scratch"));
+        for line in text.lines() {
+            if line.contains("scratch") {
+                assert!(!line.contains("PINNED"), "ungrouped match carries no group tag: {line:?}");
+            }
+        }
     }
 
     #[test]
