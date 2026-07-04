@@ -203,21 +203,35 @@ and updating `scripts/release.sh`'s asset handling.
 - Build/test loop: `RUSTFLAGS="-D warnings" cargo test`, then
   `cargo build --release`.
 - **Leave a live preview when a feature is done.** Once a feature is
-  implemented and tests pass, launch the freshly built binary in a new pane or
-  window of the *current* tmux session so the change is waiting on screen as a
-  real running picker, not just green test output. Run the raw build artifact
-  directly rather than through the `tmux popup` keybind:
+  implemented and tests pass, launch the freshly built binary in a new window
+  of the *current* tmux session so the change is waiting on screen as a real
+  running picker, not just green test output. Use the `mux` wrapper
+  (`~/.claude/scripts/mux`; see the `tmux` skill) rather than raw `tmux`:
   `cargo build --release` then
-  `tmux split-window -h "exec $PWD/target/release/smux"` (use
-  `tmux new-window "exec $PWD/target/release/smux"` if you want it full width).
-  This is for unattended runs: the picker sits at its prompt waiting for input,
-  so when Jeff returns to the session the feature is previewable straight from
-  the command line. smux detects the current session normally in a plain pane
-  (`$TMUX` is set), so no popup is required. Do NOT launch it with `exec`: smux
-  exits on any selection/quit keypress, and an `exec`'d window vanishes with the
-  process, so the preview disappears the moment it's touched. Run it as a plain
-  command and set `tmux set-window-option -t <win> remain-on-exit on` so the
-  pane survives exit and shows what happened instead of closing.
+  `tab=$(mux spawn --workspace caller --cwd "$PWD" --cmd "$PWD/target/release/smux" --title smux-preview)`
+  then `tmux set-window-option -t "$tab" remain-on-exit on` (`mux` has no
+  set-option verb, so that one step stays raw tmux, targeted by the exact tab
+  token `mux spawn` printed, never ambiguous). `--workspace caller` targets
+  the calling pane's own session robustly; omit `--focus` so the new window
+  doesn't steal focus. Do NOT hand `mux spawn --cmd` a command wrapped in
+  `exec`: smux exits on any selection/quit keypress, and an `exec`'d window
+  vanishes with the process, so the preview disappears the moment it's
+  touched; `--cmd` alone runs it as a plain foreground command in a fresh
+  shell, so `remain-on-exit` can keep the window open afterward. This is for
+  unattended runs: the picker sits at its prompt waiting for input, so when
+  Jeff returns to the session the feature is previewable straight from the
+  command line. smux detects the current session normally in a plain pane
+  (`$TMUX` is set), so no popup is required.
+
+  A prior version of this note told agents to run bare
+  `tmux split-window`/`new-window` with no `-t`. Don't: an agent's Bash tool
+  runs as a detached subprocess with no controlling tty, so that resolves
+  "current window" against whatever window is currently active in the
+  session, not the window this session is actually attached to, and the
+  preview can silently land somewhere else. `mux spawn --workspace caller`
+  avoids the whole class of bug by resolving the session robustly and always
+  creating a fresh window rather than depending on tmux's ambient "current
+  window."
 - Specs live in `specs/`, plans in `plans/`, the build ledger in
   `.superpowers/`; all three are git-ignored scratch, not part of the package.
 - **Changes land via pull request.** Work on a feature branch named
