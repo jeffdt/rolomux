@@ -61,7 +61,7 @@ bind C new-session \; command-prompt -I "" "rename-session '%%'" \; command-prom
 | `j` / `k` | Move the cursor (also `↓` / `↑`) |
 | `l` / `h` | Expand / collapse a session's window tree (also `→` / `←`) |
 | `z` | Expand or collapse window trees for all sessions |
-| `⇧J` / `⇧K` | Move the selected session up or down within its group, or into the neighboring group |
+| `⇧J` / `⇧K` | Move the selected session up or down within its group, or into the neighboring group (also `⇧↓` / `⇧↑`) |
 | `g` | Open group-management mode |
 | `,` | Open settings |
 | `d` | Toggle dormant (dim) on the selected session |
@@ -86,7 +86,7 @@ Once inside:
 | `n` | Create a new group and name it |
 | `d` | Delete the selected group (its sessions fall back to SESSIONS) |
 | `c` | Cycle the selected group's header color |
-| `⇧J` / `⇧K` | Reorder the selected group down / up |
+| `⇧J` / `⇧K` | Reorder the selected group down / up (also `⇧↓` / `⇧↑`) |
 | `Esc` / `q` / `g` | Back to the picker |
 
 As you create groups, they'll be assigned a color from your terminal theme (cyan, green, yellow, magenta, blue, red); new groups rotate through them, `c` flips a group's color, and empty groups show grayed out until you fill them.

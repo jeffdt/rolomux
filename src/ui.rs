@@ -685,10 +685,10 @@ pub enum GroupInput { Up, Down, MoveUp, MoveDown, New, Rename, CycleColor, Delet
 pub fn map_group_key(key: KeyEvent) -> GroupInput {
     let shift = key.modifiers.contains(KeyModifiers::SHIFT);
     match key.code {
+        KeyCode::Char('J') | KeyCode::Down if shift => GroupInput::MoveDown,
+        KeyCode::Char('K') | KeyCode::Up if shift => GroupInput::MoveUp,
         KeyCode::Char('j') | KeyCode::Down => GroupInput::Down,
         KeyCode::Char('k') | KeyCode::Up => GroupInput::Up,
-        KeyCode::Char('J') if shift => GroupInput::MoveDown,
-        KeyCode::Char('K') if shift => GroupInput::MoveUp,
         KeyCode::Char('n') => GroupInput::New,
         KeyCode::Enter | KeyCode::Char('r') => GroupInput::Rename,
         KeyCode::Char('c') => GroupInput::CycleColor,
@@ -757,6 +757,8 @@ pub fn map_search_key(key: KeyEvent) -> SearchInput {
 pub fn map_key(key: KeyEvent) -> Input {
     let shift = key.modifiers.contains(KeyModifiers::SHIFT);
     match key.code {
+        KeyCode::Char('K') | KeyCode::Up if shift => Input::MoveUp,
+        KeyCode::Char('J') | KeyCode::Down if shift => Input::MoveDown,
         KeyCode::Char('j') | KeyCode::Down => Input::Down,
         KeyCode::Char('k') | KeyCode::Up => Input::Up,
         KeyCode::Char('l') | KeyCode::Right => Input::Expand,
@@ -765,8 +767,6 @@ pub fn map_key(key: KeyEvent) -> Input {
         KeyCode::Enter => Input::Select,
         KeyCode::Char('g') => Input::EnterGroups,
         KeyCode::Char(',') => Input::EnterSettings,
-        KeyCode::Char('K') if shift => Input::MoveUp,
-        KeyCode::Char('J') if shift => Input::MoveDown,
         KeyCode::Char('/') => Input::EnterSearch,
         KeyCode::Char('d') => Input::ToggleDormant,
         KeyCode::Char(c @ '1'..='9') if key.modifiers.contains(KeyModifiers::ALT) => {
@@ -965,6 +965,8 @@ mod tests {
         assert_eq!(map_key(key(KeyCode::Esc)), Input::Quit);
         assert_eq!(map_key(shift(KeyCode::Char('K'))), Input::MoveUp);
         assert_eq!(map_key(shift(KeyCode::Char('J'))), Input::MoveDown);
+        assert_eq!(map_key(shift(KeyCode::Up)), Input::MoveUp);
+        assert_eq!(map_key(shift(KeyCode::Down)), Input::MoveDown);
         assert_eq!(map_key(key(KeyCode::Char('z'))), Input::ToggleAll);
         assert_eq!(map_key(key(KeyCode::Char('1'))), Input::Switch(1));
         assert_eq!(map_key(key(KeyCode::Char('9'))), Input::Switch(9));
@@ -1502,6 +1504,8 @@ mod tests {
         assert_eq!(map_group_key(key(KeyCode::Char('k'))), GroupInput::Up);
         assert_eq!(map_group_key(shift(KeyCode::Char('J'))), GroupInput::MoveDown);
         assert_eq!(map_group_key(shift(KeyCode::Char('K'))), GroupInput::MoveUp);
+        assert_eq!(map_group_key(shift(KeyCode::Down)), GroupInput::MoveDown);
+        assert_eq!(map_group_key(shift(KeyCode::Up)), GroupInput::MoveUp);
         assert_eq!(map_group_key(key(KeyCode::Char('n'))), GroupInput::New);
         assert_eq!(map_group_key(key(KeyCode::Enter)), GroupInput::Rename);
         assert_eq!(map_group_key(key(KeyCode::Char('r'))), GroupInput::Rename);
