@@ -147,13 +147,14 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
         Row::Session(si) => Some(ordered[*si]),
         Row::Window(..) => None,
     });
-    let meta = MetaLayout::compute(session_refs, list_area.width);
+    let meta = MetaLayout::compute(session_refs, list_area.width, true);
     let attached_color = color_from_name(&state.attached_color);
 
     let group_ids = state.ordered_group_ids();
     let mut items: Vec<ListItem> = Vec::new();
     let mut selected_line: Option<usize> = None;
     let mut last_section: Option<Option<usize>> = None;
+    let mut current_gutter_color: Color = ACCENT;
     // Named groups whose header is already emitted are those with index < this.
     // Empty groups produce no session rows, so we "catch up" and emit their bare
     // (dimmed) headers when we pass their position or at the end of the list.
@@ -177,10 +178,12 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
                         Some(gi) => {
                             let color = group_color(&state.groups[gi], gi, &state.active_palette);
                             push_section_header(&mut items, &state.groups[gi].name.to_uppercase(), list_area.width, color);
+                            current_gutter_color = color;
                             next_group = gi + 1;
                         }
                         None => {
                             push_section_header(&mut items, "SESSIONS", list_area.width, ACCENT);
+                            current_gutter_color = ACCENT;
                         }
                     }
                     last_section = Some(section);
@@ -201,6 +204,7 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
                     state.is_dormant(&sess.name),
                     attached_color,
                     None,
+                    Some(current_gutter_color),
                 ));
             }
             Row::Window(si, wi) => {
@@ -210,7 +214,7 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
                     selected_line = Some(items.len());
                 }
                 let last = *wi + 1 == sess.windows.len();
-                items.push(window_item(&sess.windows[*wi], last, selected));
+                items.push(window_item(&sess.windows[*wi], last, selected, current_gutter_color));
             }
         }
     }
@@ -262,7 +266,7 @@ fn draw_search(frame: &mut Frame, state: &PickerState, inner: Rect) {
             Style::default().fg(DIM),
         ))));
     } else {
-        let meta = MetaLayout::compute(results.iter().copied(), chunks[1].width);
+        let meta = MetaLayout::compute(results.iter().copied(), chunks[1].width, false);
         let attached_color = color_from_name(&state.attached_color);
         // Widest age string among tagged rows, so every tag in this render
         // starts at the same column regardless of its own row's age width.
@@ -282,7 +286,7 @@ fn draw_search(frame: &mut Frame, state: &PickerState, inner: Rect) {
                 (state.groups[gi].name.clone(), group_color(&state.groups[gi], gi, &state.active_palette), age_pad)
             });
             // Flat, collapsed, no jump number (None), normal metadata.
-            items.push(session_item(sess, false, selected, None, meta, state.is_dormant(&sess.name), attached_color, group_tag));
+            items.push(session_item(sess, false, selected, None, meta, state.is_dormant(&sess.name), attached_color, group_tag, None));
         }
     }
     let list = List::new(items)
@@ -588,12 +592,16 @@ impl MetaLayout {
     /// Derive the layout from the visible sessions and the available width. The
     /// column sits at META_COL by default, advances to META_GAP past the
     /// longest visible name when that name would otherwise overrun, and is
-    /// capped so metadata never falls off the card.
-    fn compute<'a>(sessions: impl Iterator<Item = &'a Session>, width: u16) -> Self {
+    /// capped so metadata never falls off the card. `has_gutter` reserves one
+    /// extra leading column when the caller renders a colored gutter bar
+    /// before the jump number (draw_command); draw_search renders no gutter
+    /// and must not reserve space for one.
+    fn compute<'a>(sessions: impl Iterator<Item = &'a Session>, width: u16, has_gutter: bool) -> Self {
+        let gutter_width = if has_gutter { 1 } else { 0 };
         let mut longest_prefix = 0usize;
         let mut count_width = 0usize;
         for s in sessions {
-            longest_prefix = longest_prefix.max(SESSION_PREFIX + s.name.chars().count());
+            longest_prefix = longest_prefix.max(gutter_width + SESSION_PREFIX + s.name.chars().count());
             count_width = count_width.max(window_count(s.windows.len()).chars().count());
         }
         let target = META_COL.max(longest_prefix + META_GAP);
@@ -612,6 +620,7 @@ fn session_item(
     dormant: bool,
     attached_color: Color,
     group_tag: Option<(String, Color, usize)>,
+    gutter: Option<Color>,
 ) -> ListItem<'static> {
     let glyph = if expanded { "▾" } else { "▸" };
     let num = match number { Some(n) => format!("{n} "), None => "  ".to_string() };
@@ -622,20 +631,23 @@ fn session_item(
     } else {
         Style::default()
     };
-    let prefix_len = SESSION_PREFIX + sess.name.chars().count(); // num + "glyph " + name
+    let gutter_width = if gutter.is_some() { 1 } else { 0 };
+    let prefix_len = gutter_width + SESSION_PREFIX + sess.name.chars().count(); // gutter + num + "glyph " + name
     let pad = meta.col.saturating_sub(prefix_len);
     let count = window_count(sess.windows.len());
     let count_pad = meta.count_width.saturating_sub(count.chars().count());
     let age = activity_age(sess.activity);
-    let mut spans = vec![
-        Span::styled(num, secondary(selected)),
-        Span::styled(format!("{glyph} "), secondary(selected)),
-        Span::styled(sess.name.clone(), name_style),
-        Span::styled(
-            format!("{}{count}{} · {age}", " ".repeat(pad), " ".repeat(count_pad)),
-            secondary(selected),
-        ),
-    ];
+    let mut spans = Vec::new();
+    if let Some(color) = gutter {
+        spans.push(Span::styled("│", Style::default().fg(color)));
+    }
+    spans.push(Span::styled(num, secondary(selected)));
+    spans.push(Span::styled(format!("{glyph} "), secondary(selected)));
+    spans.push(Span::styled(sess.name.clone(), name_style));
+    spans.push(Span::styled(
+        format!("{}{count}{} · {age}", " ".repeat(pad), " ".repeat(count_pad)),
+        secondary(selected),
+    ));
     // age_pad brings every tagged row's age up to the widest age string among
     // this render's tagged rows, so tags line up in a column even though ages
     // ("4h" vs "53m") naturally differ in width. Untagged rows (command mode,
@@ -648,13 +660,14 @@ fn session_item(
     ListItem::new(Line::from(spans))
 }
 
-fn window_item(win: &Window, last: bool, selected: bool) -> ListItem<'static> {
+fn window_item(win: &Window, last: bool, selected: bool, gutter_color: Color) -> ListItem<'static> {
     // Three leading spaces align under the session's number gutter. No window
     // number is shown: numbers are reserved for things you can jump to, and
     // windows aren't jumpable yet.
     let connector = if last { "   └─ " } else { "   ├─ " };
     let dot = if win.active { "●" } else { " " };
     ListItem::new(Line::from(vec![
+        Span::styled("│", Style::default().fg(gutter_color)),
         Span::styled(connector.to_string(), secondary(selected)),
         Span::styled(format!("{dot} "), Style::default().fg(DOT)),
         Span::raw(win.name.clone()),
@@ -1190,10 +1203,10 @@ mod tests {
         for y in 0..buf.area.height {
             let line = inner_line(y);
             if line.contains("main") {
-                assert!(line.starts_with("1 "), "main row gutter: got {line:?}");
+                assert!(line.starts_with("│1 "), "main row gutter: got {line:?}");
             }
             if line.contains("other") {
-                assert!(line.starts_with("2 "), "other row gutter: got {line:?}");
+                assert!(line.starts_with("│2 "), "other row gutter: got {line:?}");
             }
         }
     }
@@ -1837,5 +1850,156 @@ mod tests {
             2,
             "no extra swatch for Rotate/Random policies beyond the Attached/Border color rows"
         );
+    }
+
+    #[test]
+    fn draw_shows_group_color_gutter_next_to_its_sessions() {
+        // A named group's session rows get a leading '│' in the group's color.
+        let sessions = vec![
+            Session { name: "claude".into(), activity: 30, created: 1, attached: false,
+                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+        ];
+        let cfg = Config {
+            dormant: vec![], groups: vec![
+                Group { name: "tools".into(), members: vec!["claude".into()], color: "magenta".into() },
+            ],
+            manual_order: vec![],
+            ..Default::default()
+        };
+        let state = PickerState::build(sessions, &cfg);
+        let backend = TestBackend::new(80, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| draw(f, &state)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+
+        let mut found_magenta_bar = false;
+        for y in 0..buf.area.height {
+            let line: String = (0..buf.area.width).map(|x| buf[(x, y)].symbol()).collect();
+            if let Some(name_x) = line.find("claude") {
+                // The gutter is the new leading column, immediately before the
+                // jump-number/glyph prefix that precedes the name.
+                for x in (POPUP_MARGIN + 1)..(name_x as u16) {
+                    let cell = &buf[(x, y)];
+                    if cell.symbol() == "│" && cell.style().fg == Some(Color::Magenta) {
+                        found_magenta_bar = true;
+                    }
+                }
+            }
+        }
+        assert!(found_magenta_bar, "claude's row shows a magenta gutter bar matching its group's color");
+    }
+
+    #[test]
+    fn draw_shows_accent_gutter_for_residual_sessions_section() {
+        // Sessions in no named group (the SESSIONS bucket) get the same
+        // treatment, in ACCENT (cyan).
+        let sessions = vec![
+            Session { name: "scratch".into(), activity: 20, created: 2, attached: false,
+                      windows: vec![] },
+        ];
+        let cfg = Config { groups: vec![], manual_order: vec![], ..Default::default() };
+        let state = PickerState::build(sessions, &cfg);
+        let backend = TestBackend::new(80, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| draw(f, &state)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+
+        let mut found_cyan_bar = false;
+        for y in 0..buf.area.height {
+            let line: String = (0..buf.area.width).map(|x| buf[(x, y)].symbol()).collect();
+            if let Some(name_x) = line.find("scratch") {
+                for x in (POPUP_MARGIN + 1)..(name_x as u16) {
+                    let cell = &buf[(x, y)];
+                    if cell.symbol() == "│" && cell.style().fg == Some(Color::Cyan) {
+                        found_cyan_bar = true;
+                    }
+                }
+            }
+        }
+        assert!(found_cyan_bar, "residual SESSIONS row shows a cyan (ACCENT) gutter bar");
+    }
+
+    #[test]
+    fn draw_gutter_continues_through_expanded_window_rows() {
+        // A window row under an expanded session inherits the parent
+        // session's (i.e. its group's) gutter color.
+        let sessions = vec![
+            Session { name: "claude".into(), activity: 30, created: 1, attached: false,
+                      windows: vec![Window { index: 0, name: "editor".into(), active: true }] },
+        ];
+        let cfg = Config {
+            dormant: vec![], groups: vec![
+                Group { name: "tools".into(), members: vec!["claude".into()], color: "magenta".into() },
+            ],
+            manual_order: vec![],
+            ..Default::default()
+        };
+        let mut state = PickerState::build(sessions, &cfg);
+        state.expand(); // cursor starts on "claude" (the only session)
+
+        let backend = TestBackend::new(80, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| draw(f, &state)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+
+        let mut found_magenta_bar_on_window_row = false;
+        for y in 0..buf.area.height {
+            let line: String = (0..buf.area.width).map(|x| buf[(x, y)].symbol()).collect();
+            if let Some(name_x) = line.find("editor") {
+                for x in (POPUP_MARGIN + 1)..(name_x as u16) {
+                    let cell = &buf[(x, y)];
+                    if cell.symbol() == "│" && cell.style().fg == Some(Color::Magenta) {
+                        found_magenta_bar_on_window_row = true;
+                    }
+                }
+            }
+        }
+        assert!(found_magenta_bar_on_window_row, "editor window row shows the parent session's magenta gutter bar");
+    }
+
+    #[test]
+    fn draw_search_results_have_no_gutter_bar() {
+        // Out of scope per spec: search's flat results list keeps its
+        // existing inline group tag and gets no leading gutter column.
+        let sessions = vec![
+            Session { name: "claude".into(), activity: 30, created: 1, attached: false, windows: vec![] },
+        ];
+        let cfg = Config {
+            dormant: vec![], groups: vec![
+                Group { name: "tools".into(), members: vec!["claude".into()], color: "magenta".into() },
+            ],
+            manual_order: vec![],
+            ..Default::default()
+        };
+        let mut state = PickerState::build(sessions, &cfg);
+        state.enter_search();
+
+        let backend = TestBackend::new(80, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| draw(f, &state)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+
+        // Search results should not have a leading gutter bar before the session name.
+        // Check that where a session name appears, it is not preceded by a gutter bar.
+        let mut found_gutter_before_session = false;
+        for y in 0..buf.area.height {
+            let line: String = (0..buf.area.width).map(|x| buf[(x, y)].symbol()).collect();
+            if let Some(name_x) = line.find("claude") {
+                // Check the area just before the session name
+                if name_x > 0 {
+                    // Look for a pipe character in the few chars before the name
+                    let pre_name_start = (POPUP_MARGIN + 1) as usize;
+                    if name_x > pre_name_start {
+                        for x in pre_name_start..name_x {
+                            if buf[(x as u16, y)].symbol() == "│" {
+                                // Found a pipe in the content area before the name
+                                found_gutter_before_session = true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        assert!(!found_gutter_before_session, "search mode should not render a gutter bar before session names");
     }
 }
