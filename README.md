@@ -1,17 +1,17 @@
 # rolomux
 
-A slick tmux session picker that sorts your sessions into color-coded groups to bring some zen to tmux.
-
-Set up the groups that match how you work: a CONFIG group for the tools you're tweaking, a DEV group for what you're building, throwaway groups for whatever projects you're working on right now.
-Anything you haven't sorted yet just sinks to the bottom, out of the way but never lost.
-
-It's a productivity tool first, so it's designed to feel intuitive the moment you launch it, but it's configurable to ensure it fits your workflow.
-
 ![Rust](https://img.shields.io/badge/Rust-2021-orange?logo=rust&logoColor=white)
 ![TUI](https://img.shields.io/badge/TUI-ratatui-1f6feb)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Platform](https://img.shields.io/badge/platform-macOS%20(Apple%20Silicon)-lightgrey)
 ![Vibe coded](https://img.shields.io/badge/vibe%20coded-100%25-ff69b4)
+
+A slick tmux session picker that sorts your sessions into color-coded groups to bring some zen to tmux.
+
+Set up the groups that match how you work: a CONFIG group for the tools you're tweaking, a DEV group for what you're building, throwaway groups for whatever projects you're working on right now.
+Anything you haven't sorted yet just sinks to the bottom, out of the way but never lost.
+
+It's a productivity tool first, so it's designed to feel intuitive the moment you launch it, but it bends to fit your workflow.
 
 ![rolomux session picker](docs/images/screenshot.png)
 
@@ -42,7 +42,7 @@ Reload tmux and press `prefix + s`.
   Its own overhead is a couple of milliseconds, so it opens about as fast as tmux can answer.
 - **Fuzzy search built in.** Press `/` to filter sessions by name; matching is in-process with no extra runtime dependency. If this is your preferred way of working, tweak the settings to always launch in search mode.
 - **Dim the sessions you're not using.** Press `d` to mark a session dormant; it stays in place but renders in a dimmed state to indicate that it's on the back burner. Press `d` again on a dormant session when it's time to bring it back to life. Dormant sessions are still fully usable, but reduced visual noise helps you stay laser focused on the sessions that matter right now.
-- **Configurable colors.** Press `,` to open Settings and tune the color of the application border, palette used for group headers, and more. Uses your terminal's ANSI colors to ensure it harmonizes with your existing terminal themes.
+- **Tune the colors.** Press `,` to open Settings and tune the color of the application border, palette used for group headers, and more. Uses your terminal's ANSI colors to ensure it harmonizes with your existing terminal themes.
 
 **Note:** rolomux depends on (and promotes) good tmux hygiene.
 Get in the habit of naming your sessions and windows so you can make sense of them later.
@@ -108,7 +108,7 @@ Press `d` to mark the selected session dormant; it renders dimmed in place as a 
 It's purely visual: a dormant session keeps its jump number, group membership, and position, and nothing else about it changes.
 Press `d` again to undim.
 The dormant set persists across restarts.
-Think of it as one more optional tool in your kit to help you organize your sessions, if you find it helpful.
+Think of it as one more optional tool in your kit to help you tend your sessions, if you find it helpful.
 
 ### Settings
 
