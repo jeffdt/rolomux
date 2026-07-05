@@ -238,8 +238,23 @@ and updating `scripts/release.sh`'s asset handling.
   avoids the whole class of bug by resolving the session robustly and always
   creating a fresh window rather than depending on tmux's ambient "current
   window."
+- **Mock up visual/rendering changes before writing the spec.** When a design
+  discussion touches how something renders (colors, layout, new glyphs/columns),
+  don't rely on a text description alone — render an ANSI mockup (a small script
+  with `printf`/`echo -e` escape codes, not the real binary) in a new tmux window
+  via `mux spawn` (same pattern as the live-preview step below), so Jeff can look
+  at it before design gets locked in. Skip this for changes with no visual
+  surface (model/logic-only work).
 - Specs live in `specs/`, plans in `plans/`, the build ledger in
   `.superpowers/`; all three are git-ignored scratch, not part of the package.
+- **Keep the README current in the same PR.** A functional change (new key,
+  new behavior, new config option) needs its own line in the relevant README
+  section (Keys, How it works, Configuration); don't leave it to a later
+  cleanup pass. A change to the picker's visual appearance (colors, layout,
+  new UI element) needs a refreshed `docs/images/screenshot.png` showing it
+  live, using the same live-preview step above to get a real running picker
+  on screen before capturing it. Skip both for internal-only changes (specs
+  and plans, CI config, dependency bumps) with no user-facing surface.
 - **Changes land via pull request.** Work on a feature branch named
   `jeffdt/<domain>-<brief-kebab-desc>` (the global convention applies here). When
   Jeff clears a change to go live, open a PR and then merge it yourself (squash,

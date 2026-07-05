@@ -2,7 +2,7 @@
 name = "rolomux"
 version = "0.15.0"
 edition = "2021"
-description = "A fast tmux session picker with pinned sessions and a collapsible window tree"
+description = "A slick tmux session picker that sorts your sessions into color-coded groups to bring some zen to tmux"
 license = "MIT"
 repository = "https://github.com/jeffdt/rolomux"
 authors = ["Jeff DiTeodoro"]
