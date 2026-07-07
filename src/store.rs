@@ -138,11 +138,11 @@ impl Config {
         let groups = if raw.config_version < 1 && raw.groups.is_empty() && !raw.pinned.is_empty()
         {
             // v0 -> v1: single legacy `pinned` list becomes one PINNED group.
-            vec![Group { name: "PINNED".into(), members: raw.pinned, color: String::new() }]
+            vec![Group { name: "PINNED".into(), members: raw.pinned, color: String::new(), ..Default::default() }]
         } else {
             raw.groups
                 .into_iter()
-                .map(|g| Group { name: g.name, members: g.members, color: g.color })
+                .map(|g| Group { name: g.name, members: g.members, color: g.color, ..Default::default() })
                 .collect()
         };
         let default_mode = raw
@@ -430,8 +430,8 @@ mod tests {
         let path = dir.join("config.toml");
         let cfg = Config {
             dormant: vec![], groups: vec![
-                Group { name: "CONFIG".into(), members: vec!["claude".into()], color: String::new() },
-                Group { name: "TOOLS".into(), members: vec![], color: String::new() },
+                Group { name: "CONFIG".into(), members: vec!["claude".into()], color: String::new(), ..Default::default() },
+                Group { name: "TOOLS".into(), members: vec![], color: String::new(), ..Default::default() },
             ],
             manual_order: vec![],
             ..Default::default()
@@ -445,7 +445,7 @@ mod tests {
     #[test]
     fn reconcile_drops_dead_members_but_keeps_empty_group() {
         let mut cfg = Config {
-            dormant: vec![], groups: vec![Group { name: "G".into(), members: vec!["a".into(), "gone".into()], color: String::new() }],
+            dormant: vec![], groups: vec![Group { name: "G".into(), members: vec!["a".into(), "gone".into()], color: String::new(), ..Default::default() }],
             manual_order: vec![],
             ..Default::default()
         };

@@ -855,7 +855,7 @@ mod tests {
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
         ];
         let cfg = Config {
-            dormant: vec![], groups: vec![Group { name: "PINNED".into(), members: vec!["pr-review".into()], color: String::new() }],
+            dormant: vec![], groups: vec![Group { name: "PINNED".into(), members: vec!["pr-review".into()], color: String::new(), ..Default::default() }],
             manual_order: vec![],
             ..Default::default()
         };
@@ -1084,7 +1084,7 @@ mod tests {
             Session { name: "claude".into(), activity: 30, created: 1, attached: false,
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
         ];
-        let cfg = Config { groups: vec![Group { name: "G".into(), members: vec!["claude".into()], color: String::new() }],
+        let cfg = Config { groups: vec![Group { name: "G".into(), members: vec!["claude".into()], color: String::new(), ..Default::default() }],
                            manual_order: vec![], ..Default::default() };
         let text = render_to_string(&PickerState::build(sessions, &cfg));
         assert!(!text.contains('★'), "pin star retired");
@@ -1102,8 +1102,8 @@ mod tests {
         ];
         let cfg = Config {
             dormant: vec![], groups: vec![
-                Group { name: "config".into(), members: vec!["claude".into()], color: String::new() },
-                Group { name: "tools".into(), members: vec!["tent".into()], color: String::new() },
+                Group { name: "config".into(), members: vec!["claude".into()], color: String::new(), ..Default::default() },
+                Group { name: "tools".into(), members: vec!["tent".into()], color: String::new(), ..Default::default() },
             ],
             manual_order: vec![],
             ..Default::default()
@@ -1130,8 +1130,8 @@ mod tests {
         ];
         let cfg = Config {
             dormant: vec![], groups: vec![
-                Group { name: "config".into(), members: vec!["claude".into()], color: String::new() },
-                Group { name: "tools".into(), members: vec![], color: String::new() }, // empty shelf
+                Group { name: "config".into(), members: vec!["claude".into()], color: String::new(), ..Default::default() },
+                Group { name: "tools".into(), members: vec![], color: String::new(), ..Default::default() }, // empty shelf
             ],
             manual_order: vec![],
             ..Default::default()
@@ -1381,7 +1381,7 @@ mod tests {
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
         ];
         let cfg = Config {
-            dormant: vec![], groups: vec![Group { name: "PINNED".into(), members: vec!["pr-review".into()], color: String::new() }],
+            dormant: vec![], groups: vec![Group { name: "PINNED".into(), members: vec!["pr-review".into()], color: String::new(), ..Default::default() }],
             manual_order: vec![],
             ..Default::default()
         };
@@ -1431,7 +1431,7 @@ mod tests {
             windows: vec![Window { index: 0, name: "w".into(), active: true }],
         }];
         let cfg = Config {
-            dormant: vec![], groups: vec![Group { name: "work".into(), members: vec!["pr-review".into()], color: String::new() }],
+            dormant: vec![], groups: vec![Group { name: "work".into(), members: vec!["pr-review".into()], color: String::new(), ..Default::default() }],
             manual_order: vec![],
             ..Default::default()
         };
@@ -1507,6 +1507,7 @@ mod tests {
                 name: "dev".into(),
                 members: vec!["short-age".into(), "long-age".into()],
                 color: String::new(),
+                ..Default::default()
             }],
             manual_order: vec![],
             ..Default::default()
@@ -1579,8 +1580,8 @@ mod tests {
         ];
         let cfg = Config {
             dormant: vec![], groups: vec![
-                Group { name: "config".into(), members: vec!["claude".into()], color: String::new() },
-                Group { name: "tools".into(), members: vec!["tent".into()], color: "magenta".into() },
+                Group { name: "config".into(), members: vec!["claude".into()], color: String::new(), ..Default::default() },
+                Group { name: "tools".into(), members: vec!["tent".into()], color: "magenta".into(), ..Default::default() },
             ],
             manual_order: vec![],
             ..Default::default()
@@ -1614,7 +1615,7 @@ mod tests {
             Session { name: "ticket".into(), activity: 10, created: 2, attached: false,
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
         ];
-        let cfg = Config { groups: vec![Group { name: "config".into(), members: vec!["claude".into()], color: String::new() }],
+        let cfg = Config { groups: vec![Group { name: "config".into(), members: vec!["claude".into()], color: String::new(), ..Default::default() }],
                            manual_order: vec![], ..Default::default() };
         let mut st = PickerState::build(sessions, &cfg);
         st.enter_groups();
@@ -1719,7 +1720,7 @@ mod tests {
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
         ];
         let cfg = Config {
-            groups: vec![Group { name: "config".into(), members: vec!["claude".into()], color: String::new() }],
+            groups: vec![Group { name: "config".into(), members: vec!["claude".into()], color: String::new(), ..Default::default() }],
             active_palette: vec!["white".to_string()],
             ..Default::default()
         };
@@ -1861,7 +1862,7 @@ mod tests {
         ];
         let cfg = Config {
             dormant: vec![], groups: vec![
-                Group { name: "tools".into(), members: vec!["claude".into()], color: "magenta".into() },
+                Group { name: "tools".into(), members: vec!["claude".into()], color: "magenta".into(), ..Default::default() },
             ],
             manual_order: vec![],
             ..Default::default()
@@ -1929,7 +1930,7 @@ mod tests {
         ];
         let cfg = Config {
             dormant: vec![], groups: vec![
-                Group { name: "tools".into(), members: vec!["claude".into()], color: "magenta".into() },
+                Group { name: "tools".into(), members: vec!["claude".into()], color: "magenta".into(), ..Default::default() },
             ],
             manual_order: vec![],
             ..Default::default()
@@ -1966,7 +1967,7 @@ mod tests {
         ];
         let cfg = Config {
             dormant: vec![], groups: vec![
-                Group { name: "tools".into(), members: vec!["claude".into()], color: "magenta".into() },
+                Group { name: "tools".into(), members: vec!["claude".into()], color: "magenta".into(), ..Default::default() },
             ],
             manual_order: vec![],
             ..Default::default()

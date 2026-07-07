@@ -149,13 +149,43 @@ pub const HEADER_COLORS: [&str; 6] = ["cyan", "green", "yellow", "magenta", "blu
 /// A user-named, ordered collection of sessions that renders as its own
 /// section above the residual `SESSIONS` bucket. Groups are durable: they
 /// persist even when empty and are removed only by an explicit delete.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Group {
     pub name: String,
     pub members: Vec<String>,
     /// Header color name from `HEADER_COLORS`, or empty for the positional
     /// default. Set explicitly by the color-flip so it survives reordering.
     pub color: String,
+    /// Whether this is the one group that receives sessions not explicitly
+    /// listed anywhere else. Exactly one group has this set to `true` at
+    /// all times -- see `ensure_single_inbox`. Never toggled by any UI
+    /// action other than migration/repair: there is no "make this the
+    /// inbox" command.
+    pub inbox: bool,
+}
+
+/// Guarantees "exactly one group has `inbox: true`" after loading or
+/// building from any source. If none do, always synthesizes and appends a
+/// fresh empty `INBOX` group -- never repurposes an existing named group,
+/// since silently flipping someone's real group would be a far more
+/// surprising repair than adding an empty one. If more than one do (only
+/// reachable via a hand-edited TOML), keeps the first and clears the rest.
+pub fn ensure_single_inbox(groups: &mut Vec<Group>) {
+    let flagged: Vec<usize> = groups
+        .iter()
+        .enumerate()
+        .filter(|(_, g)| g.inbox)
+        .map(|(i, _)| i)
+        .collect();
+    match flagged.len() {
+        0 => groups.push(Group { name: "INBOX".into(), inbox: true, ..Default::default() }),
+        1 => {}
+        _ => {
+            for &i in &flagged[1..] {
+                groups[i].inbox = false;
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -231,9 +261,11 @@ impl PickerState {
         focus: InitialFocus,
         current: Option<&str>,
     ) -> PickerState {
+        let mut groups = config.groups.clone();
+        ensure_single_inbox(&mut groups);
         let mut state = PickerState {
             all: sessions,
-            groups: config.groups.clone(),
+            groups,
             manual_order: config.manual_order.clone(),
             expanded: HashSet::new(),
             dormant: config.dormant.iter().cloned().collect(),
@@ -289,6 +321,14 @@ impl PickerState {
         self.groups
             .iter()
             .position(|g| g.members.iter().any(|m| m == name))
+    }
+
+    /// The index of the one group flagged `inbox: true`. `PickerState`
+    /// always has exactly one after construction (see `build_with_focus`),
+    /// so this is only `None` before that invariant is established.
+    #[allow(dead_code)]
+    pub fn inbox_index(&self) -> Option<usize> {
+        self.groups.iter().position(|g| g.inbox)
     }
 
     /// Whether `name` sits in any named group (vs. the residual `SESSIONS` bucket).
@@ -886,7 +926,7 @@ impl PickerState {
             ColorPolicy::Random => pick_random_color(&self.active_palette, random_seed()),
             ColorPolicy::Static => self.static_color.clone(),
         };
-        self.groups.push(Group { name: String::new(), members: Vec::new(), color });
+        self.groups.push(Group { name: String::new(), members: Vec::new(), color, inbox: false });
         self.group_cursor = self.groups.len() - 1;
         self.group_edit = Some(String::new());
     }
@@ -1263,8 +1303,8 @@ mod tests {
         let sessions = vec![s("a", 10, 1), s("b", 30, 2), s("c", 20, 3), s("d", 40, 4)];
         let cfg = Config {
             dormant: vec![], groups: vec![
-                Group { name: "CONFIG".into(), members: vec!["c".into()], color: String::new() },
-                Group { name: "TOOLS".into(), members: vec!["a".into()], color: String::new() },
+                Group { name: "CONFIG".into(), members: vec!["c".into()], color: String::new(), ..Default::default() },
+                Group { name: "TOOLS".into(), members: vec!["a".into()], color: String::new(), ..Default::default() },
             ],
             manual_order: vec![],
             ..Default::default()
@@ -1346,7 +1386,7 @@ mod tests {
     fn action_for_session_number_uses_stable_pinned_first_order() {
         let sessions = vec![s("a", 10, 1), s("b", 30, 2), s("c", 20, 3)];
         let cfg = Config {
-            dormant: vec![], groups: vec![Group { name: "PINNED".into(), members: vec!["c".into()], color: String::new() }],
+            dormant: vec![], groups: vec![Group { name: "PINNED".into(), members: vec!["c".into()], color: String::new(), ..Default::default() }],
             manual_order: vec![],
             ..Default::default()
         };
@@ -1368,7 +1408,7 @@ mod tests {
     fn focus_session_number_moves_cursor_without_switching() {
         let sessions = vec![s("a", 10, 1), s("b", 30, 2), s("c", 20, 3)];
         let cfg = Config {
-            dormant: vec![], groups: vec![Group { name: "PINNED".into(), members: vec!["c".into()], color: String::new() }],
+            dormant: vec![], groups: vec![Group { name: "PINNED".into(), members: vec!["c".into()], color: String::new(), ..Default::default() }],
             manual_order: vec![],
             ..Default::default()
         };
@@ -1409,7 +1449,7 @@ mod tests {
         // filtered out of the manual tail); c then a are the manual placements;
         // b is unlisted and falls in after, by created asc.
         let cfg = Config {
-            dormant: vec![], groups: vec![Group { name: "PINNED".into(), members: vec!["d".into()], color: String::new() }],
+            dormant: vec![], groups: vec![Group { name: "PINNED".into(), members: vec!["d".into()], color: String::new(), ..Default::default() }],
             manual_order: vec!["d".into(), "c".into(), "a".into()],
             ..Default::default()
         };
@@ -1473,7 +1513,7 @@ mod tests {
     fn move_row_on_pinned_reorders_pins_in_any_mode() {
         let sessions = vec![s("a", 30, 1), s("b", 20, 2)];
         let cfg = Config {
-            dormant: vec![], groups: vec![Group { name: "PINNED".into(), members: vec!["a".into(), "b".into()], color: String::new() }],
+            dormant: vec![], groups: vec![Group { name: "PINNED".into(), members: vec!["a".into(), "b".into()], color: String::new(), ..Default::default() }],
             manual_order: vec![],
             ..Default::default()
         };
@@ -1737,8 +1777,8 @@ mod tests {
         let sessions = vec![s("a", 1, 1), s("b", 1, 2), s("c", 1, 3)];
         let cfg = Config {
             dormant: vec![], groups: vec![
-                Group { name: "G1".into(), members: vec!["a".into()], color: String::new() },
-                Group { name: "G2".into(), members: vec!["b".into()], color: String::new() },
+                Group { name: "G1".into(), members: vec!["a".into()], color: String::new(), ..Default::default() },
+                Group { name: "G2".into(), members: vec!["b".into()], color: String::new(), ..Default::default() },
             ],
             manual_order: vec![],
             ..Default::default()
@@ -1930,8 +1970,8 @@ mod tests {
         let sessions = vec![s("a", 1, 1), s("b", 1, 2), s("c", 1, 3), s("d", 40, 4), s("e", 30, 5)];
         let cfg = Config {
             dormant: vec![], groups: vec![
-                Group { name: "G1".into(), members: vec!["a".into(), "b".into()], color: String::new() },
-                Group { name: "G2".into(), members: vec!["c".into()], color: String::new() },
+                Group { name: "G1".into(), members: vec!["a".into(), "b".into()], color: String::new(), ..Default::default() },
+                Group { name: "G2".into(), members: vec!["c".into()], color: String::new(), ..Default::default() },
             ],
             manual_order: vec![],
             ..Default::default()
@@ -2388,5 +2428,53 @@ mod tests {
             st.active_palette.contains(&picked),
             "random pick must come from the active palette"
         );
+    }
+
+    #[test]
+    fn ensure_single_inbox_appends_fresh_when_none_flagged() {
+        let mut groups = vec![
+            Group { name: "G1".into(), members: vec!["a".into()], ..Default::default() },
+            Group { name: "G2".into(), members: vec!["b".into()], ..Default::default() },
+        ];
+        ensure_single_inbox(&mut groups);
+        assert_eq!(groups.len(), 3);
+        assert_eq!(groups[2].name, "INBOX");
+        assert!(groups[2].inbox);
+        assert!(groups[2].members.is_empty());
+        // Existing groups are never repurposed.
+        assert!(!groups[0].inbox);
+        assert!(!groups[1].inbox);
+    }
+
+    #[test]
+    fn ensure_single_inbox_appends_fresh_when_groups_empty() {
+        let mut groups: Vec<Group> = vec![];
+        ensure_single_inbox(&mut groups);
+        assert_eq!(groups.len(), 1);
+        assert!(groups[0].inbox);
+        assert_eq!(groups[0].name, "INBOX");
+    }
+
+    #[test]
+    fn ensure_single_inbox_is_a_noop_when_exactly_one_flagged() {
+        let mut groups = vec![
+            Group { name: "G1".into(), ..Default::default() },
+            Group { name: "MINE".into(), inbox: true, members: vec!["x".into()], ..Default::default() },
+        ];
+        ensure_single_inbox(&mut groups);
+        assert_eq!(groups.len(), 2);
+        assert_eq!(groups[1].name, "MINE");
+        assert!(groups[1].inbox);
+    }
+
+    #[test]
+    fn ensure_single_inbox_keeps_first_and_clears_rest_when_multiple_flagged() {
+        let mut groups = vec![
+            Group { name: "FIRST".into(), inbox: true, ..Default::default() },
+            Group { name: "SECOND".into(), inbox: true, ..Default::default() },
+        ];
+        ensure_single_inbox(&mut groups);
+        assert!(groups[0].inbox);
+        assert!(!groups[1].inbox);
     }
 }
