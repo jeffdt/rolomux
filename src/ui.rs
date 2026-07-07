@@ -153,7 +153,7 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
     let group_ids = state.ordered_group_ids();
     let mut items: Vec<ListItem> = Vec::new();
     let mut selected_line: Option<usize> = None;
-    let mut last_section: Option<Option<usize>> = None;
+    let mut last_section: Option<usize> = None;
     let mut current_gutter_color: Color = ACCENT;
     // Named groups whose header is already emitted are those with index < this.
     // Empty groups produce no session rows, so we "catch up" and emit their bare
@@ -166,26 +166,15 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
                 let sess = ordered[*si];
                 let section = group_ids[*si];
                 if last_section != Some(section) {
-                    let target = match section {
-                        Some(gi) => gi,
-                        None => state.groups.len(),
-                    };
+                    let target = section;
                     while next_group < target {
                         push_empty_group_header(&mut items, &state.groups[next_group].name, list_area.width);
                         next_group += 1;
                     }
-                    match section {
-                        Some(gi) => {
-                            let color = group_color(&state.groups[gi], gi, &state.active_palette);
-                            push_section_header(&mut items, &state.groups[gi].name.to_uppercase(), list_area.width, color);
-                            current_gutter_color = color;
-                            next_group = gi + 1;
-                        }
-                        None => {
-                            push_section_header(&mut items, "SESSIONS", list_area.width, ACCENT);
-                            current_gutter_color = ACCENT;
-                        }
-                    }
+                    let color = group_color(&state.groups[section], section, &state.active_palette);
+                    push_section_header(&mut items, &state.groups[section].name.to_uppercase(), list_area.width, color);
+                    current_gutter_color = color;
+                    next_group = section + 1;
                     last_section = Some(section);
                 }
                 let selected = Some(*row) == cursor_row;

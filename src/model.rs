@@ -357,20 +357,22 @@ impl PickerState {
         self.groups.iter().position(|g| g.inbox)
     }
 
-    /// Group id for each entry of `ordered()`, via `group_index_of` (always
-    /// `Some` in practice, inbox fallback included). Parallel to `ordered()`
-    /// so the UI can emit a section header wherever this value changes.
-    pub fn ordered_group_ids(&self) -> Vec<Option<usize>> {
+    /// Group id for each entry of `ordered()`. Parallel to `ordered()` so the
+    /// UI can emit a section header wherever this value changes. Always
+    /// resolvable now -- every session belongs to some group, the inbox at
+    /// worst -- so unlike the pre-issue-#23 residual bucket there is no
+    /// `None` case left to represent.
+    pub fn ordered_group_ids(&self) -> Vec<usize> {
         self.ordered()
             .iter()
-            .map(|s| self.group_index_of(&s.name))
+            .map(|s| self.group_index_of(&s.name).unwrap_or(0))
             .collect()
     }
 
     pub fn ordered(&self) -> Vec<&Session> {
         let mut out: Vec<&Session> = Vec::new();
         let mut seen: HashSet<&str> = HashSet::new();
-        for g in &self.groups {
+        for (gi, g) in self.groups.iter().enumerate() {
             for name in &g.members {
                 if seen.contains(name.as_str()) {
                     continue; // guard against a session listed in two groups
@@ -380,13 +382,18 @@ impl PickerState {
                     seen.insert(name.as_str());
                 }
             }
-        }
-        // Every session not already placed by a group's persisted `members`
-        // (including the inbox's own) falls back to the inbox, oldest-created
-        // first. Appended after all groups for now; Task 4 interleaves this
-        // into the inbox group's own contiguous block instead.
-        if let Some(gi) = self.inbox_index() {
-            out.extend(self.inbox_overflow(gi, |name| seen.contains(name)));
+            if g.inbox {
+                // Sessions nobody has explicitly filed anywhere: they belong
+                // to this block too (via group_index_of's fallback), but
+                // aren't in `members` yet. Render them right after this
+                // group's real members, oldest-created first, wherever this
+                // group currently sits -- not appended at the very end of
+                // the whole list.
+                for sess in self.inbox_overflow(gi, |name| seen.contains(name)) {
+                    out.push(sess);
+                    seen.insert(sess.name.as_str());
+                }
+            }
         }
         out
     }
@@ -1962,6 +1969,39 @@ mod tests {
         assert_eq!(st.mode, Mode::Command);
     }
 
+    #[test]
+    fn ordered_places_unassigned_sessions_inside_inbox_block_wherever_it_sits() {
+        let sessions = vec![s("a", 1, 1), s("b", 1, 2), s("new", 1, 3)];
+        // Inbox is first in `groups` (as if the user dragged it to the top);
+        // WORK is second. "new" is never explicitly listed anywhere.
+        let cfg = Config {
+            groups: vec![
+                Group { name: "INBOX".into(), members: vec!["b".into()], inbox: true, ..Default::default() },
+                Group { name: "WORK".into(), members: vec!["a".into()], ..Default::default() },
+            ],
+            ..Default::default()
+        };
+        let st = PickerState::build(sessions, &cfg);
+        let names: Vec<&str> = st.ordered().iter().map(|s| s.name.as_str()).collect();
+        // "new" renders right after "b" (inbox's own block), not at the very
+        // end of the whole list after WORK.
+        assert_eq!(names, vec!["b", "new", "a"]);
+    }
+
+    #[test]
+    fn ordered_group_ids_are_never_none() {
+        let sessions = vec![s("a", 1, 1), s("b", 1, 2)];
+        let cfg = Config {
+            groups: vec![Group { name: "WORK".into(), members: vec!["a".into()], ..Default::default() }],
+            ..Default::default()
+        };
+        let st = PickerState::build(sessions, &cfg);
+        let ids = st.ordered_group_ids();
+        assert_eq!(ids.len(), 2);
+        assert_eq!(ids[0], 0); // "a" in WORK
+        assert_eq!(ids[1], st.inbox_index().unwrap()); // "b" falls back to inbox
+    }
+
     fn state_with_two_groups() -> PickerState {
         // groups: G1=[a,b], G2=[c]; residual d,e by activity (d 40 > e 30)
         let sessions = vec![s("a", 1, 1), s("b", 1, 2), s("c", 1, 3), s("d", 40, 4), s("e", 30, 5)];
@@ -2042,10 +2082,10 @@ mod tests {
     #[test]
     fn ordered_group_ids_track_sections() {
         let st = state_with_two_groups(); // G1=[a,b], G2=[c], residual d,e (falls back to inbox)
-        let inbox = st.inbox_index();
+        let inbox = st.inbox_index().unwrap();
         assert_eq!(
             st.ordered_group_ids(),
-            vec![Some(0), Some(0), Some(1), inbox, inbox]
+            vec![0, 0, 1, inbox, inbox]
         );
     }
 
