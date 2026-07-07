@@ -1243,7 +1243,7 @@ mod tests {
         // current (from $TMUX) is "c" -- the precise signal must win.
         let mut sessions = vec![s("a", 30, 1), s("b", 20, 2), s("c", 10, 3)];
         sessions[1].attached = true;
-        let cfg = Config { groups: vec![], manual_order: vec![], ..Default::default() };
+        let cfg = Config { groups: vec![], ..Default::default() };
         let state =
             PickerState::build_with_focus(sessions, &cfg, InitialFocus::CurrentSession, Some("c"));
         assert_eq!(state.cursor_session_name().as_deref(), Some("c"));
@@ -1254,7 +1254,7 @@ mod tests {
         // No precise current; the attached flag ("b") is the fallback.
         let mut sessions = vec![s("a", 30, 1), s("b", 10, 2)];
         sessions[1].attached = true;
-        let cfg = Config { groups: vec![], manual_order: vec![], ..Default::default() };
+        let cfg = Config { groups: vec![], ..Default::default() };
         let state =
             PickerState::build_with_focus(sessions, &cfg, InitialFocus::CurrentSession, None);
         assert_eq!(state.cursor_session_name().as_deref(), Some("b"));
@@ -1264,7 +1264,7 @@ mod tests {
     fn initial_focus_first_row_ignores_current_and_attached() {
         let mut sessions = vec![s("a", 30, 1), s("b", 10, 2)];
         sessions[1].attached = true;
-        let cfg = Config { groups: vec![], manual_order: vec![], ..Default::default() };
+        let cfg = Config { groups: vec![], ..Default::default() };
         let state =
             PickerState::build_with_focus(sessions, &cfg, InitialFocus::FirstRow, Some("b"));
         assert_eq!(state.cursor, 0);
@@ -1274,7 +1274,7 @@ mod tests {
     #[test]
     fn initial_focus_current_falls_back_to_first_row_when_nothing_matches() {
         let sessions = vec![s("a", 30, 1), s("b", 10, 2)];
-        let cfg = Config { groups: vec![], manual_order: vec![], ..Default::default() };
+        let cfg = Config { groups: vec![], ..Default::default() };
         let state =
             PickerState::build_with_focus(sessions, &cfg, InitialFocus::CurrentSession, None);
         assert_eq!(state.cursor, 0);
@@ -1286,7 +1286,7 @@ mod tests {
         // Canary for the shipped INITIAL_FOCUS default; update if it is swapped.
         let mut sessions = vec![s("a", 30, 1), s("b", 10, 2)];
         sessions[1].attached = true;
-        let cfg = Config { groups: vec![], manual_order: vec![], ..Default::default() };
+        let cfg = Config { groups: vec![], ..Default::default() };
         let state = PickerState::build(sessions, &cfg);
         assert_eq!(state.cursor_session_name().as_deref(), Some("b"));
     }
@@ -1294,7 +1294,7 @@ mod tests {
     #[test]
     fn refocus_current_moves_to_named_session_and_no_ops_on_none() {
         let sessions = vec![s("a", 30, 1), s("b", 10, 2)];
-        let cfg = Config { groups: vec![], manual_order: vec![], ..Default::default() };
+        let cfg = Config { groups: vec![], ..Default::default() };
         let mut state = PickerState::build(sessions, &cfg); // no attached -> row 0 ("a")
         state.refocus_current(Some("b"));
         assert_eq!(state.cursor_session_name().as_deref(), Some("b"));
@@ -1310,7 +1310,6 @@ mod tests {
                 Group { name: "CONFIG".into(), members: vec!["c".into()], color: String::new(), ..Default::default() },
                 Group { name: "TOOLS".into(), members: vec!["a".into()], color: String::new(), ..Default::default() },
             ],
-            manual_order: vec![],
             ..Default::default()
         };
         let state = PickerState::build(sessions, &cfg);
@@ -1327,7 +1326,7 @@ mod tests {
     #[test]
     fn ordered_breaks_ties_by_name_ascending() {
         let sessions = vec![s("zebra", 50, 5), s("apple", 50, 5)];
-        let cfg = Config { groups: vec![], manual_order: vec![], ..Default::default() };
+        let cfg = Config { groups: vec![], ..Default::default() };
         let state = PickerState::build(sessions, &cfg);
         let names: Vec<&str> = state.ordered().iter().map(|s| s.name.as_str()).collect();
         // both unranked with the same created time, so sort by name ascending: apple before zebra
@@ -1341,7 +1340,7 @@ mod tests {
             Window { index: 0, name: "e".into(), active: true },
             Window { index: 1, name: "l".into(), active: false },
         ];
-        let cfg = Config { groups: vec![], manual_order: vec![], ..Default::default() };
+        let cfg = Config { groups: vec![], ..Default::default() };
         let mut state = PickerState::build(sessions, &cfg);
 
         // Collapsed: two session rows only.
@@ -1374,7 +1373,7 @@ mod tests {
             Window { index: 0, name: "e".into(), active: true },
             Window { index: 3, name: "l".into(), active: false },
         ];
-        let cfg = Config { groups: vec![], manual_order: vec![], ..Default::default() };
+        let cfg = Config { groups: vec![], ..Default::default() };
         let mut state = PickerState::build(sessions, &cfg);
 
         // On the session row.
@@ -1391,7 +1390,6 @@ mod tests {
         let sessions = vec![s("a", 10, 1), s("b", 30, 2), s("c", 20, 3)];
         let cfg = Config {
             dormant: vec![], groups: vec![Group { name: "PINNED".into(), members: vec!["c".into()], color: String::new(), ..Default::default() }],
-            manual_order: vec![],
             ..Default::default()
         };
         let mut state = PickerState::build(sessions, &cfg); // order: c, a, b (a/b unranked by created asc)
@@ -1413,7 +1411,6 @@ mod tests {
         let sessions = vec![s("a", 10, 1), s("b", 30, 2), s("c", 20, 3)];
         let cfg = Config {
             dormant: vec![], groups: vec![Group { name: "PINNED".into(), members: vec!["c".into()], color: String::new(), ..Default::default() }],
-            manual_order: vec![],
             ..Default::default()
         };
         let mut state = PickerState::build(sessions, &cfg); // order: c, a, b (a/b unranked by created asc)
@@ -1440,7 +1437,7 @@ mod tests {
         // No manual placements yet: ungrouped read oldest -> newest (created asc),
         // so a freshly created session naturally lands at the bottom.
         let sessions = vec![s("a", 99, 3), s("b", 99, 1), s("c", 99, 2)];
-        let cfg = Config { groups: vec![], manual_order: vec![], ..Default::default() };
+        let cfg = Config { groups: vec![], ..Default::default() };
         let state = PickerState::build(sessions, &cfg);
         let names: Vec<&str> = state.ordered().iter().map(|s| s.name.as_str()).collect();
         assert_eq!(names, vec!["b", "c", "a"]); // created 1, 2, 3
@@ -1449,12 +1446,14 @@ mod tests {
     #[test]
     fn ordered_manual_lists_then_remaining_excluding_pinned() {
         let sessions = vec![s("a", 1, 10), s("b", 1, 20), s("c", 1, 30), s("d", 1, 40)];
-        // d is in a PINNED group (and also wrongly listed in manual_order to prove it is
-        // filtered out of the manual tail); c then a are the manual placements;
+        // d is in a PINNED group (and also wrongly listed in inbox to prove it is
+        // filtered out of the inbox tail); c then a are the inbox placements;
         // b is unlisted and falls in after, by created asc.
         let cfg = Config {
-            dormant: vec![], groups: vec![Group { name: "PINNED".into(), members: vec!["d".into()], color: String::new(), ..Default::default() }],
-            manual_order: vec!["d".into(), "c".into(), "a".into()],
+            dormant: vec![], groups: vec![
+                Group { name: "PINNED".into(), members: vec!["d".into()], ..Default::default() },
+                Group { name: "INBOX".into(), members: vec!["d".into(), "c".into(), "a".into()], inbox: true, ..Default::default() }
+            ],
             ..Default::default()
         };
         let state = PickerState::build(sessions, &cfg);
@@ -1467,8 +1466,9 @@ mod tests {
         // "x" is the newest (highest created) and unlisted -> appears last.
         let sessions = vec![s("old", 1, 1), s("mid", 1, 2), s("x", 1, 99)];
         let cfg = Config {
-            dormant: vec![], groups: vec![],
-            manual_order: vec!["mid".into(), "old".into()],
+            dormant: vec![], groups: vec![
+                Group { name: "INBOX".into(), members: vec!["mid".into(), "old".into()], inbox: true, ..Default::default() }
+            ],
             ..Default::default()
         };
         let state = PickerState::build(sessions, &cfg);
@@ -1480,7 +1480,7 @@ mod tests {
     fn move_row_unpinned_in_manual_freezes_then_swaps_and_dirties() {
         // Manual + empty list => base order is created asc: a(1), b(2), c(3).
         let sessions = vec![s("a", 9, 1), s("b", 9, 2), s("c", 9, 3)];
-        let cfg = Config { groups: vec![], manual_order: vec![], ..Default::default() };
+        let cfg = Config { groups: vec![], ..Default::default() };
         let mut state = PickerState::build(sessions, &cfg);
 
         state.focus_session("b");
@@ -1505,7 +1505,7 @@ mod tests {
     #[test]
     fn move_row_unpinned_at_residual_bottom_is_noop() {
         let sessions = vec![s("a", 30, 1), s("b", 20, 2)];
-        let cfg = Config { groups: vec![], manual_order: vec![], ..Default::default() };
+        let cfg = Config { groups: vec![], ..Default::default() };
         let mut state = PickerState::build(sessions, &cfg);
         state.focus_session("b");
         state.move_row(1);
@@ -1518,7 +1518,6 @@ mod tests {
         let sessions = vec![s("a", 30, 1), s("b", 20, 2)];
         let cfg = Config {
             dormant: vec![], groups: vec![Group { name: "PINNED".into(), members: vec!["a".into(), "b".into()], color: String::new(), ..Default::default() }],
-            manual_order: vec![],
             ..Default::default()
         };
         let mut state = PickerState::build(sessions, &cfg);
@@ -1531,7 +1530,7 @@ mod tests {
     #[test]
     fn default_mode_is_command() {
         let sessions = vec![s("a", 30, 1)];
-        let cfg = Config { groups: vec![], manual_order: vec![], ..Default::default() };
+        let cfg = Config { groups: vec![], ..Default::default() };
         let state = PickerState::build(sessions, &cfg);
         assert_eq!(state.mode, Mode::Command);
         assert!(state.query.is_empty());
@@ -1540,7 +1539,7 @@ mod tests {
     #[test]
     fn search_results_empty_query_is_normal_order() {
         let sessions = vec![s("a", 10, 1), s("b", 30, 2)];
-        let cfg = Config { groups: vec![], manual_order: vec![], ..Default::default() };
+        let cfg = Config { groups: vec![], ..Default::default() };
         let state = PickerState::build(sessions, &cfg);
         let names: Vec<&str> = state.search_results().iter().map(|s| s.name.as_str()).collect();
         // Same as ordered(): unranked by created asc -> a, b
@@ -1552,7 +1551,7 @@ mod tests {
         // "prr" matches pr-review (p,r,-,r) tightly and provision not at all
         // (only one 'r'), so pr-review must rank first and scratch is excluded.
         let sessions = vec![s("provision", 1, 1), s("pr-review", 1, 2), s("scratch", 1, 3)];
-        let cfg = Config { groups: vec![], manual_order: vec![], ..Default::default() };
+        let cfg = Config { groups: vec![], ..Default::default() };
         let mut state = PickerState::build(sessions, &cfg);
         state.query = "prr".into();
         let names: Vec<&str> = state.search_results().iter().map(|s| s.name.as_str()).collect();
@@ -1564,7 +1563,7 @@ mod tests {
     #[test]
     fn enter_and_exit_search_preserves_match_under_command_cursor() {
         let sessions = vec![s("provision", 1, 1), s("pr-review", 1, 2), s("scratch", 1, 3)];
-        let cfg = Config { groups: vec![], manual_order: vec![], ..Default::default() };
+        let cfg = Config { groups: vec![], ..Default::default() };
         let mut state = PickerState::build(sessions, &cfg);
 
         state.enter_search();
@@ -1585,7 +1584,7 @@ mod tests {
     #[test]
     fn query_change_resets_to_top_and_move_clamps() {
         let sessions = vec![s("alpha", 1, 1), s("alto", 1, 2), s("alarm", 1, 3)];
-        let cfg = Config { groups: vec![], manual_order: vec![], ..Default::default() };
+        let cfg = Config { groups: vec![], ..Default::default() };
         let mut state = PickerState::build(sessions, &cfg);
         state.enter_search();
         state.search_push('a');
@@ -1604,7 +1603,7 @@ mod tests {
     #[test]
     fn search_selected_action_switches_to_highlighted() {
         let sessions = vec![s("provision", 1, 1), s("pr-review", 1, 2)];
-        let cfg = Config { groups: vec![], manual_order: vec![], ..Default::default() };
+        let cfg = Config { groups: vec![], ..Default::default() };
         let mut state = PickerState::build(sessions, &cfg);
         state.enter_search();
         state.search_push('p');
@@ -1619,7 +1618,7 @@ mod tests {
     #[test]
     fn search_selected_action_is_none_with_no_matches() {
         let sessions = vec![s("alpha", 1, 1)];
-        let cfg = Config { groups: vec![], manual_order: vec![], ..Default::default() };
+        let cfg = Config { groups: vec![], ..Default::default() };
         let mut state = PickerState::build(sessions, &cfg);
         state.enter_search();
         state.search_push('z');
@@ -1630,7 +1629,7 @@ mod tests {
     #[test]
     fn search_backspace_shrinks_query_and_clears_to_empty() {
         let sessions = vec![s("api-gateway", 30, 1), s("web", 20, 2)];
-        let cfg = Config { groups: vec![], manual_order: vec![], ..Default::default() };
+        let cfg = Config { groups: vec![], ..Default::default() };
         let mut state = PickerState::build(sessions, &cfg);
 
         state.enter_search();
@@ -1659,7 +1658,7 @@ mod tests {
     #[test]
     fn search_delete_word_removes_trailing_word() {
         let sessions = vec![s("api-gateway", 30, 1)];
-        let cfg = Config { groups: vec![], manual_order: vec![], ..Default::default() };
+        let cfg = Config { groups: vec![], ..Default::default() };
         let mut state = PickerState::build(sessions, &cfg);
 
         state.enter_search();
@@ -1684,7 +1683,7 @@ mod tests {
     #[test]
     fn search_clear_empties_query() {
         let sessions = vec![s("api-gateway", 30, 1)];
-        let cfg = Config { groups: vec![], manual_order: vec![], ..Default::default() };
+        let cfg = Config { groups: vec![], ..Default::default() };
         let mut state = PickerState::build(sessions, &cfg);
 
         state.enter_search();
@@ -1705,7 +1704,7 @@ mod tests {
     #[test]
     fn toggle_all_expands_then_collapses_keeping_focus() {
         let sessions = vec![s("a", 30, 1), s("b", 20, 2)];
-        let cfg = Config { groups: vec![], manual_order: vec![], ..Default::default() };
+        let cfg = Config { groups: vec![], ..Default::default() };
         let mut state = PickerState::build(sessions, &cfg);
 
         assert_eq!(state.visible_rows().len(), 2); // both collapsed
@@ -1725,7 +1724,7 @@ mod tests {
     #[test]
     fn toggle_dormant_flips_and_dirties() {
         let sessions = vec![s("a", 30, 1), s("b", 20, 2)];
-        let cfg = Config { groups: vec![], manual_order: vec![], ..Default::default() };
+        let cfg = Config { groups: vec![], ..Default::default() };
         let mut state = PickerState::build(sessions, &cfg); // cursor starts on "a"
 
         assert!(!state.is_dormant("a"));
@@ -1742,7 +1741,7 @@ mod tests {
     #[test]
     fn dormant_loads_from_config() {
         let sessions = vec![s("a", 30, 1)];
-        let cfg = Config { groups: vec![], manual_order: vec![], dormant: vec!["a".into()], ..Default::default() };
+        let cfg = Config { groups: vec![], dormant: vec!["a".into()], ..Default::default() };
         let state = PickerState::build(sessions, &cfg);
         assert!(state.is_dormant("a"));
     }
@@ -1754,7 +1753,7 @@ mod tests {
             Window { index: 0, name: "e".into(), active: true },
             Window { index: 1, name: "l".into(), active: false },
         ];
-        let cfg = Config { groups: vec![], manual_order: vec![], ..Default::default() };
+        let cfg = Config { groups: vec![], ..Default::default() };
         let mut state = PickerState::build(sessions, &cfg);
 
         state.expand();
@@ -1768,7 +1767,7 @@ mod tests {
     #[test]
     fn dormant_list_is_sorted_snapshot() {
         let sessions = vec![s("charlie", 1, 1), s("alpha", 1, 2), s("bravo", 1, 3)];
-        let cfg = Config { groups: vec![], manual_order: vec![], ..Default::default() };
+        let cfg = Config { groups: vec![], ..Default::default() };
         let mut state = PickerState::build(sessions, &cfg);
         state.focus_session("charlie");
         state.toggle_dormant();
@@ -1784,7 +1783,6 @@ mod tests {
                 Group { name: "G1".into(), members: vec!["a".into()], color: String::new(), ..Default::default() },
                 Group { name: "G2".into(), members: vec!["b".into()], color: String::new(), ..Default::default() },
             ],
-            manual_order: vec![],
             ..Default::default()
         };
         PickerState::build(sessions, &cfg)
@@ -1977,7 +1975,6 @@ mod tests {
                 Group { name: "G1".into(), members: vec!["a".into(), "b".into()], color: String::new(), ..Default::default() },
                 Group { name: "G2".into(), members: vec!["c".into()], color: String::new(), ..Default::default() },
             ],
-            manual_order: vec![],
             ..Default::default()
         };
         PickerState::build(sessions, &cfg)

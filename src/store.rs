@@ -1,4 +1,4 @@
-use crate::model::{ColorPolicy, DefaultMode, Group, HEADER_COLORS};
+use crate::model::{ColorPolicy, DefaultMode, Group, HEADER_COLORS, ensure_single_inbox};
 use serde::Deserialize;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -11,12 +11,15 @@ use std::path::{Path, PathBuf};
 // v1 -> v2: dropped `sort` (issue #15, sort-mode cycling removed). No
 // transform needed: the field is simply no longer read or written, and no
 // existing data (`groups`, `manual_order`) is affected.
-pub const CONFIG_VERSION: u32 = 2;
+//
+// v2 -> v3: the residual `manual_order` list is folded into `groups` as a
+// real, flagged `inbox` group (issue #23). `manual_order` becomes
+// migration-input-only, exactly as `pinned` was for v0 -> v1.
+pub const CONFIG_VERSION: u32 = 3;
 
 #[derive(Debug, Clone)]
 pub struct Config {
     pub groups: Vec<Group>,
-    pub manual_order: Vec<String>,
     pub dormant: Vec<String>,
     pub default_mode: DefaultMode,
     pub new_group_color_policy: ColorPolicy,
@@ -36,7 +39,6 @@ impl Default for Config {
     fn default() -> Config {
         Config {
             groups: Vec::new(),
-            manual_order: Vec::new(),
             dormant: Vec::new(),
             default_mode: DefaultMode::default(),
             new_group_color_policy: ColorPolicy::default(),
@@ -55,6 +57,8 @@ struct RawGroup {
     members: Vec<String>,
     #[serde(default)]
     color: String,
+    #[serde(default)]
+    inbox: bool,
 }
 
 #[derive(Deserialize, Default)]
@@ -94,7 +98,7 @@ struct RawConfig {
     #[serde(default)]
     groups: Vec<RawGroup>,
     #[serde(default)]
-    manual_order: Vec<String>,
+    manual_order: Vec<String>, // migration input only, superseded by an `inbox`-flagged group at version 3
     // `sort` (v1 and earlier) is intentionally not modeled here: serde
     // ignores unknown fields by default, so a v1 file with `sort = "..."`
     // still loads cleanly, and the value is dropped on next save.
@@ -110,13 +114,14 @@ struct OutGroup {
     members: Vec<String>,
     #[serde(skip_serializing_if = "String::is_empty")]
     color: String,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    inbox: bool,
 }
 
 #[derive(serde::Serialize)]
 struct OutConfig {
     config_version: u32,
     groups: Vec<OutGroup>,
-    manual_order: Vec<String>,
     dormant: Vec<String>,
     settings: OutSettings,
 }
@@ -135,16 +140,26 @@ impl Config {
     // and idempotent-safe within its own version guard so re-running
     // `load_from` on an already-migrated file is a no-op.
     fn migrate(raw: RawConfig) -> Config {
-        let groups = if raw.config_version < 1 && raw.groups.is_empty() && !raw.pinned.is_empty()
+        let mut groups = if raw.config_version < 1 && raw.groups.is_empty() && !raw.pinned.is_empty()
         {
             // v0 -> v1: single legacy `pinned` list becomes one PINNED group.
-            vec![Group { name: "PINNED".into(), members: raw.pinned, color: String::new(), ..Default::default() }]
+            vec![Group { name: "PINNED".into(), members: raw.pinned, ..Default::default() }]
         } else {
             raw.groups
                 .into_iter()
-                .map(|g| Group { name: g.name, members: g.members, color: g.color, ..Default::default() })
+                .map(|g| Group { name: g.name, members: g.members, color: g.color, inbox: g.inbox })
                 .collect()
         };
+        if raw.config_version < 3 && !groups.iter().any(|g| g.inbox) {
+            // v2 -> v3: manual_order becomes a real, flagged inbox group.
+            groups.push(Group {
+                name: "INBOX".into(),
+                members: raw.manual_order,
+                color: "cyan".into(),
+                inbox: true,
+            });
+        }
+        ensure_single_inbox(&mut groups);
         let default_mode = raw
             .settings
             .default_mode
@@ -167,7 +182,6 @@ impl Config {
             .unwrap_or_else(default_active_palette);
         Config {
             groups,
-            manual_order: raw.manual_order,
             dormant: raw.dormant,
             default_mode,
             new_group_color_policy,
@@ -194,9 +208,9 @@ impl Config {
                     name: g.name.clone(),
                     members: g.members.clone(),
                     color: g.color.clone(),
+                    inbox: g.inbox,
                 })
                 .collect(),
-            manual_order: self.manual_order.clone(),
             dormant,
             settings: OutSettings {
                 default_mode: self.default_mode.as_config_str().to_string(),
@@ -214,15 +228,12 @@ impl Config {
     pub fn reconcile(&mut self, live_names: &[String]) -> bool {
         let is_live = |name: &String| live_names.iter().any(|n| n == name);
         let before: usize = self.groups.iter().map(|g| g.members.len()).sum::<usize>()
-            + self.manual_order.len()
             + self.dormant.len();
         for g in &mut self.groups {
             g.members.retain(&is_live);
         }
-        self.manual_order.retain(&is_live);
         self.dormant.retain(&is_live);
         let after: usize = self.groups.iter().map(|g| g.members.len()).sum::<usize>()
-            + self.manual_order.len()
             + self.dormant.len();
         before != after
     }
@@ -245,7 +256,8 @@ mod tests {
     #[test]
     fn missing_file_yields_defaults() {
         let cfg = Config::load_from(Path::new("/nonexistent/rolomux/config.toml"));
-        assert!(cfg.groups.is_empty());
+        assert_eq!(cfg.groups.len(), 1);
+        assert!(cfg.groups[0].inbox);
         assert!(cfg.dormant.is_empty());
     }
 
@@ -256,7 +268,6 @@ mod tests {
         let path = dir.join("config.toml");
         let cfg = Config {
             groups: vec![],
-            manual_order: vec![],
             dormant: vec!["zebra".into(), "alpha".into()],
             ..Default::default()
         };
@@ -271,7 +282,6 @@ mod tests {
     fn reconcile_drops_dead_dormant_entries() {
         let mut cfg = Config {
             groups: vec![],
-            manual_order: vec![],
             dormant: vec!["a".into(), "gone".into()],
             ..Default::default()
         };
@@ -287,14 +297,15 @@ mod tests {
         let path = dir.join("config.toml");
         std::fs::write(&path, "pinned = [\"pr-review\", \"my session\"]\n").unwrap();
 
-        // Legacy pinned field migrates to a single PINNED group.
+        // Legacy pinned field migrates to a single PINNED group, plus a synthesized INBOX.
         let cfg = Config::load_from(&path);
-        assert_eq!(cfg.groups.len(), 1);
+        assert_eq!(cfg.groups.len(), 2);
         assert_eq!(cfg.groups[0].name, "PINNED");
         assert_eq!(
             cfg.groups[0].members,
             vec!["pr-review".to_string(), "my session".to_string()]
         );
+        assert!(cfg.groups[1].inbox);
 
         let out = dir.join("out.toml");
         cfg.save_to(&out).unwrap();
@@ -312,12 +323,14 @@ mod tests {
         std::fs::write(&path, "pinned = []\nmanual_order = [\"a\", \"my session\"]\n").unwrap();
 
         let cfg = Config::load_from(&path);
-        assert_eq!(cfg.manual_order, vec!["a".to_string(), "my session".to_string()]);
+        assert_eq!(cfg.groups.len(), 1);
+        assert!(cfg.groups[0].inbox);
+        assert_eq!(cfg.groups[0].members, vec!["a".to_string(), "my session".to_string()]);
 
         let out = dir.join("out.toml");
         cfg.save_to(&out).unwrap();
         let reloaded = Config::load_from(&out);
-        assert_eq!(reloaded.manual_order, cfg.manual_order);
+        assert_eq!(reloaded.groups[0].members, cfg.groups[0].members);
 
         std::fs::remove_dir_all(&dir).ok();
     }
@@ -325,14 +338,15 @@ mod tests {
     #[test]
     fn reconcile_drops_dead_manual_order_entries() {
         let mut cfg = Config {
-            dormant: vec![], groups: vec![],
-            manual_order: vec!["a".into(), "gone".into(), "b".into()],
+            dormant: vec![], groups: vec![
+                Group { name: "INBOX".into(), members: vec!["a".into(), "gone".into(), "b".into()], inbox: true, ..Default::default() }
+            ],
             ..Default::default()
         };
         let live = vec!["a".to_string(), "b".to_string()];
         let changed = cfg.reconcile(&live);
         assert!(changed);
-        assert_eq!(cfg.manual_order, vec!["a".to_string(), "b".to_string()]);
+        assert_eq!(cfg.groups[0].members, vec!["a".to_string(), "b".to_string()]);
     }
 
     #[test]
@@ -342,9 +356,10 @@ mod tests {
         let path = dir.join("config.toml");
         std::fs::write(&path, "pinned = [\"a\", \"b\"]\nsort = \"activity\"\n").unwrap();
         let cfg = Config::load_from(&path);
-        assert_eq!(cfg.groups.len(), 1);
+        assert_eq!(cfg.groups.len(), 2);
         assert_eq!(cfg.groups[0].name, "PINNED");
         assert_eq!(cfg.groups[0].members, vec!["a".to_string(), "b".to_string()]);
+        assert!(cfg.groups[1].inbox);
         std::fs::remove_dir_all(&dir).ok();
     }
 
@@ -353,7 +368,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("rolomux-ver-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("config.toml");
-        let cfg = Config { groups: vec![], manual_order: vec![], ..Default::default() };
+        let cfg = Config { groups: vec![], ..Default::default() };
         cfg.save_to(&path).unwrap();
         let written = std::fs::read_to_string(&path).unwrap();
         assert!(written.contains(&format!("config_version = {CONFIG_VERSION}")));
@@ -371,10 +386,11 @@ mod tests {
         )
         .unwrap();
 
-        // Loads without error despite the stale `sort` key.
+        // Loads without error despite the stale `sort` key, plus synthesizes INBOX.
         let cfg = Config::load_from(&path);
-        assert_eq!(cfg.groups.len(), 1);
+        assert_eq!(cfg.groups.len(), 2);
         assert_eq!(cfg.groups[0].name, "PINNED");
+        assert!(cfg.groups[1].inbox);
 
         // Next save no longer writes `sort` at all.
         let out = dir.join("out.toml");
@@ -391,6 +407,7 @@ mod tests {
         // A file already stamped at the current version is never re-migrated,
         // even if it happens to still carry a stale `pinned` list (e.g. from
         // manual editing). Version gating, not field presence, decides.
+        // However, ensure_single_inbox still runs and synthesizes INBOX if needed.
         let dir = std::env::temp_dir().join(format!("rolomux-nomig-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("config.toml");
@@ -400,7 +417,9 @@ mod tests {
         )
         .unwrap();
         let cfg = Config::load_from(&path);
-        assert!(cfg.groups.is_empty());
+        // No PINNED group (v-current files ignore `pinned`), but INBOX is synthesized.
+        assert_eq!(cfg.groups.len(), 1);
+        assert!(cfg.groups[0].inbox);
         std::fs::remove_dir_all(&dir).ok();
     }
 
@@ -408,7 +427,7 @@ mod tests {
     fn config_version_ahead_of_current_loads_without_migration() {
         // A colleague on a newer rolomux writes a higher config_version than
         // this binary knows about; loading it must not panic or misfire an
-        // old migration, just read the current-shape fields as-is.
+        // old migration, just read the current-shape fields as-is, plus ensure_single_inbox.
         let dir = std::env::temp_dir().join(format!("rolomux-future-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("config.toml");
@@ -418,8 +437,9 @@ mod tests {
         )
         .unwrap();
         let cfg = Config::load_from(&path);
-        assert_eq!(cfg.groups.len(), 1);
+        assert_eq!(cfg.groups.len(), 2);
         assert_eq!(cfg.groups[0].name, "PINNED");
+        assert!(cfg.groups[1].inbox);
         std::fs::remove_dir_all(&dir).ok();
     }
 
@@ -432,8 +452,8 @@ mod tests {
             dormant: vec![], groups: vec![
                 Group { name: "CONFIG".into(), members: vec!["claude".into()], color: String::new(), ..Default::default() },
                 Group { name: "TOOLS".into(), members: vec![], color: String::new(), ..Default::default() },
+                Group { name: "INBOX".into(), members: vec![], inbox: true, ..Default::default() },
             ],
-            manual_order: vec![],
             ..Default::default()
         };
         cfg.save_to(&path).unwrap();
@@ -446,7 +466,6 @@ mod tests {
     fn reconcile_drops_dead_members_but_keeps_empty_group() {
         let mut cfg = Config {
             dormant: vec![], groups: vec![Group { name: "G".into(), members: vec!["a".into(), "gone".into()], color: String::new(), ..Default::default() }],
-            manual_order: vec![],
             ..Default::default()
         };
         let live = vec!["a".to_string()];
@@ -489,6 +508,117 @@ mod tests {
             cfg.active_palette,
             HEADER_COLORS.iter().map(|s| s.to_string()).collect::<Vec<_>>()
         );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn migrates_v2_manual_order_into_a_flagged_inbox_group() {
+        let dir = std::env::temp_dir().join(format!("rolomux-mig-v2-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.toml");
+        std::fs::write(
+            &path,
+            r#"
+config_version = 2
+manual_order = ["scratch", "misc-session"]
+
+[[groups]]
+name = "WORK"
+members = ["proj-a"]
+color = "green"
+"#,
+        )
+        .unwrap();
+        let cfg = Config::load_from(&path);
+        assert_eq!(cfg.groups.len(), 2);
+        assert_eq!(cfg.groups[0].name, "WORK");
+        assert!(!cfg.groups[0].inbox);
+        assert_eq!(cfg.groups[1].name, "INBOX");
+        assert!(cfg.groups[1].inbox);
+        assert_eq!(cfg.groups[1].members, vec!["scratch".to_string(), "misc-session".to_string()]);
+        assert_eq!(cfg.groups[1].color, "cyan");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn v3_file_with_no_flagged_inbox_is_repaired_not_remigrated() {
+        let dir = std::env::temp_dir().join(format!("rolomux-mig-v3-empty-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.toml");
+        std::fs::write(
+            &path,
+            r#"
+config_version = 3
+
+[[groups]]
+name = "WORK"
+members = ["proj-a"]
+"#,
+        )
+        .unwrap();
+        let cfg = Config::load_from(&path);
+        // No re-migration from manual_order (there is none); the missing-inbox
+        // repair still runs and appends a fresh one rather than promoting WORK.
+        assert_eq!(cfg.groups.len(), 2);
+        assert_eq!(cfg.groups[0].name, "WORK");
+        assert!(!cfg.groups[0].inbox);
+        assert_eq!(cfg.groups[1].name, "INBOX");
+        assert!(cfg.groups[1].inbox);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn v3_file_with_two_flagged_inboxes_keeps_the_first() {
+        let dir = std::env::temp_dir().join(format!("rolomux-mig-v3-dup-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.toml");
+        std::fs::write(
+            &path,
+            r#"
+config_version = 3
+
+[[groups]]
+name = "FIRST"
+inbox = true
+
+[[groups]]
+name = "SECOND"
+inbox = true
+"#,
+        )
+        .unwrap();
+        let cfg = Config::load_from(&path);
+        assert!(cfg.groups[0].inbox);
+        assert!(!cfg.groups[1].inbox);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn save_then_load_round_trips_inbox_flag_and_omits_it_for_ordinary_groups() {
+        let dir = std::env::temp_dir().join(format!("rolomux-inbox-roundtrip-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.toml");
+        let cfg = Config {
+            groups: vec![
+                Group { name: "WORK".into(), members: vec!["a".into()], ..Default::default() },
+                Group { name: "INBOX".into(), members: vec!["b".into()], inbox: true, ..Default::default() },
+            ],
+            ..Default::default()
+        };
+        cfg.save_to(&path).unwrap();
+        let body = std::fs::read_to_string(&path).unwrap();
+        assert!(!body.contains("manual_order"), "manual_order should no longer be written");
+        assert!(body.contains("inbox = true"));
+        // Ordinary group's block has no `inbox` key at all.
+        let work_block_end = body.find("[[groups]]").unwrap();
+        let second_block = body[work_block_end + 10..].find("[[groups]]").map(|i| i + work_block_end + 10);
+        let work_block = &body[work_block_end..second_block.unwrap_or(body.len())];
+        assert!(!work_block.contains("inbox"));
+
+        let reloaded = Config::load_from(&path);
+        assert_eq!(reloaded.groups.len(), 2);
+        assert!(!reloaded.groups[0].inbox);
+        assert!(reloaded.groups[1].inbox);
         std::fs::remove_dir_all(&dir).ok();
     }
 
