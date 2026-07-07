@@ -159,6 +159,7 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
     // Empty groups produce no session rows, so we "catch up" and emit their bare
     // (dimmed) headers when we pass their position or at the end of the list.
     let mut next_group: usize = 0;
+    let mut next_jump_number: usize = 1;
 
     for row in rows.iter() {
         match row {
@@ -181,16 +182,24 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
                 if selected {
                     selected_line = Some(items.len());
                 }
-                // Stable jump number: 1-based position in the session order,
+                let dormant = state.is_dormant(&sess.name);
+                let numbered = state.number_dormant_sessions || !dormant;
+                // Stable jump number: 1-based position among numbered sessions,
                 // for the first 9 sessions. Unaffected by what is expanded.
-                let number = if *si < 9 { Some(*si + 1) } else { None };
+                let number = if numbered {
+                    let n = next_jump_number;
+                    next_jump_number += 1;
+                    if n <= 9 { Some(n) } else { None }
+                } else {
+                    None
+                };
                 items.push(session_item(
                     sess,
                     state.is_expanded(&sess.name),
                     selected,
                     number,
                     meta,
-                    state.is_dormant(&sess.name),
+                    dormant,
                     attached_color,
                     None,
                     Some(current_gutter_color),
@@ -364,6 +373,13 @@ fn draw_settings(frame: &mut Frame, state: &PickerState, inner: Rect) {
             SettingsRow::DefaultMode => {
                 settings_value_line("Default mode", default_mode_label(state.default_mode), selected)
             }
+            SettingsRow::DormantNumbering => {
+                settings_value_line(
+                    "Number dormant sessions",
+                    dormant_numbering_label(state.number_dormant_sessions),
+                    selected,
+                )
+            }
             SettingsRow::AttachedColor => {
                 settings_color_line("Attached session color", &state.attached_color, state.attached_color_expanded(), selected)
             }
@@ -477,6 +493,10 @@ fn default_mode_label(m: DefaultMode) -> &'static str {
         DefaultMode::Command => "Command",
         DefaultMode::Search => "Search",
     }
+}
+
+fn dormant_numbering_label(number_dormant_sessions: bool) -> &'static str {
+    if number_dormant_sessions { "Yes" } else { "No" }
 }
 
 fn color_policy_label(p: ColorPolicy) -> &'static str {
@@ -1331,6 +1351,46 @@ mod tests {
         }
     }
 
+    #[test]
+    fn draw_skips_dormant_jump_numbers_when_configured() {
+        let sessions = vec![
+            Session { name: "alpha".into(), activity: 30, created: 1, attached: false,
+                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+            Session { name: "beta".into(), activity: 20, created: 2, attached: false,
+                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+            Session { name: "gamma".into(), activity: 10, created: 3, attached: false,
+                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+        ];
+        let cfg = Config {
+            groups: vec![],
+            dormant: vec!["beta".into()],
+            number_dormant_sessions: false,
+            ..Default::default()
+        };
+        let state = PickerState::build(sessions, &cfg);
+
+        let backend = TestBackend::new(60, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| draw(f, &state)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+        let inner_line = |y: u16| -> String {
+            ((POPUP_MARGIN + 1)..buf.area.width).map(|x| buf[(x, y)].symbol()).collect()
+        };
+
+        for y in 0..buf.area.height {
+            let line = inner_line(y);
+            if line.contains("alpha") {
+                assert!(line.starts_with("│1 "), "alpha row gutter: got {line:?}");
+            }
+            if line.contains("beta") {
+                assert!(line.starts_with("│  ▸ beta"), "dormant beta has no jump number: got {line:?}");
+            }
+            if line.contains("gamma") {
+                assert!(line.starts_with("│2 "), "gamma closes the numbering gap: got {line:?}");
+            }
+        }
+    }
+
     /// Column (x) of the metadata middot on every row that shows a session
     /// name, so alignment across rows can be asserted directly.
     fn metadata_dot_columns(buf: &ratatui::buffer::Buffer, names: &[&str]) -> Vec<u16> {
@@ -1883,10 +1943,12 @@ mod tests {
     }
 
     #[test]
-    fn draw_settings_shows_three_rows_and_footer() {
+    fn draw_settings_shows_rows_and_footer() {
         let text = render_to_string(&settings_view());
         assert!(text.contains("Default mode"));
         assert!(text.contains("Command"));
+        assert!(text.contains("Number dormant sessions"));
+        assert!(text.contains("Yes"));
         assert!(text.contains("New group color"));
         assert!(text.contains("Rotate"));
         assert!(text.contains("Color palette"));
@@ -1906,7 +1968,7 @@ mod tests {
     #[test]
     fn draw_settings_expanded_attached_color_shows_radio_glyphs() {
         let mut st = settings_view();
-        st.settings_move_cursor(1); // AttachedColor
+        st.settings_move_cursor(2); // AttachedColor
         st.settings_step_right(); // expand
         let text = render_to_string(&st);
         assert!(text.contains("●"), "the currently selected color is marked filled");
@@ -1922,7 +1984,7 @@ mod tests {
     #[test]
     fn draw_settings_expanded_border_color_shows_radio_glyphs() {
         let mut st = settings_view();
-        st.settings_move_cursor(2); // BorderColor
+        st.settings_move_cursor(3); // BorderColor
         st.settings_step_right();
         let text = render_to_string(&st);
         assert!(text.contains("●"));
@@ -1932,7 +1994,7 @@ mod tests {
     #[test]
     fn draw_settings_expanded_palette_shows_swatches_and_checkboxes() {
         let mut st = settings_view();
-        st.settings_move_cursor(4); // Palette
+        st.settings_move_cursor(5); // Palette
         st.settings_step_right(); // expand
         let text = render_to_string(&st);
         assert!(text.contains("[x]"), "active color checked");
@@ -1944,7 +2006,7 @@ mod tests {
     #[test]
     fn draw_settings_shows_static_color_value_when_policy_is_static() {
         let mut st = settings_view();
-        st.settings_move_cursor(3); // ColorPolicy row
+        st.settings_move_cursor(4); // ColorPolicy row
         st.settings_step_right(); // Rotate -> Random
         st.settings_step_right(); // Random -> Static
         st.static_color = "magenta".to_string();

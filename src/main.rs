@@ -79,6 +79,7 @@ fn main() -> io::Result<()> {
         config.dormant = state.dormant_list();
         config.hide_dormant = state.hiding_dormant();
         config.default_mode = state.default_mode;
+        config.number_dormant_sessions = state.number_dormant_sessions;
         config.new_group_color_policy = state.new_group_color_policy;
         config.static_color = state.static_color.clone();
         config.active_palette = state.active_palette.clone();
