@@ -205,6 +205,7 @@ pub enum Row {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SettingsRow {
     DefaultMode,
+    DormantNumbering,
     AttachedColor,
     /// Index into `ALL_NAMED_COLORS`.
     AttachedColorOption(usize),
@@ -237,6 +238,7 @@ pub struct PickerState {
     /// In-flight rename buffer; `Some` while a rename is in progress.
     pub group_edit: Option<String>,
     pub default_mode: DefaultMode,
+    pub number_dormant_sessions: bool,
     pub new_group_color_policy: ColorPolicy,
     pub static_color: String,
     pub active_palette: Vec<String>,
@@ -279,6 +281,7 @@ impl PickerState {
             group_cursor: 0,
             group_edit: None,
             default_mode: config.default_mode,
+            number_dormant_sessions: config.number_dormant_sessions,
             new_group_color_policy: config.new_group_color_policy,
             static_color: config.static_color.clone(),
             active_palette: config.active_palette.clone(),
@@ -720,7 +723,7 @@ impl PickerState {
     /// while expanded, same shape as the original Palette/PaletteColor
     /// pattern.
     pub fn settings_visible_rows(&self) -> Vec<SettingsRow> {
-        let mut rows = vec![SettingsRow::DefaultMode, SettingsRow::AttachedColor];
+        let mut rows = vec![SettingsRow::DefaultMode, SettingsRow::DormantNumbering, SettingsRow::AttachedColor];
         if self.attached_color_expanded {
             for i in 0..ALL_NAMED_COLORS.len() {
                 rows.push(SettingsRow::AttachedColorOption(i));
@@ -812,6 +815,11 @@ impl PickerState {
         self.focus_settings_row(SettingsRow::BorderColor);
     }
 
+    fn toggle_dormant_numbering(&mut self) {
+        self.number_dormant_sessions = !self.number_dormant_sessions;
+        self.dirty = true;
+    }
+
     /// `h` on the current settings row: step Default Mode / Color Policy
     /// backward, collapse an expanded section, or (from inside an expanded
     /// section's child row) cancel -- collapse without changing the value --
@@ -822,6 +830,7 @@ impl PickerState {
                 self.default_mode = self.default_mode.next();
                 self.dirty = true;
             }
+            SettingsRow::DormantNumbering => self.toggle_dormant_numbering(),
             SettingsRow::AttachedColor => self.attached_color_expanded = false,
             SettingsRow::AttachedColorOption(_) => {
                 self.attached_color_expanded = false;
@@ -855,6 +864,7 @@ impl PickerState {
                 self.default_mode = self.default_mode.next();
                 self.dirty = true;
             }
+            SettingsRow::DormantNumbering => self.toggle_dormant_numbering(),
             SettingsRow::AttachedColor => self.expand_attached_color(),
             SettingsRow::AttachedColorOption(_) => {}
             SettingsRow::BorderColor => self.expand_border_color(),
@@ -875,7 +885,7 @@ impl PickerState {
     /// palette color's active state (checkbox: pick many, stays expanded).
     pub fn settings_activate(&mut self) {
         match self.current_settings_row() {
-            SettingsRow::DefaultMode | SettingsRow::ColorPolicy => self.settings_step_right(),
+            SettingsRow::DefaultMode | SettingsRow::DormantNumbering | SettingsRow::ColorPolicy => self.settings_step_right(),
             SettingsRow::AttachedColor => self.expand_attached_color(),
             SettingsRow::AttachedColorOption(idx) => self.select_attached_color(idx),
             SettingsRow::BorderColor => self.expand_border_color(),
@@ -1172,13 +1182,22 @@ impl PickerState {
         }
     }
 
+    fn numbered_order(&self) -> Vec<&Session> {
+        self.ordered()
+            .into_iter()
+            .filter(|s| self.number_dormant_sessions || !self.is_dormant(&s.name))
+            .collect()
+    }
+
     /// Switch action for the session at 1-based display number `n` (grouped #1
-    /// down, stable regardless of what is expanded). `None` if out of range.
+    /// down, stable regardless of what is expanded). Visible dormant sessions
+    /// participate only when `number_dormant_sessions` is enabled. `None` if
+    /// out of range.
     pub fn action_for_session_number(&self, n: usize) -> Option<Action> {
         if n == 0 {
             return None;
         }
-        self.ordered()
+        self.numbered_order()
             .get(n - 1)
             .map(|s| Action::SwitchSession(s.name.clone()))
     }
@@ -1192,7 +1211,7 @@ impl PickerState {
         if n == 0 {
             return;
         }
-        if let Some(name) = self.ordered().get(n - 1).map(|s| s.name.clone()) {
+        if let Some(name) = self.numbered_order().get(n - 1).map(|s| s.name.clone()) {
             self.expanded.insert(name.clone());
             self.focus_session(&name);
         }
@@ -1504,6 +1523,44 @@ mod tests {
         state.expand(); // expands "c" (cursor at top)
         assert_eq!(state.action_for_session_number(2), Some(Action::SwitchSession("a".into())));
         assert_eq!(state.action_for_session_number(3), Some(Action::SwitchSession("b".into())));
+    }
+
+    #[test]
+    fn dormant_sessions_can_be_skipped_by_jump_numbering() {
+        let sessions = vec![s("alpha", 10, 1), s("beta", 20, 2), s("gamma", 30, 3)];
+        let cfg = Config {
+            dormant: vec!["beta".into()],
+            number_dormant_sessions: false,
+            ..Default::default()
+        };
+        let mut state = PickerState::build(sessions, &cfg);
+
+        assert_eq!(state.action_for_session_number(1), Some(Action::SwitchSession("alpha".into())));
+        assert_eq!(state.action_for_session_number(2), Some(Action::SwitchSession("gamma".into())));
+        assert_eq!(state.action_for_session_number(3), None);
+
+        state.focus_session_number(2);
+        assert_eq!(state.cursor_session_name().as_deref(), Some("gamma"));
+        assert!(state.is_expanded("gamma"));
+
+        state.focus_session_number(3);
+        assert_eq!(state.cursor_session_name().as_deref(), Some("gamma"));
+    }
+
+    #[test]
+    fn hidden_dormant_sessions_are_never_jump_numbered() {
+        let sessions = vec![s("alpha", 10, 1), s("beta", 20, 2), s("gamma", 30, 3)];
+        let cfg = Config {
+            dormant: vec!["beta".into()],
+            hide_dormant: true,
+            number_dormant_sessions: true,
+            ..Default::default()
+        };
+        let state = PickerState::build(sessions, &cfg);
+
+        assert_eq!(state.action_for_session_number(1), Some(Action::SwitchSession("alpha".into())));
+        assert_eq!(state.action_for_session_number(2), Some(Action::SwitchSession("gamma".into())));
+        assert_eq!(state.action_for_session_number(3), None);
     }
 
     #[test]
@@ -2151,6 +2208,7 @@ mod tests {
         let sessions = vec![s("a", 30, 1)];
         let cfg = Config {
             default_mode: DefaultMode::Search,
+            number_dormant_sessions: false,
             new_group_color_policy: ColorPolicy::Static,
             static_color: "red".to_string(),
             active_palette: vec!["red".to_string(), "white".to_string()],
@@ -2159,6 +2217,7 @@ mod tests {
         let state = PickerState::build(sessions, &cfg);
         assert_eq!(state.mode, Mode::Search, "startup mode follows config.default_mode");
         assert_eq!(state.default_mode, DefaultMode::Search);
+        assert!(!state.number_dormant_sessions);
         assert_eq!(state.new_group_color_policy, ColorPolicy::Static);
         assert_eq!(state.static_color, "red");
         assert_eq!(state.active_palette, vec!["red".to_string(), "white".to_string()]);
@@ -2343,12 +2402,13 @@ mod tests {
     }
 
     #[test]
-    fn settings_visible_rows_collapsed_shows_five_rows_in_order() {
+    fn settings_visible_rows_collapsed_shows_six_rows_in_order() {
         let st = settings_state();
         assert_eq!(
             st.settings_visible_rows(),
             vec![
                 SettingsRow::DefaultMode,
+                SettingsRow::DormantNumbering,
                 SettingsRow::AttachedColor,
                 SettingsRow::BorderColor,
                 SettingsRow::ColorPolicy,
@@ -2367,72 +2427,72 @@ mod tests {
     #[test]
     fn attached_color_expands_and_collapses_via_step_right_and_left() {
         let mut st = settings_state();
-        st.settings_move_cursor(1); // row 1: AttachedColor
-        assert_eq!(st.settings_visible_rows().len(), 5);
+        st.settings_move_cursor(2); // row 2: AttachedColor
+        assert_eq!(st.settings_visible_rows().len(), 6);
         st.settings_step_right();
-        assert_eq!(st.settings_visible_rows().len(), 5 + 16, "expanded into 16 options");
+        assert_eq!(st.settings_visible_rows().len(), 6 + 16, "expanded into 16 options");
         assert_eq!(
             st.settings_visible_rows()[st.settings_cursor()],
             SettingsRow::AttachedColorOption(6),
             "cursor lands on the currently selected color (cyan, index 6), not row 0"
         );
         st.settings_step_left();
-        assert_eq!(st.settings_visible_rows().len(), 5, "collapsed back");
-        assert_eq!(st.settings_cursor(), 1, "cursor returned to the AttachedColor row");
+        assert_eq!(st.settings_visible_rows().len(), 6, "collapsed back");
+        assert_eq!(st.settings_cursor(), 2, "cursor returned to the AttachedColor row");
     }
 
     #[test]
     fn border_color_expands_and_collapses_via_step_right_and_left() {
         let mut st = settings_state();
-        st.settings_move_cursor(2); // row 2: BorderColor
+        st.settings_move_cursor(3); // row 3: BorderColor
         st.settings_step_right();
-        assert_eq!(st.settings_visible_rows().len(), 5 + 16);
+        assert_eq!(st.settings_visible_rows().len(), 6 + 16);
         assert_eq!(
             st.settings_visible_rows()[st.settings_cursor()],
             SettingsRow::BorderColorOption(6),
             "cursor lands on the currently selected color (cyan, index 6)"
         );
         st.settings_step_left();
-        assert_eq!(st.settings_visible_rows().len(), 5);
-        assert_eq!(st.settings_cursor(), 2, "cursor returned to the BorderColor row");
+        assert_eq!(st.settings_visible_rows().len(), 6);
+        assert_eq!(st.settings_cursor(), 3, "cursor returned to the BorderColor row");
     }
 
     #[test]
     fn activate_on_an_attached_color_option_commits_and_collapses() {
         let mut st = settings_state();
-        st.settings_move_cursor(1); // AttachedColor
+        st.settings_move_cursor(2); // AttachedColor
         st.settings_step_right(); // expand, cursor lands on index 6 (cyan)
         st.settings_move_cursor(-1); // step to index 5 ("magenta")
         assert_eq!(st.settings_visible_rows()[st.settings_cursor()], SettingsRow::AttachedColorOption(5));
         st.settings_activate();
         assert_eq!(st.attached_color, "magenta");
         assert!(st.dirty);
-        assert_eq!(st.settings_visible_rows().len(), 5, "collapsed after committing");
-        assert_eq!(st.settings_cursor(), 1, "cursor returned to the AttachedColor row");
+        assert_eq!(st.settings_visible_rows().len(), 6, "collapsed after committing");
+        assert_eq!(st.settings_cursor(), 2, "cursor returned to the AttachedColor row");
     }
 
     #[test]
     fn activate_on_a_border_color_option_commits_and_collapses() {
         let mut st = settings_state();
-        st.settings_move_cursor(2); // BorderColor
+        st.settings_move_cursor(3); // BorderColor
         st.settings_step_right();
         st.settings_move_cursor(-5); // index 6 -> index 1 ("red")
         assert_eq!(st.settings_visible_rows()[st.settings_cursor()], SettingsRow::BorderColorOption(1));
         st.settings_activate();
         assert_eq!(st.border_color, "red");
         assert!(st.dirty);
-        assert_eq!(st.settings_cursor(), 2, "cursor returned to the BorderColor row");
+        assert_eq!(st.settings_cursor(), 3, "cursor returned to the BorderColor row");
     }
 
     #[test]
     fn h_on_an_attached_color_option_collapses_without_changing_the_value() {
         let mut st = settings_state();
-        st.settings_move_cursor(1);
+        st.settings_move_cursor(2);
         st.settings_step_right();
         st.settings_move_cursor(-1); // onto "magenta"
         st.settings_step_left(); // cancel, not activate
         assert_eq!(st.attached_color, "cyan", "unchanged: h cancels rather than commits");
-        assert_eq!(st.settings_cursor(), 1);
+        assert_eq!(st.settings_cursor(), 2);
     }
 
     #[test]
@@ -2441,17 +2501,17 @@ mod tests {
         // own index is no longer fixed at 2 once AttachedColor/BorderColor can
         // also expand above it.
         let mut st = settings_state();
-        st.settings_move_cursor(1);
+        st.settings_move_cursor(2);
         st.settings_step_right(); // expand AttachedColor: 16 rows now sit between it and BorderColor/ColorPolicy/Palette
         st.settings_move_cursor(-1);
-        st.settings_step_left(); // collapse AttachedColor again, back to the 5-row layout
-        assert_eq!(st.settings_visible_rows().len(), 5);
-        st.settings_move_cursor(4); // Palette, still at index 4
+        st.settings_step_left(); // collapse AttachedColor again, back to the 6-row layout
+        assert_eq!(st.settings_visible_rows().len(), 6);
+        st.settings_move_cursor(5); // Palette, still at index 5
         assert_eq!(st.settings_visible_rows()[st.settings_cursor()], SettingsRow::Palette);
         st.settings_step_right(); // expand Palette
         st.settings_move_cursor(1); // first PaletteColor child
         st.settings_step_left(); // collapse
-        assert_eq!(st.settings_cursor(), 4, "Palette collapse still lands on index 4");
+        assert_eq!(st.settings_cursor(), 5, "Palette collapse still lands on index 5");
     }
 
     #[test]
@@ -2459,13 +2519,13 @@ mod tests {
         let mut st = settings_state();
         assert_eq!(st.settings_cursor(), 0);
         st.settings_move_cursor(-1);
-        assert_eq!(st.settings_cursor(), 4, "moving up from the top wraps to bottom");
+        assert_eq!(st.settings_cursor(), 5, "moving up from the top wraps to bottom");
         st.settings_move_cursor(1);
         assert_eq!(st.settings_cursor(), 0, "moving down from the bottom wraps to top");
         st.settings_move_cursor(1);
         assert_eq!(st.settings_cursor(), 1);
         st.settings_move_cursor(99);
-        assert_eq!(st.settings_cursor(), 4, "large jumps still land on the edge");
+        assert_eq!(st.settings_cursor(), 5, "large jumps still land on the edge");
     }
 
     #[test]
@@ -2489,9 +2549,23 @@ mod tests {
     }
 
     #[test]
+    fn settings_toggle_dormant_numbering_in_either_direction() {
+        let mut st = settings_state();
+        st.settings_move_cursor(1); // DormantNumbering
+        assert!(st.number_dormant_sessions);
+        st.settings_step_right();
+        assert!(!st.number_dormant_sessions);
+        st.settings_step_left();
+        assert!(st.number_dormant_sessions);
+        st.settings_activate();
+        assert!(!st.number_dormant_sessions);
+        assert!(st.dirty);
+    }
+
+    #[test]
     fn step_cycles_color_policy_forward_and_backward() {
         let mut st = settings_state();
-        st.settings_move_cursor(3); // row 3: ColorPolicy
+        st.settings_move_cursor(4); // row 4: ColorPolicy
         assert_eq!(st.new_group_color_policy, ColorPolicy::Rotate);
         st.settings_step_right();
         assert_eq!(st.new_group_color_policy, ColorPolicy::Random);
@@ -2506,32 +2580,32 @@ mod tests {
     #[test]
     fn palette_expands_and_collapses_via_step_right_and_left() {
         let mut st = settings_state();
-        st.settings_move_cursor(4); // row 4: Palette
+        st.settings_move_cursor(5); // row 5: Palette
         assert!(!st.palette_expanded());
         st.settings_step_right();
         assert!(st.palette_expanded());
-        assert_eq!(st.settings_visible_rows().len(), 5 + 16);
+        assert_eq!(st.settings_visible_rows().len(), 6 + 16);
         st.settings_step_left();
         assert!(!st.palette_expanded());
-        assert_eq!(st.settings_visible_rows().len(), 5);
+        assert_eq!(st.settings_visible_rows().len(), 6);
     }
 
     #[test]
     fn step_left_on_a_palette_color_row_collapses_and_refocuses_the_parent() {
         let mut st = settings_state();
-        st.settings_move_cursor(4);
+        st.settings_move_cursor(5);
         st.settings_step_right(); // expand
         st.settings_move_cursor(1); // onto the first PaletteColor child
         assert_eq!(st.settings_visible_rows()[st.settings_cursor()], SettingsRow::PaletteColor(0));
         st.settings_step_left();
         assert!(!st.palette_expanded());
-        assert_eq!(st.settings_cursor(), 4, "cursor returns to the Palette row");
+        assert_eq!(st.settings_cursor(), 5, "cursor returns to the Palette row");
     }
 
     #[test]
     fn activate_toggles_a_palette_color_off() {
         let mut st = settings_state();
-        st.settings_move_cursor(4);
+        st.settings_move_cursor(5);
         st.settings_step_right(); // expand
         let cyan_idx = st.settings_palette_rows().iter().position(|(n, _)| n == "cyan").unwrap();
         st.settings_move_cursor(1 + cyan_idx as i32); // descend onto the "cyan" child row
@@ -2545,7 +2619,7 @@ mod tests {
     fn activate_cannot_deactivate_the_last_active_color() {
         let mut st = settings_state();
         st.active_palette = vec!["cyan".to_string()];
-        st.settings_move_cursor(4);
+        st.settings_move_cursor(5);
         st.settings_step_right();
         let cyan_idx = st.settings_palette_rows().iter().position(|(n, _)| n == "cyan").unwrap();
         st.settings_move_cursor(1 + cyan_idx as i32); // the only active color
@@ -2556,7 +2630,7 @@ mod tests {
     #[test]
     fn activate_reactivates_an_inactive_color_at_its_canonical_position() {
         let mut st = settings_state(); // active: cyan, green, yellow, magenta, blue, red
-        st.settings_move_cursor(4);
+        st.settings_move_cursor(5);
         st.settings_step_right();
         let black_idx = st.settings_palette_rows().iter().position(|(n, _)| n == "black").unwrap();
         st.settings_move_cursor(1 + black_idx as i32); // descend onto the "black" child row
@@ -2576,7 +2650,7 @@ mod tests {
     #[test]
     fn toggling_a_color_never_reorders_the_checklist() {
         let mut st = settings_state();
-        st.settings_move_cursor(4);
+        st.settings_move_cursor(5);
         st.settings_step_right(); // expand
         let before: Vec<String> =
             st.settings_palette_rows().into_iter().map(|(n, _)| n).collect();
@@ -2596,7 +2670,7 @@ mod tests {
     #[test]
     fn c_key_only_cycles_static_color_when_policy_is_static() {
         let mut st = settings_state();
-        st.settings_move_cursor(3); // ColorPolicy row, policy still Rotate
+        st.settings_move_cursor(4); // ColorPolicy row, policy still Rotate
         st.settings_cycle_color();
         assert_eq!(st.static_color, "cyan", "no-op: policy is not Static");
 
@@ -2614,9 +2688,9 @@ mod tests {
     #[test]
     fn c_key_is_a_noop_off_a_color_row() {
         let mut st = settings_state();
-        st.settings_move_cursor(3);
+        st.settings_move_cursor(4);
         st.settings_step_right(); st.settings_step_right(); // -> Static
-        st.settings_move_cursor(-3); // back to DefaultMode row
+        st.settings_move_cursor(-4); // back to DefaultMode row
         st.settings_cycle_color();
         assert_eq!(st.static_color, "cyan", "cursor must be on a color row");
     }
@@ -2624,7 +2698,7 @@ mod tests {
     #[test]
     fn static_color_persists_across_policy_switches() {
         let mut st = settings_state();
-        st.settings_move_cursor(3);
+        st.settings_move_cursor(4);
         st.settings_step_right(); st.settings_step_right(); // -> Static
         st.settings_cycle_color(); // cyan -> gray
         assert_eq!(st.static_color, "gray");
@@ -2637,21 +2711,21 @@ mod tests {
     #[test]
     fn c_key_quick_cycles_attached_color_without_expanding() {
         let mut st = settings_state();
-        st.settings_move_cursor(1); // AttachedColor, collapsed
+        st.settings_move_cursor(2); // AttachedColor, collapsed
         st.settings_cycle_color();
         assert_eq!(st.attached_color, "gray", "cyan -> gray, next in ALL_NAMED_COLORS");
         assert!(st.dirty);
-        assert_eq!(st.settings_visible_rows().len(), 5, "stays collapsed");
+        assert_eq!(st.settings_visible_rows().len(), 6, "stays collapsed");
     }
 
     #[test]
     fn c_key_quick_cycles_border_color_without_expanding() {
         let mut st = settings_state();
-        st.settings_move_cursor(2); // BorderColor, collapsed
+        st.settings_move_cursor(3); // BorderColor, collapsed
         st.settings_cycle_color();
         assert_eq!(st.border_color, "gray");
         assert!(st.dirty);
-        assert_eq!(st.settings_visible_rows().len(), 5, "stays collapsed");
+        assert_eq!(st.settings_visible_rows().len(), 6, "stays collapsed");
     }
 
     #[test]

@@ -41,7 +41,7 @@ Reload tmux and press `prefix + s`.
 - **On demand, no daemon.** tmux launches it via `tmux popup -E`; it makes one tmux query, renders, and exits.
   Its own overhead is a couple of milliseconds, so it opens about as fast as tmux can answer.
 - **Fuzzy search built in.** Press `/` to filter sessions by name; matching is in-process with no extra runtime dependency. If this is your preferred way of working, tweak the settings to always launch in search mode.
-- **Dim or hide the sessions you're not using.** Press `d` to mark a session dormant; it stays in place but renders in a dimmed state to indicate that it's on the back burner. Press `h` to hide dormant sessions entirely, and `h` again to show them. The hide/show choice persists across popups. Dormant sessions are still fully usable when shown, but reduced visual noise helps you stay laser focused on the sessions that matter right now.
+- **Dim or hide the sessions you're not using.** Press `d` to mark a session dormant; it stays in place but renders in a dimmed state to indicate that it's on the back burner. Press `h` to hide dormant sessions entirely, and `h` again to show them. The hide/show choice persists across popups. Dormant sessions are still fully usable when shown, and Settings lets you choose whether they keep or skip jump numbers.
 - **Tune the colors.** Press `,` to open Settings and tune the color of the application border, palette used for group headers, and more. Uses your terminal's ANSI colors to ensure it harmonizes with your existing terminal themes.
 
 **Note:** rolomux depends on (and promotes) good tmux hygiene.
@@ -108,7 +108,7 @@ If dormant sessions are hidden, search results exclude them and the footer shows
 ### Dormant sessions
 
 Press `d` to mark the selected session dormant; it renders dimmed in place as a "not in active rotation" cue.
-When dormant sessions are shown, they keep their jump number, group membership, and position, and nothing else about them changes.
+When dormant sessions are shown, they keep their group membership and position. By default they also keep jump numbers; in Settings, change **Number dormant sessions** to **No** if you want visible dormant sessions to be omitted from the `1`-`9` shortcuts.
 Press `h` to hide dormant sessions entirely; press `h` again to show them.
 Hidden dormant sessions are excluded from the normal picker and from search results, and both modes show a reminder such as `8 dormant sessions hidden` while the filter is active.
 Press `d` again on a dormant session to undim it.
@@ -120,6 +120,7 @@ Think of it as one more optional tool in your kit to help you tend your sessions
 Press `,` to open Settings, a full-screen view of picker-wide preferences:
 
 - **Default mode.** Whether the picker opens in Command mode or straight into Search.
+- **Number dormant sessions.** Whether visible dormant sessions are included in the `1`-`9` jump numbering.
 - **Attached session color.** The color used to highlight the session your tmux client is currently attached to.
 - **Border color.** rolomux's own border frame color.
 - **New group color.** How a newly created group picks its header color: Rotate through the palette in order, pick a Random color each time, or always use one Static color.
@@ -138,7 +139,7 @@ Press `,` to open Settings, a full-screen view of picker-wide preferences:
 Groups, session order, dormant sessions, and settings persist to `~/.config/rolomux/config.toml`:
 
 ```toml
-manual_order = ["etsy"]
+config_version = 3
 dormant = ["zen-mod"]
 hide_dormant = true
 
@@ -151,8 +152,14 @@ name = "TOOLS"
 members = ["dev-stack"]
 color = "magenta"  # optional; omit to use the rotating default
 
+[[groups]]
+name = "INBOX"
+members = ["etsy"]
+inbox = true
+
 [settings]
 default_mode = "command"           # or "search"
+number_dormant_sessions = true      # false skips visible dormant sessions in 1-9 numbering
 new_group_color_policy = "rotate"  # or "random", "static"
 attached_color = "cyan"
 border_color = "cyan"

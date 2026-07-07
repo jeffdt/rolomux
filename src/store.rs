@@ -23,6 +23,7 @@ pub struct Config {
     pub dormant: Vec<String>,
     pub hide_dormant: bool,
     pub default_mode: DefaultMode,
+    pub number_dormant_sessions: bool,
     pub new_group_color_policy: ColorPolicy,
     pub static_color: String,
     pub active_palette: Vec<String>,
@@ -43,6 +44,7 @@ impl Default for Config {
             dormant: Vec::new(),
             hide_dormant: false,
             default_mode: DefaultMode::default(),
+            number_dormant_sessions: true,
             new_group_color_policy: ColorPolicy::default(),
             static_color: "cyan".to_string(),
             active_palette: default_active_palette(),
@@ -68,6 +70,8 @@ struct RawSettings {
     #[serde(default)]
     default_mode: Option<String>,
     #[serde(default)]
+    number_dormant_sessions: Option<bool>,
+    #[serde(default)]
     new_group_color_policy: Option<String>,
     #[serde(default)]
     static_color: Option<String>,
@@ -82,6 +86,7 @@ struct RawSettings {
 #[derive(serde::Serialize)]
 struct OutSettings {
     default_mode: String,
+    number_dormant_sessions: bool,
     new_group_color_policy: String,
     static_color: String,
     active_palette: Vec<String>,
@@ -191,6 +196,7 @@ impl Config {
             dormant: raw.dormant,
             hide_dormant: raw.hide_dormant,
             default_mode,
+            number_dormant_sessions: raw.settings.number_dormant_sessions.unwrap_or(true),
             new_group_color_policy,
             static_color,
             active_palette,
@@ -222,6 +228,7 @@ impl Config {
             hide_dormant: self.hide_dormant,
             settings: OutSettings {
                 default_mode: self.default_mode.as_config_str().to_string(),
+                number_dormant_sessions: self.number_dormant_sessions,
                 new_group_color_policy: self.new_group_color_policy.as_config_str().to_string(),
                 static_color: self.static_color.clone(),
                 active_palette: self.active_palette.clone(),
@@ -268,6 +275,7 @@ mod tests {
         assert!(cfg.groups[0].inbox);
         assert!(cfg.dormant.is_empty());
         assert!(!cfg.hide_dormant);
+        assert!(cfg.number_dormant_sessions);
     }
 
     #[test]
@@ -504,6 +512,7 @@ mod tests {
     fn default_config_seeds_settings_from_header_colors() {
         let cfg = Config::default();
         assert_eq!(cfg.default_mode, DefaultMode::Command);
+        assert!(cfg.number_dormant_sessions);
         assert_eq!(cfg.new_group_color_policy, ColorPolicy::Rotate);
         assert_eq!(cfg.static_color, "cyan");
         assert_eq!(cfg.attached_color, "cyan");
@@ -523,6 +532,7 @@ mod tests {
         std::fs::write(&path, "config_version = 1\nsort = \"activity\"\n").unwrap();
         let cfg = Config::load_from(&path);
         assert_eq!(cfg.default_mode, DefaultMode::Command);
+        assert!(cfg.number_dormant_sessions);
         assert_eq!(cfg.new_group_color_policy, ColorPolicy::Rotate);
         assert_eq!(cfg.static_color, "cyan");
         assert_eq!(cfg.attached_color, "cyan");
@@ -672,6 +682,7 @@ inbox = true
         let path = dir.join("config.toml");
         let cfg = Config {
             default_mode: DefaultMode::Search,
+            number_dormant_sessions: false,
             new_group_color_policy: ColorPolicy::Static,
             static_color: "magenta".to_string(),
             active_palette: vec!["magenta".to_string(), "white".to_string()],
@@ -682,6 +693,7 @@ inbox = true
         cfg.save_to(&path).unwrap();
         let reloaded = Config::load_from(&path);
         assert_eq!(reloaded.default_mode, DefaultMode::Search);
+        assert!(!reloaded.number_dormant_sessions);
         assert_eq!(reloaded.new_group_color_policy, ColorPolicy::Static);
         assert_eq!(reloaded.static_color, "magenta");
         assert_eq!(reloaded.attached_color, "lightgreen");
