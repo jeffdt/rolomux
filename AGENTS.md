@@ -105,11 +105,13 @@ User config persists to `$XDG_CONFIG_HOME/rolomux/config.toml` (else
 `~/.config/rolomux/config.toml`): a `[[groups]]` array (each with a `name`, an
 ordered `members` list, and an optional `color` from the named palette in
 `HEADER_COLORS`; empty/absent means the positional default, and `c` in group
-mode flips it), and a `manual_order` list (the user-defined order for the
-residual `SESSIONS` bucket). A legacy top-level `pinned` list is still read
-and migrates to a single group named `PINNED`. Users normally never edit it
-by hand; the picker writes it on group/membership/reorder changes. Groups
-are never auto-pruned; `reconcile` drops dead members but keeps the group.
+mode flips it), a `manual_order` list (the user-defined order for the
+residual `SESSIONS` bucket), a top-level `dormant` list, and a top-level
+`hide_dormant` bool that persists the current hide/show filter across popups.
+A legacy top-level `pinned` list is still read and migrates to a single group
+named `PINNED`. Users normally never edit it by hand; the picker writes it on
+group/membership/reorder/dormant changes. Groups are never auto-pruned;
+`reconcile` drops dead members but keeps the group.
 
 ### Config migrations
 

@@ -67,8 +67,8 @@ fn main() -> io::Result<()> {
 
     let mut state = PickerState::build(gathered.sessions, &config);
     state.refocus_current(gathered.current.as_deref());
-    if state.visible_rows().is_empty() {
-        debug::log(|| "exit: no visible rows (empty gather) -> returning immediately".into());
+    if live.is_empty() {
+        debug::log(|| "exit: no live sessions -> returning immediately".into());
         return Ok(()); // nothing to pick
     }
 
@@ -77,6 +77,7 @@ fn main() -> io::Result<()> {
     if state.dirty {
         config.groups = state.groups.clone();
         config.dormant = state.dormant_list();
+        config.hide_dormant = state.hiding_dormant();
         config.default_mode = state.default_mode;
         config.new_group_color_policy = state.new_group_color_policy;
         config.static_color = state.static_color.clone();
