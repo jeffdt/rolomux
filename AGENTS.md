@@ -238,6 +238,17 @@ and updating `scripts/release.sh`'s asset handling.
   command line. rolomux detects the current session normally in a plain pane
   (`$TMUX` is set), so no popup is required.
 
+  When the feature lives in a `wt switch --create` worktree, pin the absolute
+  worktree path first instead of trusting the agent shell's current directory
+  or any tool-side cwd override. `wt` can report `Cannot change directory`,
+  leaving `$PWD` in the original checkout. Use the same absolute path for both
+  `mux spawn --cwd` and `--cmd`, e.g. `preview_dir=/path/to/worktree; tab=$(mux
+  spawn --workspace caller --cwd "$preview_dir" --cmd
+  "$preview_dir/target/release/rolomux" --title rolomux-preview)`. After
+  spawning, verify the tab is live and pointed at the intended worktree with
+  `tmux list-windows -a -F '#{window_id} #{window_name} #{pane_current_command}
+  #{pane_current_path}'`.
+
   A prior version of this note told agents to run bare
   `tmux split-window`/`new-window` with no `-t`. Don't: an agent's Bash tool
   runs as a detached subprocess with no controlling tty, so that resolves

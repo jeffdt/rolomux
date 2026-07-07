@@ -59,7 +59,7 @@ bind C new-session \; command-prompt -I "" "rename-session '%%'" \; command-prom
 | `↵` | Switch to the selected session/window and close |
 | `1`-`9` | Switch to that session immediately |
 | `M-1`-`M-9` | Highlight and expand that session (Option/Alt) |
-| `j` / `k` | Move the cursor (also `↓` / `↑`) |
+| `j` / `k` | Move the cursor, wrapping between the top and bottom (also `↓` / `↑`) |
 | `l` / `→` | Expand a session's window tree |
 | `←` | Collapse a session's window tree |
 | `z` | Expand or collapse window trees for all sessions |
@@ -84,7 +84,7 @@ Once inside:
 
 | Key | Action |
 | --- | --- |
-| `j` / `k` | Navigate between groups (also `↓` / `↑`) |
+| `j` / `k` | Navigate between groups, wrapping between the first and last group (also `↓` / `↑`) |
 | `↵` / `r` | Rename the selected group |
 | `n` | Create a new group and name it |
 | `d` | Delete the selected group (its sessions fall back to SESSIONS) |
@@ -99,7 +99,7 @@ As you create groups, they'll be assigned a color from your terminal theme (cyan
 Press `/` to enter search mode.
 Type any part of a session name; results are ranked best-match-first, with the top result auto-selected as you type.
 `Enter` switches to the highlighted session; `Esc` returns to command mode with the cursor left on the match.
-Move within results with `↑`/`↓` (or `Ctrl-n`/`Ctrl-p`, `Ctrl-j`/`Ctrl-k`).
+Move within results with `↑`/`↓` (or `Ctrl-n`/`Ctrl-p`, `Ctrl-j`/`Ctrl-k`), wrapping between the first and last match.
 `Backspace` deletes the last character, `Ctrl-W` (or `Option/Alt` + `Backspace`) deletes the last word, and `Ctrl-U` clears the query.
 
 While searching, section headers and jump numbers (1-9) are hidden; the list is flat and collapsed.
@@ -127,7 +127,7 @@ Press `,` to open Settings, a full-screen view of picker-wide preferences:
 
 | Key | Action |
 | --- | --- |
-| `j` / `k` | Move between rows (also `↓` / `↑`) |
+| `j` / `k` | Move between rows, wrapping between the first and last row (also `↓` / `↑`) |
 | `h` / `l` | Cycle a value / expand-collapse a color picker (also `←` / `→`) |
 | `Space` / `Enter` | Toggle or activate the selected row |
 | `c` | Cycle the selected color row |
