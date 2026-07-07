@@ -168,11 +168,11 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
                 if last_section != Some(section) {
                     let target = section;
                     while next_group < target {
-                        push_empty_group_header(&mut items, &state.groups[next_group].name, list_area.width);
+                        push_empty_group_header(&mut items, &state.groups[next_group], list_area.width);
                         next_group += 1;
                     }
                     let color = group_color(&state.groups[section], section, &state.active_palette);
-                    push_section_header(&mut items, &state.groups[section].name.to_uppercase(), list_area.width, color);
+                    push_section_header(&mut items, &group_label(&state.groups[section], true), list_area.width, color);
                     current_gutter_color = color;
                     next_group = section + 1;
                     last_section = Some(section);
@@ -209,7 +209,7 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
     }
     // Trailing empty groups (after the last session row, with no residual below).
     while next_group < state.groups.len() {
-        push_empty_group_header(&mut items, &state.groups[next_group].name, list_area.width);
+        push_empty_group_header(&mut items, &state.groups[next_group], list_area.width);
         next_group += 1;
     }
 
@@ -310,8 +310,9 @@ fn draw_groups(frame: &mut Frame, state: &PickerState, inner: Rect) {
         let editing = selected && state.group_editing();
         let line = if editing {
             let buf = state.group_edit_buffer().unwrap_or("");
+            let prefix = if g.inbox { INBOX_GLYPH } else { "" };
             Line::from(vec![
-                Span::styled(buf.to_uppercase(), Style::default().add_modifier(Modifier::BOLD)),
+                Span::styled(format!("{prefix}{}", buf.to_uppercase()), Style::default().add_modifier(Modifier::BOLD)),
                 Span::styled("▏", Style::default().fg(color_from_name(&state.border_color))),
             ])
         } else {
@@ -321,18 +322,13 @@ fn draw_groups(frame: &mut Frame, state: &PickerState, inner: Rect) {
             // (issue #14).
             let name_color = group_color(g, gi, &state.active_palette);
             Line::from(vec![
-                Span::styled(g.name.to_uppercase(),
+                Span::styled(group_label(g, true),
                     Style::default().fg(name_color).add_modifier(Modifier::BOLD)),
-                Span::styled(format!("  · {}", g.members.len()), secondary(selected)),
+                Span::styled(format!("  · {}", state.group_session_count(gi)), secondary(selected)),
             ])
         };
         items.push(ListItem::new(line));
     }
-    // Dimmed, non-editable residual anchor for context.
-    items.push(ListItem::new(Line::from(Span::styled(
-        format!("SESSIONS  · {}", state.group_session_count(state.inbox_index().unwrap_or(0))),
-        Style::default().fg(DIM),
-    ))));
 
     let list = List::new(items)
         .highlight_style(Style::default().bg(SEL_BG).add_modifier(Modifier::BOLD));
@@ -545,8 +541,18 @@ fn push_section_header(items: &mut Vec<ListItem<'static>>, label: &str, width: u
 }
 
 /// Push a bare, dimmed header for an empty named group (a labeled shelf to fill).
-fn push_empty_group_header(items: &mut Vec<ListItem<'static>>, name: &str, width: u16) {
-    push_section_header(items, &name.to_uppercase(), width, DIM);
+fn push_empty_group_header(items: &mut Vec<ListItem<'static>>, g: &Group, width: u16) {
+    push_section_header(items, &group_label(g, true), width, DIM);
+}
+
+const INBOX_GLYPH: &str = "⊛ ";
+
+/// Prefixes a group's display label with the inbox glyph when it's the
+/// inbox group. Used everywhere a group header renders, so there is no
+/// separate "residual" rendering path left.
+fn group_label(g: &Group, upper: bool) -> String {
+    let name = if upper { g.name.to_uppercase() } else { g.name.clone() };
+    if g.inbox { format!("{INBOX_GLYPH}{name}") } else { name }
 }
 
 fn header_item(label: &str, width: u16, color: Color) -> ListItem<'static> {
@@ -851,9 +857,45 @@ mod tests {
         let text = render_to_string(&state);
         assert!(text.contains("rolomux"), "title present");
         assert!(text.contains("PINNED"), "pinned header present");
-        assert!(text.contains("SESSIONS"), "sessions header present");
+        assert!(text.contains("⊛ INBOX"), "inbox header present");
         assert!(text.contains("pr-review"), "pinned session present");
         assert!(text.contains("scratch"), "unpinned session present");
+    }
+
+    #[test]
+    fn main_list_header_shows_glyph_for_the_inbox_group_only() {
+        let sessions = vec![
+            Session { name: "a".into(), activity: 1, created: 1, attached: false, windows: vec![] },
+            Session { name: "b".into(), activity: 1, created: 2, attached: false, windows: vec![] },
+        ];
+        let cfg = Config {
+            groups: vec![
+                Group { name: "WORK".into(), members: vec!["a".into()], ..Default::default() },
+                Group { name: "INBOX".into(), members: vec!["b".into()], inbox: true, ..Default::default() },
+            ],
+            ..Default::default()
+        };
+        let state = PickerState::build(sessions, &cfg);
+        let text = render_to_string(&state);
+        assert!(text.contains("WORK"), "named group header present");
+        assert!(!text.contains("⊛ WORK"), "no glyph on a named group");
+        assert!(text.contains("⊛ INBOX"), "glyph precedes the inbox header");
+    }
+
+    #[test]
+    fn group_mode_shows_glyph_on_the_inbox_row_and_no_separate_anchor_line() {
+        let sessions = vec![
+            Session { name: "a".into(), activity: 1, created: 1, attached: false, windows: vec![] },
+        ];
+        let cfg = Config {
+            groups: vec![Group { name: "WORK".into(), members: vec!["a".into()], ..Default::default() }],
+            ..Default::default()
+        };
+        let mut state = PickerState::build(sessions, &cfg);
+        state.enter_groups();
+        let text = render_to_string(&state);
+        assert!(text.contains("⊛ INBOX"), "synthesized inbox row carries the glyph");
+        assert!(!text.contains("SESSIONS"), "no leftover hardcoded residual label");
     }
 
     #[test]
@@ -1098,8 +1140,8 @@ mod tests {
         let text = render_to_string(&state);
         assert!(text.contains("CONFIG"), "group name uppercased");
         assert!(text.contains("TOOLS"));
-        assert!(text.contains("SESSIONS"));
-        let (c, t, s) = (text.find("CONFIG"), text.find("TOOLS"), text.find("SESSIONS"));
+        assert!(text.contains("⊛ INBOX"));
+        let (c, t, s) = (text.find("CONFIG"), text.find("TOOLS"), text.find("⊛ INBOX"));
         assert!(c < t && t < s, "sections render top-to-bottom");
     }
 
@@ -1107,7 +1149,7 @@ mod tests {
     fn draw_shows_empty_group_header_dimmed_in_session_mode() {
         // A named group with no members must still render its header (a shelf to
         // fill), grayed out, and it sits in config order between the group above
-        // and the residual SESSIONS below.
+        // and the inbox below.
         let sessions = vec![
             Session { name: "claude".into(), activity: 30, created: 1, attached: false,
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
@@ -1143,8 +1185,8 @@ mod tests {
                 config_accent = buf[(x, y)].style().fg == Some(ACCENT);
             }
         }
-        // Order: CONFIG (populated) then TOOLS (empty) then SESSIONS (residual).
-        let (c, t, s) = (text.find("CONFIG"), text.find("TOOLS"), text.find("SESSIONS"));
+        // Order: CONFIG (populated) then TOOLS (empty) then the inbox.
+        let (c, t, s) = (text.find("CONFIG"), text.find("TOOLS"), text.find("⊛ INBOX"));
         assert!(c < t && t < s, "empty group header sits in order: got {c:?} {t:?} {s:?}");
         assert!(tools_dim, "empty group header renders dimmed (gray)");
         assert!(config_accent, "populated group header keeps the accent color");
@@ -1608,7 +1650,7 @@ mod tests {
         let text = render_to_string(&groups_view(false));
         assert!(text.contains("CONFIG"), "group header");
         assert!(text.contains("· 1"), "member count");
-        assert!(text.contains("SESSIONS"), "residual anchor");
+        assert!(text.contains("⊛ INBOX"), "inbox row renders through the normal group path");
         assert!(text.contains("Enter rename"), "group footer");
     }
 
