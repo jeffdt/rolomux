@@ -2022,4 +2022,52 @@ mod tests {
         }
         assert!(!found_gutter_before_session, "search mode should not render a gutter bar before session names");
     }
+
+    #[test]
+    fn gutter_colors_inbox_sessions_with_the_inbox_groups_own_color() {
+        let sessions = vec![
+            Session { name: "a".into(), activity: 1, created: 1, attached: false, windows: vec![] },
+        ];
+        let cfg = Config {
+            groups: vec![Group { name: "INBOX".into(), color: "magenta".into(), inbox: true, ..Default::default() }],
+            ..Default::default()
+        };
+        let state = PickerState::build(sessions, &cfg);
+        let backend = TestBackend::new(80, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| draw(f, &state)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+        let magenta = color_from_name("magenta");
+        let mut found_magenta_bar = false;
+        for y in 0..buf.area.height {
+            let line: String = (0..buf.area.width).map(|x| buf[(x, y)].symbol()).collect();
+            if let Some(name_x) = line.find("a") {
+                // The gutter is the new leading column, immediately before the
+                // jump-number/glyph prefix that precedes the name.
+                for x in (POPUP_MARGIN + 1)..(name_x as u16) {
+                    let cell = &buf[(x, y)];
+                    if cell.symbol() == "│" && cell.style().fg == Some(magenta) {
+                        found_magenta_bar = true;
+                    }
+                }
+            }
+        }
+        assert!(found_magenta_bar, "inbox session's gutter uses the inbox's configured color");
+    }
+
+    #[test]
+    fn search_results_tag_inbox_members_same_as_named_group_members() {
+        let sessions = vec![
+            Session { name: "solo".into(), activity: 1, created: 1, attached: false, windows: vec![] },
+        ];
+        let cfg = Config {
+            groups: vec![Group { name: "TRIAGE".into(), inbox: true, ..Default::default() }],
+            ..Default::default()
+        };
+        let mut state = PickerState::build(sessions, &cfg);
+        state.enter_search();
+        state.search_push('s');
+        let text = render_to_string(&state);
+        assert!(text.contains("TRIAGE"), "search result shows the inbox group's tag, no carve-out");
+    }
 }
