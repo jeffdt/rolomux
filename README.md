@@ -41,7 +41,7 @@ Reload tmux and press `prefix + s`.
 - **On demand, no daemon.** tmux launches it via `tmux popup -E`; it makes one tmux query, renders, and exits.
   Its own overhead is a couple of milliseconds, so it opens about as fast as tmux can answer.
 - **Fuzzy search built in.** Press `/` to filter sessions by name; matching is in-process with no extra runtime dependency. If this is your preferred way of working, tweak the settings to always launch in search mode.
-- **Dim the sessions you're not using.** Press `d` to mark a session dormant; it stays in place but renders in a dimmed state to indicate that it's on the back burner. Press `d` again on a dormant session when it's time to bring it back to life. Dormant sessions are still fully usable, but reduced visual noise helps you stay laser focused on the sessions that matter right now.
+- **Dim or hide the sessions you're not using.** Press `d` to mark a session dormant; it stays in place but renders in a dimmed state to indicate that it's on the back burner. Press `h` to hide dormant sessions entirely, and `h` again to show them. Dormant sessions are still fully usable when shown, but reduced visual noise helps you stay laser focused on the sessions that matter right now.
 - **Tune the colors.** Press `,` to open Settings and tune the color of the application border, palette used for group headers, and more. Uses your terminal's ANSI colors to ensure it harmonizes with your existing terminal themes.
 
 **Note:** rolomux depends on (and promotes) good tmux hygiene.
@@ -60,12 +60,14 @@ bind C new-session \; command-prompt -I "" "rename-session '%%'" \; command-prom
 | `1`-`9` | Switch to that session immediately |
 | `M-1`-`M-9` | Highlight and expand that session (Option/Alt) |
 | `j` / `k` | Move the cursor (also `↓` / `↑`) |
-| `l` / `h` | Expand / collapse a session's window tree (also `→` / `←`) |
+| `l` / `→` | Expand a session's window tree |
+| `←` | Collapse a session's window tree |
 | `z` | Expand or collapse window trees for all sessions |
 | `⇧J` / `⇧K` | Move the selected session up or down within its group, or into the neighboring group (also `⇧↓` / `⇧↑`) |
 | `g` | Open group-management mode |
 | `,` | Open settings |
 | `d` | Toggle dormant (dim) on the selected session |
+| `h` | Hide or show dormant sessions |
 | `/` | Enter search mode (type to filter, `↵` switch, `Esc` back) |
 | `q` / `Esc` | Quit |
 
@@ -101,13 +103,16 @@ Move within results with `↑`/`↓` (or `Ctrl-n`/`Ctrl-p`, `Ctrl-j`/`Ctrl-k`).
 `Backspace` deletes the last character, `Ctrl-W` (or `Option/Alt` + `Backspace`) deletes the last word, and `Ctrl-U` clears the query.
 
 While searching, section headers and jump numbers (1-9) are hidden; the list is flat and collapsed.
+If dormant sessions are hidden, search results exclude them and the footer shows how many are currently hidden.
 
 ### Dormant sessions
 
 Press `d` to mark the selected session dormant; it renders dimmed in place as a "not in active rotation" cue.
-It's purely visual: a dormant session keeps its jump number, group membership, and position, and nothing else about it changes.
-Press `d` again to undim.
-The dormant set persists across restarts.
+When dormant sessions are shown, they keep their jump number, group membership, and position, and nothing else about them changes.
+Press `h` to hide dormant sessions entirely; press `h` again to show them.
+Hidden dormant sessions are excluded from the normal picker and from search results, and both modes show a reminder such as `8 dormant sessions hidden` while the filter is active.
+Press `d` again on a dormant session to undim it.
+The dormant set persists across restarts; the hide/show filter is just for the current picker run.
 Think of it as one more optional tool in your kit to help you tend your sessions, if you find it helpful.
 
 ### Settings
