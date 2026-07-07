@@ -442,13 +442,7 @@ impl PickerState {
     }
 
     pub fn move_cursor(&mut self, delta: i32) {
-        let len = self.visible_rows().len() as i32;
-        if len == 0 {
-            self.cursor = 0;
-            return;
-        }
-        let next = (self.cursor as i32 + delta).clamp(0, len - 1);
-        self.cursor = next as usize;
+        self.cursor = move_index_with_edge_wrap(self.cursor, delta, self.visible_rows().len());
     }
 
     fn cursor_ordered_index(&self) -> Option<usize> {
@@ -759,14 +753,13 @@ impl PickerState {
             .collect()
     }
 
-    /// Move the settings cursor by `delta`, clamped to the valid range.
+    /// Move the settings cursor by `delta`, wrapping between the first and last row.
     pub fn settings_move_cursor(&mut self, delta: i32) {
-        let len = self.settings_visible_rows().len() as i32;
-        if len == 0 {
-            self.settings_cursor = 0;
-            return;
-        }
-        self.settings_cursor = (self.settings_cursor as i32 + delta).clamp(0, len - 1) as usize;
+        self.settings_cursor = move_index_with_edge_wrap(
+            self.settings_cursor,
+            delta,
+            self.settings_visible_rows().len(),
+        );
     }
 
     /// The settings row the cursor currently sits on.
@@ -970,11 +963,9 @@ impl PickerState {
     /// The in-flight rename buffer, if a rename is in progress.
     pub fn group_edit_buffer(&self) -> Option<&str> { self.group_edit.as_deref() }
 
-    /// Move the group cursor by `delta`, clamped to the valid range.
+    /// Move the group cursor by `delta`, wrapping between the first and last group.
     pub fn group_move_cursor(&mut self, delta: i32) {
-        let len = self.groups.len() as i32;
-        if len == 0 { self.group_cursor = 0; return; }
-        self.group_cursor = (self.group_cursor as i32 + delta).clamp(0, len - 1) as usize;
+        self.group_cursor = move_index_with_edge_wrap(self.group_cursor, delta, self.groups.len());
     }
 
     /// Reorder the selected group among the named groups (clamped at the ends).
@@ -1143,13 +1134,11 @@ impl PickerState {
     }
 
     pub fn search_move(&mut self, delta: i32) {
-        let len = self.search_results().len() as i32;
-        if len == 0 {
-            self.search_cursor = 0;
-            return;
-        }
-        let next = (self.search_cursor as i32 + delta).clamp(0, len - 1);
-        self.search_cursor = next as usize;
+        self.search_cursor = move_index_with_edge_wrap(
+            self.search_cursor,
+            delta,
+            self.search_results().len(),
+        );
     }
 
     /// Accessor for rendering (the field is private). Wired in Task 6.
@@ -1241,6 +1230,22 @@ fn random_seed() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_nanos() as u64)
         .unwrap_or(0)
+}
+
+/// Move within a bounded list, wrapping one-row cursor steps at the edges.
+fn move_index_with_edge_wrap(index: usize, delta: i32, len: usize) -> usize {
+    if len == 0 {
+        return 0;
+    }
+    let max = len - 1;
+    let index = index.min(max);
+    if delta == -1 && index == 0 {
+        max
+    } else if delta == 1 && index == max {
+        0
+    } else {
+        (index as i32 + delta).clamp(0, max as i32) as usize
+    }
 }
 
 #[cfg(test)]
@@ -1451,12 +1456,14 @@ mod tests {
         state.move_cursor(1);
         assert!(matches!(state.visible_rows()[state.cursor], Row::Window(0, 1)));
 
-        // Clamp at bottom.
+        // Large jumps still land on the edge.
         state.move_cursor(5);
         assert_eq!(state.cursor, 3);
-        // Clamp at top.
-        state.move_cursor(-99);
+        // Moving past either edge wraps.
+        state.move_cursor(1);
         assert_eq!(state.cursor, 0);
+        state.move_cursor(-1);
+        assert_eq!(state.cursor, 3);
     }
 
     #[test]
@@ -1675,22 +1682,23 @@ mod tests {
     }
 
     #[test]
-    fn query_change_resets_to_top_and_move_clamps() {
+    fn query_change_resets_to_top_and_move_wraps() {
         let sessions = vec![s("alpha", 1, 1), s("alto", 1, 2), s("alarm", 1, 3)];
         let cfg = Config { groups: vec![], ..Default::default() };
         let mut state = PickerState::build(sessions, &cfg);
         state.enter_search();
         state.search_push('a');
-        state.search_push('l');
 
         state.search_move(1);
-        state.search_push('a'); // query changed -> back to top
+        state.search_push('l'); // query changed -> back to top
         assert_eq!(state.search_cursor(), 0, "query change resets to top");
 
-        // Clamp at the bottom: a big move never exceeds the last match.
-        state.search_move(99);
         let n = state.search_results().len();
-        assert!(state.search_cursor() < n.max(1));
+        assert_eq!(n, 3);
+        state.search_move(-1);
+        assert_eq!(state.search_cursor(), n - 1, "moving up from the top wraps to bottom");
+        state.search_move(1);
+        assert_eq!(state.search_cursor(), 0, "moving down from the bottom wraps to top");
     }
 
     #[test]
@@ -2034,6 +2042,17 @@ mod tests {
         assert_eq!(st.groups[0].name, "G2");
         assert_eq!(st.groups[1].name, "G1");
         assert!(st.dirty);
+    }
+
+    #[test]
+    fn group_move_cursor_wraps_between_first_and_last_group() {
+        let mut st = grouped_state();
+        st.enter_groups();
+        assert_eq!(st.group_cursor(), 0);
+        st.group_move_cursor(-1);
+        assert_eq!(st.group_cursor(), st.groups.len() - 1);
+        st.group_move_cursor(1);
+        assert_eq!(st.group_cursor(), 0);
     }
 
     #[test]
@@ -2436,15 +2455,17 @@ mod tests {
     }
 
     #[test]
-    fn settings_move_cursor_clamps_within_visible_rows() {
+    fn settings_move_cursor_wraps_between_first_and_last_row() {
         let mut st = settings_state();
         assert_eq!(st.settings_cursor(), 0);
         st.settings_move_cursor(-1);
-        assert_eq!(st.settings_cursor(), 0, "clamped at top");
+        assert_eq!(st.settings_cursor(), 4, "moving up from the top wraps to bottom");
+        st.settings_move_cursor(1);
+        assert_eq!(st.settings_cursor(), 0, "moving down from the bottom wraps to top");
         st.settings_move_cursor(1);
         assert_eq!(st.settings_cursor(), 1);
         st.settings_move_cursor(99);
-        assert_eq!(st.settings_cursor(), 4, "clamped at bottom, collapsed (5 rows)");
+        assert_eq!(st.settings_cursor(), 4, "large jumps still land on the edge");
     }
 
     #[test]
