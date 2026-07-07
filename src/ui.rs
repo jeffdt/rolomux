@@ -37,7 +37,7 @@ const POPUP_MARGIN: u16 = 2;
 const TITLE_CHROME_ROWS: u16 = 2;
 
 const FOOTER_HINT: &str =
-    "/ search · 1-9 · ⇧JK mv · g groups · , settings · d dim · q quit";
+    "/ search · 1-9 · ⇧JK mv · g groups · , settings · d dim · h hide · q quit";
 
 const SEARCH_FOOTER_HINT: &str = "↑↓ move · ⌃W word · ⌃U clear · Esc back";
 
@@ -221,10 +221,9 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
     frame.render_stateful_widget(list, list_area, &mut list_state);
 
     // Render the divider and hint row inside the footer area.
-    let rule = "─".repeat(footer_area.width as usize);
     let footer = Paragraph::new(vec![
-        Line::from(Span::styled(rule, Style::default().fg(DIM))),
-        Line::from(Span::styled(FOOTER_HINT, Style::default().fg(DIM))),
+        Line::from(Span::styled(footer_rule(footer_area.width, state), Style::default().fg(DIM))),
+        Line::from(Span::styled(command_footer_hint(state), Style::default().fg(DIM))),
     ]);
     frame.render_widget(footer, footer_area);
 }
@@ -284,10 +283,9 @@ fn draw_search(frame: &mut Frame, state: &PickerState, inner: Rect) {
     list_state.select(selected_line);
     frame.render_stateful_widget(list, chunks[1], &mut list_state);
 
-    let rule = "─".repeat(chunks[2].width as usize);
     let footer = Paragraph::new(vec![
-        Line::from(Span::styled(rule, Style::default().fg(DIM))),
-        Line::from(Span::styled(SEARCH_FOOTER_HINT, Style::default().fg(DIM))),
+        Line::from(Span::styled(footer_rule(chunks[2].width, state), Style::default().fg(DIM))),
+        Line::from(Span::styled(search_footer_hint(state), Style::default().fg(DIM))),
     ]);
     frame.render_widget(footer, chunks[2]);
 }
@@ -573,6 +571,36 @@ fn window_count(wins: usize) -> String {
     format!("{wins} {label}")
 }
 
+fn hidden_dormant_status(count: usize) -> String {
+    let label = if count == 1 { "dormant session" } else { "dormant sessions" };
+    format!("{count} {label} hidden")
+}
+
+fn footer_rule(width: u16, state: &PickerState) -> String {
+    let width = width as usize;
+    if !state.hiding_dormant() {
+        return "─".repeat(width);
+    }
+    let label = format!("─ {} ", hidden_dormant_status(state.hidden_dormant_count()));
+    let label_width = label.chars().count();
+    if label_width >= width {
+        return label.chars().take(width).collect();
+    }
+    format!("{}{}", label, "─".repeat(width - label_width))
+}
+
+fn command_footer_hint(state: &PickerState) -> String {
+    if state.hiding_dormant() {
+        FOOTER_HINT.replace("h hide", "h show")
+    } else {
+        FOOTER_HINT.to_string()
+    }
+}
+
+fn search_footer_hint(_state: &PickerState) -> String {
+    SEARCH_FOOTER_HINT.to_string()
+}
+
 /// Shared geometry for the metadata block, computed once per render so every
 /// row aligns to it (issue #3). `col` is the column where metadata begins;
 /// `count_width` is the width reserved for the window-count token so the middot
@@ -686,6 +714,7 @@ pub enum Input {
     MoveDown,
     EnterSearch,
     ToggleDormant,
+    ToggleDormantVisibility,
     Quit,
     None,
 }
@@ -788,7 +817,8 @@ pub fn map_key(key: KeyEvent) -> Input {
         KeyCode::Char('j') | KeyCode::Down => Input::Down,
         KeyCode::Char('k') | KeyCode::Up => Input::Up,
         KeyCode::Char('l') | KeyCode::Right => Input::Expand,
-        KeyCode::Char('h') | KeyCode::Left => Input::Collapse,
+        KeyCode::Left => Input::Collapse,
+        KeyCode::Char('h') => Input::ToggleDormantVisibility,
         KeyCode::Char('z') => Input::ToggleAll,
         KeyCode::Enter => Input::Select,
         KeyCode::Char('g') => Input::EnterGroups,
@@ -1018,7 +1048,8 @@ mod tests {
         assert_eq!(map_key(key(KeyCode::Char('k'))), Input::Up);
         assert_eq!(map_key(key(KeyCode::Char('l'))), Input::Expand);
         assert_eq!(map_key(key(KeyCode::Right)), Input::Expand);
-        assert_eq!(map_key(key(KeyCode::Char('h'))), Input::Collapse);
+        assert_eq!(map_key(key(KeyCode::Left)), Input::Collapse);
+        assert_eq!(map_key(key(KeyCode::Char('h'))), Input::ToggleDormantVisibility);
         assert_eq!(map_key(key(KeyCode::Enter)), Input::Select);
         assert_eq!(map_key(key(KeyCode::Char('g'))), Input::EnterGroups);
         assert_eq!(map_key(key(KeyCode::Char('p'))), Input::None);
@@ -1042,6 +1073,68 @@ mod tests {
     #[test]
     fn maps_toggle_dormant_key() {
         assert_eq!(map_key(key(KeyCode::Char('d'))), Input::ToggleDormant);
+    }
+
+    #[test]
+    fn command_footer_keeps_h_hint_in_place_when_dormant_sessions_are_hidden() {
+        let sessions = vec![
+            Session { name: "alpha".into(), activity: 30, created: 1, attached: false,
+                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+            Session { name: "beta".into(), activity: 20, created: 2, attached: false,
+                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+        ];
+        let cfg = Config { groups: vec![], dormant: vec!["beta".into()], ..Default::default() };
+        let mut state = PickerState::build(sessions, &cfg);
+        let shown_hint = command_footer_hint(&state);
+
+        state.toggle_dormant_visibility();
+        let hidden_hint = command_footer_hint(&state);
+
+        assert_eq!(shown_hint.find("h "), hidden_hint.find("h "));
+        assert!(shown_hint.contains("h hide"));
+        assert!(hidden_hint.contains("h show"));
+    }
+
+    #[test]
+    fn draw_hides_dormant_sessions_and_shows_command_reminder() {
+        let sessions = vec![
+            Session { name: "alpha".into(), activity: 30, created: 1, attached: false,
+                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+            Session { name: "beta".into(), activity: 20, created: 2, attached: false,
+                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+        ];
+        let cfg = Config { groups: vec![], dormant: vec!["beta".into()], ..Default::default() };
+        let mut state = PickerState::build(sessions, &cfg);
+        state.toggle_dormant_visibility();
+
+        let text = render_to_string(&state);
+        assert!(text.contains("alpha"), "active session remains visible");
+        assert!(!text.contains("beta"), "dormant session is hidden");
+        assert!(text.contains("1 dormant session hidden"), "hidden count reminder is visible");
+        assert!(text.contains("h show"), "footer shows how to restore dormant sessions");
+    }
+
+    #[test]
+    fn draw_search_hides_dormant_sessions_and_shows_reminder() {
+        let sessions = vec![
+            Session { name: "alpha".into(), activity: 30, created: 1, attached: false,
+                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+            Session { name: "beta".into(), activity: 20, created: 2, attached: false,
+                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+            Session { name: "bravo".into(), activity: 10, created: 3, attached: false,
+                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+        ];
+        let cfg = Config { groups: vec![], dormant: vec!["beta".into(), "bravo".into()], ..Default::default() };
+        let mut state = PickerState::build(sessions, &cfg);
+        state.toggle_dormant_visibility();
+        state.enter_search();
+        state.search_push('b');
+
+        let text = render_to_string(&state);
+        assert!(!text.contains("beta"), "matching dormant session is hidden from search");
+        assert!(!text.contains("bravo"), "matching dormant session is hidden from search");
+        assert!(text.contains("no matches"), "search reports no visible matches");
+        assert!(text.contains("2 dormant sessions hidden"), "search mode shows hidden count reminder");
     }
 
     #[test]

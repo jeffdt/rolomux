@@ -226,6 +226,7 @@ pub struct PickerState {
     pub groups: Vec<Group>,
     expanded: HashSet<String>,
     dormant: HashSet<String>,
+    hide_dormant: bool,
     pub cursor: usize,
     pub dirty: bool,
     pub mode: Mode,
@@ -269,6 +270,7 @@ impl PickerState {
             groups,
             expanded: HashSet::new(),
             dormant: config.dormant.iter().cloned().collect(),
+            hide_dormant: false,
             cursor: 0,
             dirty: false,
             mode: config.default_mode.as_mode(),
@@ -397,6 +399,9 @@ impl PickerState {
                 }
             }
         }
+        if self.hide_dormant {
+            out.retain(|s| !self.dormant.contains(&s.name));
+        }
         out
     }
 
@@ -476,10 +481,68 @@ impl PickerState {
         }
     }
 
-    /// Whether `name` is marked dormant (dimmed, but otherwise a fully normal
-    /// session: order, grouping, and numbering are unaffected).
+    /// Whether `name` is marked dormant. When dormant sessions are shown, they
+    /// are dimmed but otherwise fully normal; `hide_dormant` is the only filter
+    /// that removes them from the picker.
     pub fn is_dormant(&self, name: &str) -> bool {
         self.dormant.contains(name)
+    }
+
+    pub fn hiding_dormant(&self) -> bool {
+        self.hide_dormant
+    }
+
+    pub fn dormant_count(&self) -> usize {
+        self.all.iter().filter(|s| self.is_dormant(&s.name)).count()
+    }
+
+    pub fn hidden_dormant_count(&self) -> usize {
+        if self.hide_dormant { self.dormant_count() } else { 0 }
+    }
+
+    fn session_visible(&self, name: &str) -> bool {
+        !self.hide_dormant || !self.is_dormant(name)
+    }
+
+    /// Toggle whether dormant sessions are hidden from the picker. This is a
+    /// view-only filter: it never dirties config, while the dormant set itself
+    /// still persists through `toggle_dormant`.
+    pub fn toggle_dormant_visibility(&mut self) {
+        let command_focus = self.cursor_session_name();
+        let search_focus = self.search_cursor_name();
+        self.hide_dormant = !self.hide_dormant;
+        if let Some(name) = command_focus.as_deref().filter(|name| self.session_visible(name)) {
+            self.focus_session(name);
+        } else {
+            self.clamp_cursor_to_visible_rows();
+        }
+        if let Some(name) = search_focus.as_deref() {
+            if let Some(i) = self.search_results().iter().position(|s| s.name == name) {
+                self.search_cursor = i;
+            } else {
+                self.clamp_search_cursor_to_results();
+            }
+        } else {
+            self.clamp_search_cursor_to_results();
+        }
+    }
+
+    fn clamp_cursor_to_visible_rows(&mut self) {
+        let len = self.visible_rows().len();
+        if len == 0 {
+            self.cursor = 0;
+        } else {
+            self.cursor = self.cursor.min(len - 1);
+        }
+    }
+
+    fn clamp_search_cursor_to_results(&mut self) {
+        let len = self.search_results().len();
+        if len == 0 {
+            self.search_cursor = 0;
+        } else {
+            self.search_cursor = self.search_cursor.min(len - 1);
+        }
     }
 
     /// Toggle dormant status for the session under the cursor. Resolves
@@ -488,9 +551,15 @@ impl PickerState {
     pub fn toggle_dormant(&mut self) {
         if let Some(name) = self.cursor_session_name() {
             if !self.dormant.remove(&name) {
-                self.dormant.insert(name);
+                self.dormant.insert(name.clone());
             }
             self.dirty = true;
+            if self.session_visible(&name) {
+                self.focus_session(&name);
+            } else {
+                self.clamp_cursor_to_visible_rows();
+                self.clamp_search_cursor_to_results();
+            }
         }
     }
 
@@ -549,8 +618,8 @@ impl PickerState {
     fn move_up(&mut self, gi: usize, name: &str) {
         let order = self.effective_order(gi);
         let pos = match order.iter().position(|n| n == name) { Some(p) => p, None => return };
-        if pos > 0 {
-            self.commit_swap(gi, order, pos, pos - 1, name);
+        if let Some(prev) = self.previous_visible_position(&order, pos) {
+            self.commit_swap(gi, order, pos, prev, name);
         } else if gi > 0 {
             self.groups[gi].members.retain(|m| m != name);
             self.groups[gi - 1].members.push(name.to_string());
@@ -563,8 +632,8 @@ impl PickerState {
     fn move_down(&mut self, gi: usize, name: &str) {
         let order = self.effective_order(gi);
         let pos = match order.iter().position(|n| n == name) { Some(p) => p, None => return };
-        if pos + 1 < order.len() {
-            self.commit_swap(gi, order, pos, pos + 1, name);
+        if let Some(next) = self.next_visible_position(&order, pos) {
+            self.commit_swap(gi, order, pos, next, name);
         } else if gi + 1 < self.groups.len() {
             self.groups[gi].members.retain(|m| m != name);
             self.groups[gi + 1].members.insert(0, name.to_string());
@@ -572,6 +641,24 @@ impl PickerState {
             self.focus_session(name);
         }
         // else: bottom of the whole list, clamp silently.
+    }
+
+    fn previous_visible_position(&self, order: &[String], pos: usize) -> Option<usize> {
+        order[..pos]
+            .iter()
+            .enumerate()
+            .rev()
+            .find(|(_, name)| self.session_visible(name))
+            .map(|(i, _)| i)
+    }
+
+    fn next_visible_position(&self, order: &[String], pos: usize) -> Option<usize> {
+        order
+            .iter()
+            .enumerate()
+            .skip(pos + 1)
+            .find(|(_, name)| self.session_visible(name))
+            .map(|(i, _)| i)
     }
 
     /// Commit an in-group swap: freezes `order` (with positions `a` and `b`
@@ -1779,6 +1866,91 @@ mod tests {
         state.focus_session("alpha");
         state.toggle_dormant();
         assert_eq!(state.dormant_list(), vec!["alpha".to_string(), "charlie".to_string()]);
+    }
+
+    #[test]
+    fn toggle_dormant_visibility_filters_command_and_search_without_dirtying() {
+        let sessions = vec![s("alpha", 1, 1), s("beta", 1, 2), s("gamma", 1, 3)];
+        let cfg = Config { groups: vec![], dormant: vec!["beta".into()], ..Default::default() };
+        let mut state = PickerState::build(sessions, &cfg);
+
+        assert_eq!(state.dormant_count(), 1);
+        let shown: Vec<&str> = state.ordered().iter().map(|s| s.name.as_str()).collect();
+        assert_eq!(shown, vec!["alpha", "beta", "gamma"]);
+
+        state.toggle_dormant_visibility();
+        assert!(state.hiding_dormant());
+        assert_eq!(state.hidden_dormant_count(), 1);
+        assert!(!state.dirty, "hiding dormant sessions is a view-only filter");
+        let visible: Vec<&str> = state.ordered().iter().map(|s| s.name.as_str()).collect();
+        assert_eq!(visible, vec!["alpha", "gamma"]);
+
+        state.enter_search();
+        state.search_push('b');
+        assert!(state.search_results().is_empty(), "hidden dormant sessions are absent from search");
+        state.search_clear();
+        let search_visible: Vec<&str> = state.search_results().iter().map(|s| s.name.as_str()).collect();
+        assert_eq!(search_visible, vec!["alpha", "gamma"]);
+
+        state.toggle_dormant_visibility();
+        assert!(!state.hiding_dormant());
+        let restored: Vec<&str> = state.ordered().iter().map(|s| s.name.as_str()).collect();
+        assert_eq!(restored, vec!["alpha", "beta", "gamma"]);
+    }
+
+    #[test]
+    fn hiding_dormant_clamps_cursor_when_selected_session_disappears() {
+        let sessions = vec![s("alpha", 1, 1), s("beta", 1, 2)];
+        let cfg = Config { groups: vec![], dormant: vec!["beta".into()], ..Default::default() };
+        let mut state = PickerState::build(sessions, &cfg);
+        state.focus_session("beta");
+        assert_eq!(state.cursor_session_name().as_deref(), Some("beta"));
+
+        state.toggle_dormant_visibility();
+
+        assert_eq!(state.cursor_session_name().as_deref(), Some("alpha"));
+        assert_eq!(state.visible_rows().len(), 1);
+    }
+
+    #[test]
+    fn toggling_dormant_while_filter_is_active_hides_the_session() {
+        let sessions = vec![s("alpha", 1, 1), s("beta", 1, 2)];
+        let cfg = Config { groups: vec![], ..Default::default() };
+        let mut state = PickerState::build(sessions, &cfg);
+        state.toggle_dormant_visibility();
+        assert_eq!(state.cursor_session_name().as_deref(), Some("alpha"));
+
+        state.toggle_dormant();
+
+        assert!(state.is_dormant("alpha"));
+        let visible: Vec<&str> = state.ordered().iter().map(|s| s.name.as_str()).collect();
+        assert_eq!(visible, vec!["beta"]);
+        assert_eq!(state.cursor_session_name().as_deref(), Some("beta"));
+    }
+
+    #[test]
+    fn move_row_skips_hidden_dormant_sessions() {
+        let sessions = vec![s("alpha", 1, 1), s("beta", 1, 2), s("gamma", 1, 3)];
+        let cfg = Config {
+            groups: vec![Group {
+                name: "INBOX".into(),
+                members: vec!["alpha".into(), "beta".into(), "gamma".into()],
+                inbox: true,
+                ..Default::default()
+            }],
+            dormant: vec!["beta".into()],
+            ..Default::default()
+        };
+        let mut state = PickerState::build(sessions, &cfg);
+        state.toggle_dormant_visibility();
+        state.focus_session("alpha");
+
+        state.move_row(1);
+
+        let visible: Vec<&str> = state.ordered().iter().map(|s| s.name.as_str()).collect();
+        assert_eq!(visible, vec!["gamma", "alpha"]);
+        let all_members = &state.groups[state.inbox_index().unwrap()].members;
+        assert_eq!(all_members, &vec!["gamma".to_string(), "beta".to_string(), "alpha".to_string()]);
     }
 
     fn grouped_state() -> PickerState {
