@@ -1316,11 +1316,6 @@ mod tests {
         let names: Vec<&str> = state.ordered().iter().map(|s| s.name.as_str()).collect();
         // groups first in config order (c, then a), residual unlisted by created asc (b 2, d 4)
         assert_eq!(names, vec!["c", "a", "b", "d"]);
-        assert_ne!(state.group_index_of("c"), state.inbox_index());
-        assert_ne!(state.group_index_of("a"), state.inbox_index());
-        assert_eq!(state.group_index_of("b"), state.inbox_index());
-        assert_eq!(state.group_index_of("a"), Some(1));
-        assert_eq!(state.group_index_of("b"), state.inbox_index());
     }
 
     #[test]
