@@ -147,8 +147,10 @@ pub struct Session {
 pub const HEADER_COLORS: [&str; 6] = ["cyan", "green", "yellow", "magenta", "blue", "red"];
 
 /// A user-named, ordered collection of sessions that renders as its own
-/// section above the residual `SESSIONS` bucket. Groups are durable: they
-/// persist even when empty and are removed only by an explicit delete.
+/// section. One group is always the inbox (see `inbox` below), which
+/// receives sessions not explicitly listed anywhere else. Groups are
+/// durable: they persist even when empty and are removed only by an
+/// explicit delete (the inbox group can't be deleted at all).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Group {
     pub name: String,
@@ -1000,7 +1002,7 @@ impl PickerState {
         }
     }
 
-    /// Delete the selected group; its members fall back into the residual bucket.
+    /// Delete the selected group; its members fall back into the inbox group.
     pub fn group_delete(&mut self) {
         if self.group_cursor >= self.groups.len() { return; }
         if self.groups[self.group_cursor].inbox { return; } // undeletable
@@ -1796,14 +1798,14 @@ mod tests {
         let mut st = grouped_state();
         st.enter_groups();
         st.group_new();
-        assert_eq!(st.groups.len(), 3);
-        assert_eq!(st.groups[2].name, "");
-        assert!(st.groups[2].members.is_empty());
-        assert_eq!(st.group_cursor(), 2);
+        assert_eq!(st.groups.len(), 4);
+        assert_eq!(st.groups[3].name, "");
+        assert!(st.groups[3].members.is_empty());
+        assert_eq!(st.group_cursor(), 3);
         assert!(st.group_editing());
         for c in "TOOLS".chars() { st.group_edit_push(c); }
         st.group_commit_rename();
-        assert_eq!(st.groups[2].name, "TOOLS");
+        assert_eq!(st.groups[3].name, "TOOLS");
         assert!(!st.group_editing());
         assert!(st.dirty);
     }
@@ -1814,7 +1816,7 @@ mod tests {
         st.enter_groups();
         st.group_new();
         st.group_cancel_rename();
-        assert_eq!(st.groups.len(), 2);
+        assert_eq!(st.groups.len(), 3);
         assert!(!st.group_editing());
     }
 
@@ -1846,11 +1848,11 @@ mod tests {
     }
 
     #[test]
-    fn group_delete_spills_members_to_residual() {
+    fn group_delete_spills_members_to_inbox() {
         let mut st = grouped_state();
         st.enter_groups(); // cursor on G1 (member a)
         st.group_delete();
-        assert_eq!(st.groups.len(), 1);
+        assert_eq!(st.groups.len(), 2); // G2 + the synthesized inbox
         assert_eq!(st.groups[0].name, "G2");
         assert_eq!(st.group_index_of("a"), st.inbox_index()); // a fell into the inbox
         assert!(st.dirty);
@@ -1886,19 +1888,19 @@ mod tests {
         let mut st = grouped_state();
         st.enter_groups();
         st.group_new(); // empty color -> positional default (HEADER_COLORS[index])
-        assert!(st.groups[2].color.is_empty(), "new group defaults to positional color");
+        assert!(st.groups[3].color.is_empty(), "new group defaults to positional color");
 
         st.dirty = false;
-        // Cursor is on the new group (index 2); its positional color is
-        // HEADER_COLORS[2] ("yellow"), so a flip advances to "magenta".
+        // Cursor is on the new group (index 3); its positional color is
+        // HEADER_COLORS[3] ("magenta"), so a flip advances to "blue".
         st.group_cycle_color();
-        assert_eq!(st.groups[2].color, "magenta");
+        assert_eq!(st.groups[3].color, "blue");
         assert!(st.dirty, "flipping a color dirties state");
 
         // Cycling wraps around the palette back to the start.
-        st.groups[2].color = HEADER_COLORS[HEADER_COLORS.len() - 1].to_string();
+        st.groups[3].color = HEADER_COLORS[HEADER_COLORS.len() - 1].to_string();
         st.group_cycle_color();
-        assert_eq!(st.groups[2].color, HEADER_COLORS[0]);
+        assert_eq!(st.groups[3].color, HEADER_COLORS[0]);
     }
 
     #[test]

@@ -1913,7 +1913,7 @@ mod tests {
 
     #[test]
     fn draw_shows_accent_gutter_for_residual_sessions_section() {
-        // Sessions in no named group (the SESSIONS bucket) get the same
+        // Sessions in no named group (the inbox group) get the same
         // treatment, in ACCENT (cyan).
         let sessions = vec![
             Session { name: "scratch".into(), activity: 20, created: 2, attached: false,
@@ -1938,7 +1938,7 @@ mod tests {
                 }
             }
         }
-        assert!(found_cyan_bar, "residual SESSIONS row shows a cyan (ACCENT) gutter bar");
+        assert!(found_cyan_bar, "inbox row shows a cyan (ACCENT) gutter bar");
     }
 
     #[test]
