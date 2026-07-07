@@ -76,7 +76,6 @@ fn main() -> io::Result<()> {
 
     if state.dirty {
         config.groups = state.groups.clone();
-        config.manual_order = state.manual_order.clone();
         config.dormant = state.dormant_list();
         config.default_mode = state.default_mode;
         config.new_group_color_policy = state.new_group_color_policy;
