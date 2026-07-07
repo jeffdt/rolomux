@@ -341,7 +341,7 @@ fn draw_groups(frame: &mut Frame, state: &PickerState, inner: Rect) {
     }
     // Dimmed, non-editable residual anchor for context.
     items.push(ListItem::new(Line::from(Span::styled(
-        format!("SESSIONS  · {}", state.residual_count()),
+        format!("SESSIONS  · {}", state.group_session_count(state.inbox_index().unwrap_or(0))),
         Style::default().fg(DIM),
     ))));
 

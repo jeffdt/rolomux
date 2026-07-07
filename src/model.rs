@@ -222,7 +222,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 pub struct PickerState {
     all: Vec<Session>,
     pub groups: Vec<Group>,
-    pub manual_order: Vec<String>,
     expanded: HashSet<String>,
     dormant: HashSet<String>,
     pub cursor: usize,
@@ -266,7 +265,6 @@ impl PickerState {
         let mut state = PickerState {
             all: sessions,
             groups,
-            manual_order: config.manual_order.clone(),
             expanded: HashSet::new(),
             dormant: config.dormant.iter().cloned().collect(),
             cursor: 0,
@@ -315,30 +313,53 @@ impl PickerState {
         }
     }
 
-    /// The index of the named group that owns `name`, if any. A session belongs to
-    /// at most one group (the first match wins if config lists it twice).
+    /// The index of the group that owns `name`: either the group whose
+    /// `members` literally lists it, or -- if no group does -- the inbox
+    /// group, which absorbs anything not explicitly filed elsewhere. A
+    /// session belongs to at most one *explicit* group (first match wins if
+    /// config lists it twice); this only returns `None` if the inbox
+    /// invariant somehow doesn't hold, which `ensure_single_inbox` prevents.
     pub fn group_index_of(&self, name: &str) -> Option<usize> {
         self.groups
             .iter()
             .position(|g| g.members.iter().any(|m| m == name))
+            .or_else(|| self.inbox_index())
+    }
+
+    /// Live sessions currently attributed to group `gi` (via `group_index_of`,
+    /// so an inbox group's count includes fallback members it hasn't
+    /// persisted into `members` yet, not just its explicit list).
+    pub fn group_session_count(&self, gi: usize) -> usize {
+        self.all.iter().filter(|s| self.group_index_of(&s.name) == Some(gi)).count()
+    }
+
+    /// Sessions that fall back to inbox group `gi` (via `group_index_of`)
+    /// and aren't excluded by `is_excluded`, sorted oldest-created-first.
+    /// Shared by the move logic below (`effective_order`, which excludes
+    /// this group's own already-persisted members) and by `ordered()`'s
+    /// restructuring in Task 4 (which excludes whatever's already been
+    /// placed in the output so far) -- both need "the inbox's virtual,
+    /// never-persisted tail," and should not duplicate this filter/sort.
+    fn inbox_overflow(&self, gi: usize, mut is_excluded: impl FnMut(&str) -> bool) -> Vec<&Session> {
+        let mut rest: Vec<&Session> = self
+            .all
+            .iter()
+            .filter(|s| !is_excluded(&s.name) && self.group_index_of(&s.name) == Some(gi))
+            .collect();
+        rest.sort_by(|a, b| a.created.cmp(&b.created).then(a.name.cmp(&b.name)));
+        rest
     }
 
     /// The index of the one group flagged `inbox: true`. `PickerState`
     /// always has exactly one after construction (see `build_with_focus`),
     /// so this is only `None` before that invariant is established.
-    #[allow(dead_code)]
     pub fn inbox_index(&self) -> Option<usize> {
         self.groups.iter().position(|g| g.inbox)
     }
 
-    /// Whether `name` sits in any named group (vs. the residual `SESSIONS` bucket).
-    pub fn is_grouped(&self, name: &str) -> bool {
-        self.group_index_of(name).is_some()
-    }
-
-    /// Group id for each entry of `ordered()`: `Some(group_index)` for a grouped
-    /// session, `None` for the residual bucket. Parallel to `ordered()` so the UI
-    /// can emit a section header wherever this value changes.
+    /// Group id for each entry of `ordered()`, via `group_index_of` (always
+    /// `Some` in practice, inbox fallback included). Parallel to `ordered()`
+    /// so the UI can emit a section header wherever this value changes.
     pub fn ordered_group_ids(&self) -> Vec<Option<usize>> {
         self.ordered()
             .iter()
@@ -360,25 +381,13 @@ impl PickerState {
                 }
             }
         }
-        let mut rest: Vec<&Session> = self
-            .all
-            .iter()
-            .filter(|s| !self.is_grouped(&s.name))
-            .collect();
-        // Manually placed sessions first (in saved order, skipping any that
-        // are now grouped or gone), then everything unlisted by created
-        // ascending so the newest session sinks to the bottom.
-        rest.sort_by(|a, b| {
-            let rank = |s: &Session| {
-                self.manual_order
-                    .iter()
-                    .position(|n| n == &s.name)
-                    .map(|p| (0, p as i64))
-                    .unwrap_or((1, s.created))
-            };
-            rank(a).cmp(&rank(b)).then(a.name.cmp(&b.name))
-        });
-        out.extend(rest);
+        // Every session not already placed by a group's persisted `members`
+        // (including the inbox's own) falls back to the inbox, oldest-created
+        // first. Appended after all groups for now; Task 4 interleaves this
+        // into the inbox group's own contiguous block instead.
+        if let Some(gi) = self.inbox_index() {
+            out.extend(self.inbox_overflow(gi, |name| seen.contains(name)));
+        }
         out
     }
 
@@ -496,104 +505,76 @@ impl PickerState {
         }
     }
 
-    /// Move the session under the cursor by `delta` rows, crossing group boundaries
-    /// when needed: out of a group into the one above/below, or into/out of the
-    /// residual SESSIONS bucket. Clamps silently at the very top and bottom.
+    /// Move the session under the cursor by `delta` rows, crossing group
+    /// boundaries into the group above/below when at an edge -- the inbox
+    /// group included, since it's just another entry in `self.groups` now.
+    /// Clamps silently at the very top and bottom of the whole list.
     pub fn move_row(&mut self, delta: i32) {
         let name = match self.cursor_session_name() { Some(n) => n, None => return };
-        match self.group_index_of(&name) {
-            Some(gi) => self.move_grouped(gi, &name, delta),
-            None => self.move_residual(&name, delta),
+        let gi = match self.group_index_of(&name) { Some(g) => g, None => return };
+        if delta < 0 {
+            self.move_up(gi, &name);
+        } else {
+            self.move_down(gi, &name);
         }
     }
 
-    /// Move a session that currently lives in named group `gi`.
-    fn move_grouped(&mut self, gi: usize, name: &str, delta: i32) {
-        let pos = match self.groups[gi].members.iter().position(|m| m == name) {
-            Some(p) => p,
-            None => return,
-        };
-        let last = self.groups[gi].members.len().saturating_sub(1);
-        if delta < 0 {
-            if pos > 0 {
-                self.groups[gi].members.swap(pos, pos - 1);
-            } else if gi > 0 {
-                self.groups[gi].members.remove(pos);
-                self.groups[gi - 1].members.push(name.to_string());
-            } else {
-                return; // very top: clamp
-            }
-        } else if pos < last {
-            self.groups[gi].members.swap(pos, pos + 1);
-        } else if gi + 1 < self.groups.len() {
-            self.groups[gi].members.remove(pos);
-            self.groups[gi + 1].members.insert(0, name.to_string());
-        } else {
-            // bottom of the last group: drop into the residual bucket
-            self.groups[gi].members.remove(pos);
-            self.manual_order.retain(|n| n != name);
-            self.manual_order.insert(0, name.to_string());
+    /// The effective visual order of group `gi`: its persisted `members`,
+    /// then -- only possible when `gi` is the inbox -- every other session
+    /// that falls back to it but isn't persisted yet, oldest-created first.
+    /// For any non-inbox group this is just `members.clone()`, since a
+    /// named group never has fallback content.
+    fn effective_order(&self, gi: usize) -> Vec<String> {
+        let mut order = self.groups[gi].members.clone();
+        if self.groups[gi].inbox {
+            let overflow: Vec<String> = self
+                .inbox_overflow(gi, |name| order.iter().any(|m| m == name))
+                .into_iter()
+                .map(|s| s.name.clone())
+                .collect();
+            order.extend(overflow);
         }
+        order
+    }
+
+    fn move_up(&mut self, gi: usize, name: &str) {
+        let order = self.effective_order(gi);
+        let pos = match order.iter().position(|n| n == name) { Some(p) => p, None => return };
+        if pos > 0 {
+            self.commit_swap(gi, order, pos, pos - 1, name);
+        } else if gi > 0 {
+            self.groups[gi].members.retain(|m| m != name);
+            self.groups[gi - 1].members.push(name.to_string());
+            self.dirty = true;
+            self.focus_session(name);
+        }
+        // else: top of the whole list, clamp silently.
+    }
+
+    fn move_down(&mut self, gi: usize, name: &str) {
+        let order = self.effective_order(gi);
+        let pos = match order.iter().position(|n| n == name) { Some(p) => p, None => return };
+        if pos + 1 < order.len() {
+            self.commit_swap(gi, order, pos, pos + 1, name);
+        } else if gi + 1 < self.groups.len() {
+            self.groups[gi].members.retain(|m| m != name);
+            self.groups[gi + 1].members.insert(0, name.to_string());
+            self.dirty = true;
+            self.focus_session(name);
+        }
+        // else: bottom of the whole list, clamp silently.
+    }
+
+    /// Commit an in-group swap: freezes `order` (with positions `a` and `b`
+    /// already swapped) as the group's persisted `members`. For a named
+    /// group this is behaviorally identical to swapping in place. For the
+    /// inbox, this is also what "freezes" any never-touched fallback
+    /// members into a concrete, persisted order on first touch.
+    fn commit_swap(&mut self, gi: usize, mut order: Vec<String>, a: usize, b: usize, name: &str) {
+        order.swap(a, b);
+        self.groups[gi].members = order;
         self.dirty = true;
         self.focus_session(name);
-    }
-
-    /// Move a session that currently lives in the residual `SESSIONS` bucket.
-    fn move_residual(&mut self, name: &str, delta: i32) {
-        let residual: Vec<String> = self
-            .ordered()
-            .iter()
-            .filter(|s| !self.is_grouped(&s.name))
-            .map(|s| s.name.clone())
-            .collect();
-        let ri = match residual.iter().position(|n| n == name) {
-            Some(r) => r,
-            None => return,
-        };
-        if delta < 0 && ri == 0 {
-            if let Some(last) = self.groups.last_mut() {
-                self.manual_order.retain(|n| n != name);
-                last.members.push(name.to_string());
-                self.dirty = true;
-                self.focus_session(name);
-            }
-        } else if delta > 0 && ri + 1 == residual.len() {
-            // residual bottom: clamp
-        } else {
-            // interior residual reorder
-            self.move_unpinned(delta);
-        }
-    }
-
-    /// Reorder an ungrouped session within the manual order.
-    /// The first move freezes the current ungrouped display order into
-    /// `manual_order` so the swap is well-defined even before anything was moved.
-    fn move_unpinned(&mut self, delta: i32) {
-        let name = match self.cursor_session_name() {
-            Some(n) => n,
-            None => return,
-        };
-        if self.is_grouped(&name) {
-            return;
-        }
-        let mut frozen: Vec<String> = self
-            .ordered()
-            .iter()
-            .filter(|s| !self.is_grouped(&s.name))
-            .map(|s| s.name.clone())
-            .collect();
-        let pos = match frozen.iter().position(|p| p == &name) {
-            Some(p) => p as i32,
-            None => return,
-        };
-        let target = pos + delta;
-        if target < 0 || target >= frozen.len() as i32 {
-            return; // clamped at an edge: leave order untouched
-        }
-        frozen.swap(pos as usize, target as usize);
-        self.manual_order = frozen;
-        self.dirty = true;
-        self.focus_session(&name);
     }
 
     /// Enter the full-screen group-management mode with the cursor on the first
@@ -892,11 +873,6 @@ impl PickerState {
     /// The in-flight rename buffer, if a rename is in progress.
     pub fn group_edit_buffer(&self) -> Option<&str> { self.group_edit.as_deref() }
 
-    /// Number of live sessions in the residual `SESSIONS` bucket (ungrouped).
-    pub fn residual_count(&self) -> usize {
-        self.all.iter().filter(|s| !self.is_grouped(&s.name)).count()
-    }
-
     /// Move the group cursor by `delta`, clamped to the valid range.
     pub fn group_move_cursor(&mut self, delta: i32) {
         let len = self.groups.len() as i32;
@@ -1185,6 +1161,34 @@ mod tests {
     }
 
     #[test]
+    fn group_index_of_falls_back_to_inbox_for_unlisted_sessions() {
+        let sessions = vec![s("a", 1, 1), s("b", 1, 2)];
+        let cfg = Config {
+            groups: vec![Group { name: "WORK".into(), members: vec!["a".into()], ..Default::default() }],
+            ..Default::default()
+        };
+        let st = PickerState::build(sessions, &cfg);
+        assert_eq!(st.group_index_of("a"), Some(0));
+        assert_eq!(st.group_index_of("b"), st.inbox_index());
+        assert_ne!(st.inbox_index(), Some(0));
+    }
+
+    #[test]
+    fn group_session_count_includes_inbox_fallback_members() {
+        let sessions = vec![s("a", 1, 1), s("b", 1, 2), s("c", 1, 3)];
+        let cfg = Config {
+            groups: vec![
+                Group { name: "WORK".into(), members: vec!["a".into()], ..Default::default() },
+                Group { name: "INBOX".into(), members: vec!["b".into()], inbox: true, ..Default::default() },
+            ],
+            ..Default::default()
+        };
+        let st = PickerState::build(sessions, &cfg);
+        assert_eq!(st.group_session_count(0), 1); // WORK: just "a"
+        assert_eq!(st.group_session_count(1), 2); // INBOX: persisted "b" + fallback "c"
+    }
+
+    #[test]
     fn default_mode_parses_with_command_fallback() {
         assert_eq!(DefaultMode::from_config_str("search"), DefaultMode::Search);
         assert_eq!(DefaultMode::from_config_str("command"), DefaultMode::Command);
@@ -1313,11 +1317,11 @@ mod tests {
         let names: Vec<&str> = state.ordered().iter().map(|s| s.name.as_str()).collect();
         // groups first in config order (c, then a), residual unlisted by created asc (b 2, d 4)
         assert_eq!(names, vec!["c", "a", "b", "d"]);
-        assert!(state.is_grouped("c"));
-        assert!(state.is_grouped("a"));
-        assert!(!state.is_grouped("b"));
+        assert_ne!(state.group_index_of("c"), state.inbox_index());
+        assert_ne!(state.group_index_of("a"), state.inbox_index());
+        assert_eq!(state.group_index_of("b"), state.inbox_index());
         assert_eq!(state.group_index_of("a"), Some(1));
-        assert_eq!(state.group_index_of("b"), None);
+        assert_eq!(state.group_index_of("b"), state.inbox_index());
     }
 
     #[test]
@@ -1483,9 +1487,9 @@ mod tests {
         state.move_row(-1); // move b up past a
         let names: Vec<&str> = state.ordered().iter().map(|s| s.name.as_str()).collect();
         assert_eq!(names, vec!["b", "a", "c"]);
-        // The full ungrouped order is frozen into manual_order on the first move.
+        // The full ungrouped order is frozen into the inbox group's members on the first move.
         assert_eq!(
-            state.manual_order,
+            state.groups[state.inbox_index().unwrap()].members,
             vec!["b".to_string(), "a".to_string(), "c".to_string()]
         );
         assert!(state.dirty);
@@ -1506,7 +1510,7 @@ mod tests {
         state.focus_session("b");
         state.move_row(1);
         assert!(!state.dirty);
-        assert!(state.manual_order.is_empty());
+        assert!(state.groups[state.inbox_index().unwrap()].members.is_empty());
     }
 
     #[test]
@@ -1847,14 +1851,14 @@ mod tests {
         st.group_delete();
         assert_eq!(st.groups.len(), 1);
         assert_eq!(st.groups[0].name, "G2");
-        assert!(!st.is_grouped("a")); // a fell into the residual
+        assert_eq!(st.group_index_of("a"), st.inbox_index()); // a fell into the inbox
         assert!(st.dirty);
     }
 
     #[test]
     fn residual_count_excludes_grouped() {
         let st = grouped_state(); // a,b grouped; c residual
-        assert_eq!(st.residual_count(), 1);
+        assert_eq!(st.group_session_count(st.inbox_index().unwrap()), 1);
     }
 
     #[test]
@@ -2022,7 +2026,7 @@ mod tests {
         st.focus_session("c"); // bottom of last group G2
         st.move_row(1);
         assert_eq!(st.groups[1].members, Vec::<String>::new());
-        assert!(!st.is_grouped("c"));
+        assert_eq!(st.group_index_of("c"), st.inbox_index());
     }
 
     #[test]
@@ -2031,7 +2035,7 @@ mod tests {
         st.focus_session("d"); // residual top (activity 40)
         st.move_row(-1);
         assert_eq!(st.groups[1].members, vec!["c".to_string(), "d".to_string()]);
-        assert!(st.is_grouped("d"));
+        assert_ne!(st.group_index_of("d"), st.inbox_index());
     }
 
     #[test]
@@ -2039,16 +2043,17 @@ mod tests {
         let mut st = state_with_two_groups();
         st.focus_session("e"); // residual bottom
         st.move_row(1);
-        assert!(!st.is_grouped("e"));
+        assert_eq!(st.group_index_of("e"), st.inbox_index());
         assert!(!st.dirty);
     }
 
     #[test]
     fn ordered_group_ids_track_sections() {
-        let st = state_with_two_groups(); // G1=[a,b], G2=[c], residual d,e
+        let st = state_with_two_groups(); // G1=[a,b], G2=[c], residual d,e (falls back to inbox)
+        let inbox = st.inbox_index();
         assert_eq!(
             st.ordered_group_ids(),
-            vec![Some(0), Some(0), Some(1), None, None]
+            vec![Some(0), Some(0), Some(1), inbox, inbox]
         );
     }
 
