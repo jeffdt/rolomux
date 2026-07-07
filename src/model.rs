@@ -1003,6 +1003,7 @@ impl PickerState {
     /// Delete the selected group; its members fall back into the residual bucket.
     pub fn group_delete(&mut self) {
         if self.group_cursor >= self.groups.len() { return; }
+        if self.groups[self.group_cursor].inbox { return; } // undeletable
         self.groups.remove(self.group_cursor);
         self.group_cursor = self.group_cursor.min(self.groups.len().saturating_sub(1));
         self.dirty = true;
@@ -1853,6 +1854,25 @@ mod tests {
         assert_eq!(st.groups[0].name, "G2");
         assert_eq!(st.group_index_of("a"), st.inbox_index()); // a fell into the inbox
         assert!(st.dirty);
+    }
+
+    #[test]
+    fn group_delete_is_a_noop_on_the_inbox_row() {
+        let sessions = vec![s("a", 1, 1)];
+        let cfg = Config {
+            groups: vec![
+                Group { name: "WORK".into(), members: vec!["a".into()], ..Default::default() },
+                Group { name: "INBOX".into(), inbox: true, ..Default::default() },
+            ],
+            ..Default::default()
+        };
+        let mut st = PickerState::build(sessions, &cfg);
+        st.enter_groups();
+        st.group_move_cursor(1); // land on INBOX
+        assert!(st.groups[st.group_cursor()].inbox);
+        st.group_delete();
+        assert_eq!(st.groups.len(), 2, "inbox group must survive delete");
+        assert!(!st.dirty);
     }
 
     #[test]
