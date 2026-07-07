@@ -270,7 +270,7 @@ impl PickerState {
             groups,
             expanded: HashSet::new(),
             dormant: config.dormant.iter().cloned().collect(),
-            hide_dormant: false,
+            hide_dormant: config.hide_dormant,
             cursor: 0,
             dirty: false,
             mode: config.default_mode.as_mode(),
@@ -504,13 +504,14 @@ impl PickerState {
         !self.hide_dormant || !self.is_dormant(name)
     }
 
-    /// Toggle whether dormant sessions are hidden from the picker. This is a
-    /// view-only filter: it never dirties config, while the dormant set itself
-    /// still persists through `toggle_dormant`.
+    /// Toggle whether dormant sessions are hidden from the picker. The filter
+    /// is persisted as a preference so it survives closing and reopening the
+    /// popup, same as the dormant set itself.
     pub fn toggle_dormant_visibility(&mut self) {
         let command_focus = self.cursor_session_name();
         let search_focus = self.search_cursor_name();
         self.hide_dormant = !self.hide_dormant;
+        self.dirty = true;
         if let Some(name) = command_focus.as_deref().filter(|name| self.session_visible(name)) {
             self.focus_session(name);
         } else {
@@ -1839,6 +1840,22 @@ mod tests {
     }
 
     #[test]
+    fn hide_dormant_loads_from_config() {
+        let sessions = vec![s("a", 30, 1), s("b", 20, 2)];
+        let cfg = Config {
+            groups: vec![],
+            dormant: vec!["a".into()],
+            hide_dormant: true,
+            ..Default::default()
+        };
+        let state = PickerState::build(sessions, &cfg);
+        assert!(state.hiding_dormant());
+        assert_eq!(state.hidden_dormant_count(), 1);
+        let visible: Vec<&str> = state.ordered().iter().map(|s| s.name.as_str()).collect();
+        assert_eq!(visible, vec!["b"]);
+    }
+
+    #[test]
     fn toggle_dormant_on_expanded_window_row_affects_parent_session() {
         let mut sessions = vec![s("a", 30, 1)];
         sessions[0].windows = vec![
@@ -1869,7 +1886,7 @@ mod tests {
     }
 
     #[test]
-    fn toggle_dormant_visibility_filters_command_and_search_without_dirtying() {
+    fn toggle_dormant_visibility_filters_command_and_search_and_dirties() {
         let sessions = vec![s("alpha", 1, 1), s("beta", 1, 2), s("gamma", 1, 3)];
         let cfg = Config { groups: vec![], dormant: vec!["beta".into()], ..Default::default() };
         let mut state = PickerState::build(sessions, &cfg);
@@ -1881,7 +1898,7 @@ mod tests {
         state.toggle_dormant_visibility();
         assert!(state.hiding_dormant());
         assert_eq!(state.hidden_dormant_count(), 1);
-        assert!(!state.dirty, "hiding dormant sessions is a view-only filter");
+        assert!(state.dirty, "hiding dormant sessions persists the preference");
         let visible: Vec<&str> = state.ordered().iter().map(|s| s.name.as_str()).collect();
         assert_eq!(visible, vec!["alpha", "gamma"]);
 

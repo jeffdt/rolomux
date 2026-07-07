@@ -21,6 +21,7 @@ pub const CONFIG_VERSION: u32 = 3;
 pub struct Config {
     pub groups: Vec<Group>,
     pub dormant: Vec<String>,
+    pub hide_dormant: bool,
     pub default_mode: DefaultMode,
     pub new_group_color_policy: ColorPolicy,
     pub static_color: String,
@@ -40,6 +41,7 @@ impl Default for Config {
         Config {
             groups: Vec::new(),
             dormant: Vec::new(),
+            hide_dormant: false,
             default_mode: DefaultMode::default(),
             new_group_color_policy: ColorPolicy::default(),
             static_color: "cyan".to_string(),
@@ -105,6 +107,8 @@ struct RawConfig {
     #[serde(default)]
     dormant: Vec<String>,
     #[serde(default)]
+    hide_dormant: bool,
+    #[serde(default)]
     settings: RawSettings,
 }
 
@@ -123,6 +127,8 @@ struct OutConfig {
     config_version: u32,
     groups: Vec<OutGroup>,
     dormant: Vec<String>,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    hide_dormant: bool,
     settings: OutSettings,
 }
 
@@ -183,6 +189,7 @@ impl Config {
         Config {
             groups,
             dormant: raw.dormant,
+            hide_dormant: raw.hide_dormant,
             default_mode,
             new_group_color_policy,
             static_color,
@@ -212,6 +219,7 @@ impl Config {
                 })
                 .collect(),
             dormant,
+            hide_dormant: self.hide_dormant,
             settings: OutSettings {
                 default_mode: self.default_mode.as_config_str().to_string(),
                 new_group_color_policy: self.new_group_color_policy.as_config_str().to_string(),
@@ -259,6 +267,7 @@ mod tests {
         assert_eq!(cfg.groups.len(), 1);
         assert!(cfg.groups[0].inbox);
         assert!(cfg.dormant.is_empty());
+        assert!(!cfg.hide_dormant);
     }
 
     #[test]
@@ -275,6 +284,20 @@ mod tests {
         let reloaded = Config::load_from(&path);
         // Saved sorted for a stable diff, regardless of insertion order.
         assert_eq!(reloaded.dormant, vec!["alpha".to_string(), "zebra".to_string()]);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn round_trips_hide_dormant_preference() {
+        let dir = std::env::temp_dir().join(format!("rolomux-hide-dormant-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.toml");
+        let cfg = Config { hide_dormant: true, ..Default::default() };
+        cfg.save_to(&path).unwrap();
+        let written = std::fs::read_to_string(&path).unwrap();
+        assert!(written.contains("hide_dormant = true"));
+        let reloaded = Config::load_from(&path);
+        assert!(reloaded.hide_dormant);
         std::fs::remove_dir_all(&dir).ok();
     }
 

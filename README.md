@@ -41,7 +41,7 @@ Reload tmux and press `prefix + s`.
 - **On demand, no daemon.** tmux launches it via `tmux popup -E`; it makes one tmux query, renders, and exits.
   Its own overhead is a couple of milliseconds, so it opens about as fast as tmux can answer.
 - **Fuzzy search built in.** Press `/` to filter sessions by name; matching is in-process with no extra runtime dependency. If this is your preferred way of working, tweak the settings to always launch in search mode.
-- **Dim or hide the sessions you're not using.** Press `d` to mark a session dormant; it stays in place but renders in a dimmed state to indicate that it's on the back burner. Press `h` to hide dormant sessions entirely, and `h` again to show them. Dormant sessions are still fully usable when shown, but reduced visual noise helps you stay laser focused on the sessions that matter right now.
+- **Dim or hide the sessions you're not using.** Press `d` to mark a session dormant; it stays in place but renders in a dimmed state to indicate that it's on the back burner. Press `h` to hide dormant sessions entirely, and `h` again to show them. The hide/show choice persists across popups. Dormant sessions are still fully usable when shown, but reduced visual noise helps you stay laser focused on the sessions that matter right now.
 - **Tune the colors.** Press `,` to open Settings and tune the color of the application border, palette used for group headers, and more. Uses your terminal's ANSI colors to ensure it harmonizes with your existing terminal themes.
 
 **Note:** rolomux depends on (and promotes) good tmux hygiene.
@@ -112,7 +112,7 @@ When dormant sessions are shown, they keep their jump number, group membership, 
 Press `h` to hide dormant sessions entirely; press `h` again to show them.
 Hidden dormant sessions are excluded from the normal picker and from search results, and both modes show a reminder such as `8 dormant sessions hidden` while the filter is active.
 Press `d` again on a dormant session to undim it.
-The dormant set persists across restarts; the hide/show filter is just for the current picker run.
+The dormant set and the hide/show filter both persist across popups, so reopening rolomux keeps your last dormant visibility choice.
 Think of it as one more optional tool in your kit to help you tend your sessions, if you find it helpful.
 
 ### Settings
@@ -140,6 +140,7 @@ Groups, session order, dormant sessions, and settings persist to `~/.config/rolo
 ```toml
 manual_order = ["etsy"]
 dormant = ["zen-mod"]
+hide_dormant = true
 
 [[groups]]
 name = "CONFIG"
