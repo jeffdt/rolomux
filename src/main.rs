@@ -75,16 +75,7 @@ fn main() -> io::Result<()> {
     let action = run_ui(&mut state)?;
 
     if state.dirty {
-        config.groups = state.groups.clone();
-        config.dormant = state.dormant_list();
-        config.hide_dormant = state.hiding_dormant();
-        config.default_mode = state.default_mode;
-        config.number_dormant_sessions = state.number_dormant_sessions;
-        config.new_group_color_policy = state.new_group_color_policy;
-        config.static_color = state.static_color.clone();
-        config.active_palette = state.active_palette.clone();
-        config.remember_expanded_sessions = state.remember_expanded_sessions;
-        config.expanded = state.expanded_list();
+        state.apply_to_config(&mut config);
         let _ = config.save_to(&path);
     }
 
