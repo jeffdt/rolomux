@@ -1406,6 +1406,16 @@ mod tests {
     }
 
     #[test]
+    fn jump_label_covers_both_decades() {
+        assert_eq!(jump_label(1), "1 ");
+        assert_eq!(jump_label(9), "9 ");
+        assert_eq!(jump_label(10), "0 ");
+        assert_eq!(jump_label(11), "⌥1");
+        assert_eq!(jump_label(19), "⌥9");
+        assert_eq!(jump_label(20), "⌥0");
+    }
+
+    #[test]
     fn draw_skips_dormant_jump_numbers_when_configured() {
         let sessions = vec![
             Session { name: "alpha".into(), activity: 30, created: 1, attached: false,
