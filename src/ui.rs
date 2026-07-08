@@ -770,12 +770,13 @@ fn session_item(
 }
 
 fn window_item(win: &Window, last: bool, selected: bool, gutter_color: Color) -> ListItem<'static> {
-    // The connector's two cells stand in for the session's number gutter (no
-    // window number is shown: numbers are reserved for things you can jump
-    // to, and windows aren't jumpable yet); the dot's two cells stand in for
-    // the expand glyph. Together they total SESSION_PREFIX, keeping window
-    // names aligned under session names.
-    let connector = if last { "└─" } else { "├─" };
+    // Two leading blank cells skip the session's number gutter (no window
+    // number is shown: numbers are reserved for things you can jump to, and
+    // windows aren't jumpable yet), so the connector lands directly under the
+    // parent session's expand glyph rather than under its number. The dot's
+    // two cells then continue past the connector, leaving the window name
+    // indented one step to the right of the session name above it.
+    let connector = if last { "  └─" } else { "  ├─" };
     let dot = if win.active { "●" } else { " " };
     ListItem::new(Line::from(vec![
         Span::styled("│", Style::default().fg(gutter_color)),
@@ -2390,11 +2391,13 @@ mod tests {
     }
 
     #[test]
-    fn draw_expanded_window_name_aligns_with_session_name_column() {
+    fn draw_expanded_window_name_indents_one_step_past_session_name() {
         // issue #76: expanded window rows were indented too far right,
         // because the tree connector reserved more cells than the session's
-        // number+glyph gutter it is meant to stand in for. A window's name
-        // should start in the same column as its parent session's name.
+        // number gutter it is meant to stand in for. The connector should
+        // land under the parent session's expand glyph, one indent step (the
+        // width of the number gutter windows don't have) to the right of
+        // where the session's own name starts.
         let sessions = vec![
             Session { name: "claude".into(), activity: 30, created: 1, attached: false,
                       windows: vec![Window { index: 0, name: "editor".into(), active: true }] },
@@ -2410,7 +2413,7 @@ mod tests {
 
         let session_x = (0..buf.area.height).find_map(|y| find_text_x(&buf, y, "claude")).unwrap();
         let window_x = (0..buf.area.height).find_map(|y| find_text_x(&buf, y, "editor")).unwrap();
-        assert_eq!(window_x, session_x, "window name should align under its parent session's name");
+        assert_eq!(window_x, session_x + 2, "window name should indent one step past its parent session's name");
     }
 
     #[test]
