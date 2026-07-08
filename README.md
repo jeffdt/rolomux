@@ -31,7 +31,7 @@ Reload tmux and press `prefix + s`.
 
 ## How it works
 
-- **Create your groups.** Press `g` to jump into group management mode, where you can create, rename and color code your groups.
+- **Create your groups.** Press `g` to jump into group management mode, where you can create, rename and color code your groups. If you have not created any groups yet, the picker prompts you with the `g` then `n` flow.
 - **Sort your sessions.** Move your sessions between groups with `⇧J`/`⇧K`. Once sorted, they stay there, in that order.
   New sessions drop in at the bottom of a designated catchall group, waiting to be sorted (think of it like a triage queue).
   Groups and their ordering persist across tmux restarts.
@@ -87,7 +87,7 @@ Once inside:
 | `j` / `k` | Navigate between groups, wrapping between the first and last group (also `↓` / `↑`) |
 | `↵` / `r` | Rename the selected group |
 | `n` | Create a new group and name it |
-| `d` | Delete the selected group (its sessions fall back to SESSIONS) |
+| `d` | Delete the selected group (its sessions fall back to the inbox group) |
 | `c` | Cycle the selected group's header color |
 | `⇧J` / `⇧K` | Reorder the selected group down / up (also `⇧↓` / `⇧↑`) |
 | `Esc` / `q` / `g` | Back to the picker |
