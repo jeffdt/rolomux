@@ -57,8 +57,8 @@ bind C new-session \; command-prompt -I "" "rename-session '%%'" \; command-prom
 | Key | Action |
 | --- | --- |
 | `↵` | Switch to the selected session/window and close |
-| `1`-`9` | Switch to that session immediately |
-| `M-1`-`M-9` | Highlight and expand that session (Option/Alt) |
+| `1`-`9`, `0` | Switch to session 1-10 immediately (`0` = the 10th) |
+| `M-1`-`M-9`, `M-0` | Switch to session 11-20 immediately (Option/Alt; `M-1` = 11th ... `M-0` = 20th) |
 | `j` / `k` | Move the cursor, wrapping between the top and bottom (also `↓` / `↑`) |
 | `l` / `→` | Expand a session's window tree |
 | `←` | Collapse a session's window tree |

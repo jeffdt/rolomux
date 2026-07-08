@@ -1202,21 +1202,6 @@ impl PickerState {
             .map(|s| Action::SwitchSession(s.name.clone()))
     }
 
-    /// Move the cursor to the session at 1-based display number `n` (grouped #1
-    /// down, the same stable order as `action_for_session_number`) and expand it
-    /// so its windows show. Unlike a plain-digit switch, this only relocates the
-    /// highlight and reveals windows so one can be picked; it does not switch.
-    /// No-op if `n` is 0 or out of range.
-    pub fn focus_session_number(&mut self, n: usize) {
-        if n == 0 {
-            return;
-        }
-        if let Some(name) = self.numbered_order().get(n - 1).map(|s| s.name.clone()) {
-            self.expanded.insert(name.clone());
-            self.focus_session(&name);
-        }
-    }
-
     /// Expand every session, or collapse all if everything is already expanded.
     /// Keeps the cursor on the same session.
     pub fn toggle_all(&mut self) {
@@ -1533,18 +1518,11 @@ mod tests {
             number_dormant_sessions: false,
             ..Default::default()
         };
-        let mut state = PickerState::build(sessions, &cfg);
+        let state = PickerState::build(sessions, &cfg);
 
         assert_eq!(state.action_for_session_number(1), Some(Action::SwitchSession("alpha".into())));
         assert_eq!(state.action_for_session_number(2), Some(Action::SwitchSession("gamma".into())));
         assert_eq!(state.action_for_session_number(3), None);
-
-        state.focus_session_number(2);
-        assert_eq!(state.cursor_session_name().as_deref(), Some("gamma"));
-        assert!(state.is_expanded("gamma"));
-
-        state.focus_session_number(3);
-        assert_eq!(state.cursor_session_name().as_deref(), Some("gamma"));
     }
 
     #[test]
@@ -1561,32 +1539,6 @@ mod tests {
         assert_eq!(state.action_for_session_number(1), Some(Action::SwitchSession("alpha".into())));
         assert_eq!(state.action_for_session_number(2), Some(Action::SwitchSession("gamma".into())));
         assert_eq!(state.action_for_session_number(3), None);
-    }
-
-    #[test]
-    fn focus_session_number_moves_cursor_without_switching() {
-        let sessions = vec![s("a", 10, 1), s("b", 30, 2), s("c", 20, 3)];
-        let cfg = Config {
-            dormant: vec![], groups: vec![Group { name: "PINNED".into(), members: vec!["c".into()], color: String::new(), ..Default::default() }],
-            ..Default::default()
-        };
-        let mut state = PickerState::build(sessions, &cfg); // order: c, a, b (a/b unranked by created asc)
-
-        state.focus_session_number(3); // -> b
-        assert_eq!(state.cursor_session_name().as_deref(), Some("b"));
-        assert!(state.is_expanded("b"), "focused session expands");
-        state.focus_session_number(1); // -> c
-        assert_eq!(state.cursor_session_name().as_deref(), Some("c"));
-        assert!(state.is_expanded("c"), "focused session expands");
-
-        // Zero and out-of-range are no-ops (cursor stays put).
-        state.focus_session_number(0);
-        assert_eq!(state.cursor_session_name().as_deref(), Some("c"));
-        state.focus_session_number(9);
-        assert_eq!(state.cursor_session_name().as_deref(), Some("c"));
-
-        // Focusing does not switch or dirty state.
-        assert!(!state.dirty);
     }
 
     #[test]

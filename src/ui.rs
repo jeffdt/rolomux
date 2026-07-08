@@ -727,7 +727,6 @@ pub enum Input {
     ToggleAll,
     Select,
     Switch(usize),
-    Focus(usize),
     EnterGroups,
     EnterSettings,
     MoveUp,
@@ -831,6 +830,7 @@ pub fn map_search_key(key: KeyEvent) -> SearchInput {
 
 pub fn map_key(key: KeyEvent) -> Input {
     let shift = key.modifiers.contains(KeyModifiers::SHIFT);
+    let alt = key.modifiers.contains(KeyModifiers::ALT);
     match key.code {
         KeyCode::Char('K') | KeyCode::Up if shift => Input::MoveUp,
         KeyCode::Char('J') | KeyCode::Down if shift => Input::MoveDown,
@@ -845,10 +845,10 @@ pub fn map_key(key: KeyEvent) -> Input {
         KeyCode::Char(',') => Input::EnterSettings,
         KeyCode::Char('/') => Input::EnterSearch,
         KeyCode::Char('d') => Input::ToggleDormant,
-        KeyCode::Char(c @ '1'..='9') if key.modifiers.contains(KeyModifiers::ALT) => {
-            Input::Focus(c as usize - '0' as usize)
-        }
+        KeyCode::Char(c @ '1'..='9') if alt => Input::Switch(10 + (c as usize - '0' as usize)),
+        KeyCode::Char('0') if alt => Input::Switch(20),
         KeyCode::Char(c @ '1'..='9') => Input::Switch(c as usize - '0' as usize),
+        KeyCode::Char('0') => Input::Switch(10),
         KeyCode::Char('q') | KeyCode::Esc => Input::Quit,
         _ => Input::None,
     }
@@ -1082,12 +1082,12 @@ mod tests {
         assert_eq!(map_key(key(KeyCode::Char('z'))), Input::ToggleAll);
         assert_eq!(map_key(key(KeyCode::Char('1'))), Input::Switch(1));
         assert_eq!(map_key(key(KeyCode::Char('9'))), Input::Switch(9));
-        assert_eq!(map_key(key(KeyCode::Char('0'))), Input::None);
+        assert_eq!(map_key(key(KeyCode::Char('0'))), Input::Switch(10));
         assert_eq!(map_key(key(KeyCode::Char('x'))), Input::None);
-        // Option/Alt+digit focuses (moves highlight) instead of switching.
-        assert_eq!(map_key(alt(KeyCode::Char('1'))), Input::Focus(1));
-        assert_eq!(map_key(alt(KeyCode::Char('9'))), Input::Focus(9));
-        assert_eq!(map_key(alt(KeyCode::Char('0'))), Input::None);
+        // Option/Alt+digit reaches the second decade of sessions (11-20).
+        assert_eq!(map_key(alt(KeyCode::Char('1'))), Input::Switch(11));
+        assert_eq!(map_key(alt(KeyCode::Char('9'))), Input::Switch(19));
+        assert_eq!(map_key(alt(KeyCode::Char('0'))), Input::Switch(20));
     }
 
     #[test]
