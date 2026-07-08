@@ -380,6 +380,13 @@ fn draw_settings(frame: &mut Frame, state: &PickerState, inner: Rect) {
                     selected,
                 )
             }
+            SettingsRow::RememberExpanded => {
+                settings_value_line(
+                    "Remember expanded sessions",
+                    remember_expanded_label(state.remember_expanded_sessions),
+                    selected,
+                )
+            }
             SettingsRow::AttachedColor => {
                 settings_color_line("Attached session color", &state.attached_color, state.attached_color_expanded(), selected)
             }
@@ -497,6 +504,10 @@ fn default_mode_label(m: DefaultMode) -> &'static str {
 
 fn dormant_numbering_label(number_dormant_sessions: bool) -> &'static str {
     if number_dormant_sessions { "Yes" } else { "No" }
+}
+
+fn remember_expanded_label(remember_expanded_sessions: bool) -> &'static str {
+    if remember_expanded_sessions { "Yes" } else { "No" }
 }
 
 fn color_policy_label(p: ColorPolicy) -> &'static str {
@@ -2021,6 +2032,29 @@ mod tests {
     }
 
     #[test]
+    fn draw_settings_shows_remember_expanded_row() {
+        let text = render_to_string(&settings_view());
+        assert!(text.contains("Remember expanded sessions"));
+        assert!(text.contains("No"), "defaults to No");
+    }
+
+    #[test]
+    fn draw_settings_remember_expanded_shows_yes_when_toggled_on() {
+        let mut st = settings_view();
+        st.settings_move_cursor(2); // RememberExpanded
+        st.settings_step_right();
+        let text = render_to_string(&st);
+        let row = text
+            .lines()
+            .find(|line| line.contains("Remember expanded sessions"))
+            .expect("Remember expanded sessions row is rendered");
+        // "Number dormant sessions" also renders "Yes" by default, so the
+        // assertion must target this row specifically rather than the
+        // whole screen's text.
+        assert!(row.contains("Yes"), "row should show Yes once toggled on: {row:?}");
+    }
+
+    #[test]
     fn draw_settings_shows_attached_and_border_color_rows() {
         let text = render_to_string(&settings_view());
         assert!(text.contains("Attached session color"));
@@ -2032,7 +2066,7 @@ mod tests {
     #[test]
     fn draw_settings_expanded_attached_color_shows_radio_glyphs() {
         let mut st = settings_view();
-        st.settings_move_cursor(2); // AttachedColor
+        st.settings_move_cursor(3); // AttachedColor
         st.settings_step_right(); // expand
         let text = render_to_string(&st);
         assert!(text.contains("●"), "the currently selected color is marked filled");
@@ -2048,7 +2082,7 @@ mod tests {
     #[test]
     fn draw_settings_expanded_border_color_shows_radio_glyphs() {
         let mut st = settings_view();
-        st.settings_move_cursor(3); // BorderColor
+        st.settings_move_cursor(4); // BorderColor
         st.settings_step_right();
         let text = render_to_string(&st);
         assert!(text.contains("●"));
@@ -2058,7 +2092,7 @@ mod tests {
     #[test]
     fn draw_settings_expanded_palette_shows_swatches_and_checkboxes() {
         let mut st = settings_view();
-        st.settings_move_cursor(5); // Palette
+        st.settings_move_cursor(6); // Palette
         st.settings_step_right(); // expand
         let text = render_to_string(&st);
         assert!(text.contains("[x]"), "active color checked");
@@ -2070,7 +2104,7 @@ mod tests {
     #[test]
     fn draw_settings_shows_static_color_value_when_policy_is_static() {
         let mut st = settings_view();
-        st.settings_move_cursor(4); // ColorPolicy row
+        st.settings_move_cursor(5); // ColorPolicy row
         st.settings_step_right(); // Rotate -> Random
         st.settings_step_right(); // Random -> Static
         st.static_color = "magenta".to_string();
