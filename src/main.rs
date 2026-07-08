@@ -83,6 +83,8 @@ fn main() -> io::Result<()> {
         config.new_group_color_policy = state.new_group_color_policy;
         config.static_color = state.static_color.clone();
         config.active_palette = state.active_palette.clone();
+        config.remember_expanded_sessions = state.remember_expanded_sessions;
+        config.expanded = state.expanded_list();
         let _ = config.save_to(&path);
     }
 
