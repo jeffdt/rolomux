@@ -355,7 +355,7 @@ dependencies = [
 
 [[package]]
 name = "rolomux"
-version = "0.19.4"
+version = "0.19.5"
 dependencies = [
  "crossterm",
  "nucleo-matcher",

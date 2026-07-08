@@ -117,11 +117,16 @@ Think of it as one more optional tool in your kit to help you tend your sessions
 
 ### Settings
 
-Press `,` to open Settings, a full-screen view of picker-wide preferences:
+Press `,` to open Settings, a full-screen view of picker-wide preferences, grouped into two sections:
+
+**Behavior**
 
 - **Default mode.** Whether the picker opens in Command mode or straight into Search.
 - **Number dormant sessions.** Whether visible dormant sessions are included in jump numbering (sessions 1-20).
 - **Remember expanded sessions.** Off by default (every popup starts fully collapsed). When on, expanding or collapsing a session's window tree (`l`/`h`/`z`) persists across popups, so the sessions you're actively jumping between stay expanded.
+
+**Appearance**
+
 - **Attached session color.** The color used to highlight the session your tmux client is currently attached to.
 - **Border color.** rolomux's own border frame color.
 - **New group color.** How a newly created group picks its header color: Rotate through the palette in order, pick a Random color each time, or always use one Static color.
