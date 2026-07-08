@@ -29,6 +29,8 @@ bind s display-popup -E -B -w 84 -h 60% "exec rolomux"
 
 Reload tmux and press `prefix + s`.
 
+You can use other dimensions, but these work well for me. `-h` also accepts a fixed line count (e.g. `-h 30`) instead of a percentage.
+
 ## How it works
 
 - **Create your groups.** Press `g` to jump into group management mode, where you can create, rename and color code your groups. If you have not created any groups yet, the picker prompts you with the `g` then `n` flow.
