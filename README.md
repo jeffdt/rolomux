@@ -102,13 +102,13 @@ Type any part of a session name; results are ranked best-match-first, with the t
 Move within results with `↑`/`↓` (or `Ctrl-n`/`Ctrl-p`, `Ctrl-j`/`Ctrl-k`), wrapping between the first and last match.
 `Backspace` deletes the last character, `Ctrl-W` (or `Option/Alt` + `Backspace`) deletes the last word, and `Ctrl-U` clears the query.
 
-While searching, section headers and jump numbers (1-9) are hidden; the list is flat and collapsed.
+While searching, section headers and jump numbers (sessions 1-20) are hidden; the list is flat and collapsed.
 If dormant sessions are hidden, search results exclude them and the footer shows how many are currently hidden.
 
 ### Dormant sessions
 
 Press `d` to mark the selected session dormant; it renders dimmed in place as a "not in active rotation" cue.
-When dormant sessions are shown, they keep their group membership and position. By default they also keep jump numbers; in Settings, change **Number dormant sessions** to **No** if you want visible dormant sessions to be omitted from the `1`-`9` shortcuts.
+When dormant sessions are shown, they keep their group membership and position. By default they also keep jump numbers; in Settings, change **Number dormant sessions** to **No** if you want visible dormant sessions to be omitted from jump numbering.
 Press `h` to hide dormant sessions entirely; press `h` again to show them.
 Hidden dormant sessions are excluded from the normal picker and from search results, and both modes show a reminder such as `8 dormant sessions hidden` while the filter is active.
 Press `d` again on a dormant session to undim it.
@@ -120,7 +120,7 @@ Think of it as one more optional tool in your kit to help you tend your sessions
 Press `,` to open Settings, a full-screen view of picker-wide preferences:
 
 - **Default mode.** Whether the picker opens in Command mode or straight into Search.
-- **Number dormant sessions.** Whether visible dormant sessions are included in the `1`-`9` jump numbering.
+- **Number dormant sessions.** Whether visible dormant sessions are included in jump numbering (sessions 1-20).
 - **Attached session color.** The color used to highlight the session your tmux client is currently attached to.
 - **Border color.** rolomux's own border frame color.
 - **New group color.** How a newly created group picks its header color: Rotate through the palette in order, pick a Random color each time, or always use one Static color.
@@ -159,7 +159,7 @@ inbox = true
 
 [settings]
 default_mode = "command"           # or "search"
-number_dormant_sessions = true      # false skips visible dormant sessions in 1-9 numbering
+number_dormant_sessions = true      # false skips visible dormant sessions in jump numbering
 new_group_color_policy = "rotate"  # or "random", "static"
 attached_color = "cyan"
 border_color = "cyan"

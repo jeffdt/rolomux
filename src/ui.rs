@@ -185,11 +185,11 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
                 let dormant = state.is_dormant(&sess.name);
                 let numbered = state.number_dormant_sessions || !dormant;
                 // Stable jump number: 1-based position among numbered sessions,
-                // for the first 9 sessions. Unaffected by what is expanded.
+                // for the first 20 sessions. Unaffected by what is expanded.
                 let number = if numbered {
                     let n = next_jump_number;
                     next_jump_number += 1;
-                    if n <= 9 { Some(n) } else { None }
+                    if n <= 20 { Some(n) } else { None }
                 } else {
                     None
                 };
@@ -653,6 +653,22 @@ impl MetaLayout {
     }
 }
 
+/// Two-character jump-number label for a session's gutter, given its
+/// 1-based stable position. Slots 1-9 show the digit; slot 10 shows "0"
+/// (previously unbound, now the 10th session); slots 11-20 show the macOS
+/// Option-key glyph plus the digit that reaches them via Alt+digit
+/// (Alt+1 = 11th session ... Alt+0 = 20th) — Alt itself has no printable
+/// character to echo back, unlike the plain-digit case. Callers cap
+/// `number` at 20 before it reaches here.
+fn jump_label(n: usize) -> String {
+    match n {
+        1..=9 => format!("{n} "),
+        10 => "0 ".to_string(),
+        11..=19 => format!("⌥{}", n - 10),
+        _ => "⌥0".to_string(),
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn session_item(
     sess: &Session,
@@ -666,7 +682,7 @@ fn session_item(
     gutter: Option<Color>,
 ) -> ListItem<'static> {
     let glyph = if expanded { "▾" } else { "▸" };
-    let num = match number { Some(n) => format!("{n} "), None => "  ".to_string() };
+    let num = match number { Some(n) => jump_label(n), None => "  ".to_string() };
     let name_style = if sess.attached {
         Style::default().fg(attached_color).add_modifier(Modifier::BOLD)
     } else if dormant {
@@ -1349,6 +1365,44 @@ mod tests {
                 assert!(line.starts_with("│2 "), "other row gutter: got {line:?}");
             }
         }
+    }
+
+    #[test]
+    fn draw_numbers_extend_past_nine_with_alt_glyph() {
+        let sessions: Vec<Session> = (1..=12)
+            .map(|i| Session {
+                name: format!("s{i}"),
+                activity: 0,
+                created: i as i64,
+                attached: false,
+                windows: vec![Window { index: 0, name: "w".into(), active: true }],
+            })
+            .collect();
+        let cfg = Config { groups: vec![], ..Default::default() };
+        let state = PickerState::build(sessions, &cfg); // created-ascending: s1 = #1 ... s12 = #12
+
+        let backend = TestBackend::new(60, 30);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| draw(f, &state)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+        let inner_line = |y: u16| -> String {
+            ((POPUP_MARGIN + 1)..buf.area.width).map(|x| buf[(x, y)].symbol()).collect()
+        };
+
+        let mut saw_s10 = false;
+        let mut saw_s11 = false;
+        for y in 0..buf.area.height {
+            let line = inner_line(y);
+            if line.contains("s10") {
+                assert!(line.starts_with("│0 "), "10th session shows '0': got {line:?}");
+                saw_s10 = true;
+            }
+            if line.contains("s11") {
+                assert!(line.starts_with("│⌥1"), "11th session shows the Alt-glyph label: got {line:?}");
+                saw_s11 = true;
+            }
+        }
+        assert!(saw_s10 && saw_s11, "both boundary rows must be visible in the test viewport");
     }
 
     #[test]

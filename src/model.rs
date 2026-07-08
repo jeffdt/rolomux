@@ -1511,6 +1511,18 @@ mod tests {
     }
 
     #[test]
+    fn action_for_session_number_extends_past_nine() {
+        let sessions: Vec<Session> = (1..=12).map(|i| s(&format!("s{i}"), 0, i as i64)).collect();
+        let cfg = Config::default();
+        let state = PickerState::build(sessions, &cfg);
+
+        assert_eq!(state.action_for_session_number(10), Some(Action::SwitchSession("s10".into())));
+        assert_eq!(state.action_for_session_number(11), Some(Action::SwitchSession("s11".into())));
+        assert_eq!(state.action_for_session_number(12), Some(Action::SwitchSession("s12".into())));
+        assert_eq!(state.action_for_session_number(13), None);
+    }
+
+    #[test]
     fn dormant_sessions_can_be_skipped_by_jump_numbering() {
         let sessions = vec![s("alpha", 10, 1), s("beta", 20, 2), s("gamma", 30, 3)];
         let cfg = Config {
