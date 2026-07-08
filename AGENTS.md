@@ -275,6 +275,14 @@ and updating `scripts/release.sh`'s asset handling.
   surface (model/logic-only work).
 - Specs live in `specs/`, plans in `plans/`, the build ledger in
   `.superpowers/`; all three are git-ignored scratch, not part of the package.
+- **Review gate is the plan, not the spec.** When brainstorming a feature
+  (the `brainstorming` skill's normal flow asks Jeff to review the written
+  spec before moving to `writing-plans`), skip that spec review step here —
+  Jeff cares about requirements and scope, not the technical rationale a
+  spec captures. Write the spec as usual (it's still useful working
+  material and the reference implementers/reviewers read), but treat the
+  **implementation plan** as the actual review gate: present that for his
+  approval before execution begins.
 - **Keep the README current in the same PR.** A functional change (new key,
   new behavior, new config option) needs its own line in the relevant README
   section (Keys, How it works, Configuration); don't leave it to a later
@@ -293,3 +301,14 @@ and updating `scripts/release.sh`'s asset handling.
   a GitHub issue on this repo (i.e. an issue number was mentioned in the
   session), reference it in the PR body with `Closes #N` so the issue links and
   auto-closes on merge.
+- **Never merge a feature branch to `main` locally, even when offered.** A
+  generic workflow (e.g. the `finishing-a-development-branch` skill) may present
+  "merge locally" as an equally-weighted option alongside "push and open a PR" --
+  always decline it here and push + open a PR (squash-merged) instead, per the
+  bullet above. A raw local `git merge` produces no PR, and this repo's release
+  notes are auto-generated from merged PRs: the change still ships correctly
+  (it's in the commit history either way), but it silently goes missing from
+  every release's "What's Changed" list, which only surfaces later as confusing
+  release-note gaps. This actually happened (issue #23's inbox-group feature was
+  merged locally and is absent from v0.17.0's release notes despite shipping in
+  it).
