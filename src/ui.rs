@@ -770,10 +770,12 @@ fn session_item(
 }
 
 fn window_item(win: &Window, last: bool, selected: bool, gutter_color: Color) -> ListItem<'static> {
-    // Three leading spaces align under the session's number gutter. No window
-    // number is shown: numbers are reserved for things you can jump to, and
-    // windows aren't jumpable yet.
-    let connector = if last { "   └─ " } else { "   ├─ " };
+    // The connector's two cells stand in for the session's number gutter (no
+    // window number is shown: numbers are reserved for things you can jump
+    // to, and windows aren't jumpable yet); the dot's two cells stand in for
+    // the expand glyph. Together they total SESSION_PREFIX, keeping window
+    // names aligned under session names.
+    let connector = if last { "└─" } else { "├─" };
     let dot = if win.active { "●" } else { " " };
     ListItem::new(Line::from(vec![
         Span::styled("│", Style::default().fg(gutter_color)),
@@ -2385,6 +2387,30 @@ mod tests {
             }
         }
         assert!(found_magenta_bar_on_window_row, "editor window row shows the parent session's magenta gutter bar");
+    }
+
+    #[test]
+    fn draw_expanded_window_name_aligns_with_session_name_column() {
+        // issue #76: expanded window rows were indented too far right,
+        // because the tree connector reserved more cells than the session's
+        // number+glyph gutter it is meant to stand in for. A window's name
+        // should start in the same column as its parent session's name.
+        let sessions = vec![
+            Session { name: "claude".into(), activity: 30, created: 1, attached: false,
+                      windows: vec![Window { index: 0, name: "editor".into(), active: true }] },
+        ];
+        let cfg = Config::default();
+        let mut state = PickerState::build(sessions, &cfg);
+        state.expand();
+
+        let backend = TestBackend::new(80, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| draw(f, &state)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+
+        let session_x = (0..buf.area.height).find_map(|y| find_text_x(&buf, y, "claude")).unwrap();
+        let window_x = (0..buf.area.height).find_map(|y| find_text_x(&buf, y, "editor")).unwrap();
+        assert_eq!(window_x, session_x, "window name should align under its parent session's name");
     }
 
     #[test]
