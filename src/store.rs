@@ -29,6 +29,8 @@ pub struct Config {
     pub active_palette: Vec<String>,
     pub attached_color: String,
     pub border_color: String,
+    pub remember_expanded_sessions: bool,
+    pub expanded: Vec<String>,
 }
 
 /// The active palette a fresh `Config` starts with, and the fallback when a
@@ -50,6 +52,8 @@ impl Default for Config {
             active_palette: default_active_palette(),
             attached_color: "cyan".to_string(),
             border_color: "cyan".to_string(),
+            remember_expanded_sessions: false,
+            expanded: Vec::new(),
         }
     }
 }
@@ -81,6 +85,8 @@ struct RawSettings {
     attached_color: Option<String>,
     #[serde(default)]
     border_color: Option<String>,
+    #[serde(default)]
+    remember_expanded_sessions: Option<bool>,
 }
 
 #[derive(serde::Serialize)]
@@ -92,6 +98,7 @@ struct OutSettings {
     active_palette: Vec<String>,
     attached_color: String,
     border_color: String,
+    remember_expanded_sessions: bool,
 }
 
 #[derive(Deserialize, Default)]
@@ -115,6 +122,8 @@ struct RawConfig {
     hide_dormant: bool,
     #[serde(default)]
     settings: RawSettings,
+    #[serde(default)]
+    expanded: Vec<String>,
 }
 
 #[derive(serde::Serialize)]
@@ -135,6 +144,7 @@ struct OutConfig {
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     hide_dormant: bool,
     settings: OutSettings,
+    expanded: Vec<String>,
 }
 
 impl Config {
@@ -202,6 +212,8 @@ impl Config {
             active_palette,
             attached_color,
             border_color,
+            remember_expanded_sessions: raw.settings.remember_expanded_sessions.unwrap_or(false),
+            expanded: raw.expanded,
         }
     }
 
@@ -211,6 +223,8 @@ impl Config {
         }
         let mut dormant = self.dormant.clone();
         dormant.sort();
+        let mut expanded = self.expanded.clone();
+        expanded.sort();
         let out = OutConfig {
             config_version: CONFIG_VERSION,
             groups: self
@@ -234,7 +248,9 @@ impl Config {
                 active_palette: self.active_palette.clone(),
                 attached_color: self.attached_color.clone(),
                 border_color: self.border_color.clone(),
+                remember_expanded_sessions: self.remember_expanded_sessions,
             },
+            expanded,
         };
         let body = toml::to_string(&out).map_err(io::Error::other)?;
         std::fs::write(path, body)
@@ -243,13 +259,16 @@ impl Config {
     pub fn reconcile(&mut self, live_names: &[String]) -> bool {
         let is_live = |name: &String| live_names.iter().any(|n| n == name);
         let before: usize = self.groups.iter().map(|g| g.members.len()).sum::<usize>()
-            + self.dormant.len();
+            + self.dormant.len()
+            + self.expanded.len();
         for g in &mut self.groups {
             g.members.retain(&is_live);
         }
         self.dormant.retain(&is_live);
+        self.expanded.retain(&is_live);
         let after: usize = self.groups.iter().map(|g| g.members.len()).sum::<usize>()
-            + self.dormant.len();
+            + self.dormant.len()
+            + self.expanded.len();
         before != after
     }
 }
@@ -702,6 +721,56 @@ inbox = true
             reloaded.active_palette,
             vec!["magenta".to_string(), "white".to_string()]
         );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn default_config_has_remember_expanded_sessions_off_and_empty_expanded() {
+        let cfg = Config::default();
+        assert!(!cfg.remember_expanded_sessions);
+        assert!(cfg.expanded.is_empty());
+    }
+
+    #[test]
+    fn round_trips_remember_expanded_sessions_and_expanded_list() {
+        let dir = std::env::temp_dir().join(format!("rolomux-expanded-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.toml");
+        let cfg = Config {
+            remember_expanded_sessions: true,
+            expanded: vec!["zebra".into(), "alpha".into()],
+            ..Default::default()
+        };
+        cfg.save_to(&path).unwrap();
+        let reloaded = Config::load_from(&path);
+        assert!(reloaded.remember_expanded_sessions);
+        // Saved sorted for a stable diff, regardless of insertion order.
+        assert_eq!(reloaded.expanded, vec!["alpha".to_string(), "zebra".to_string()]);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn reconcile_drops_dead_expanded_entries() {
+        let mut cfg = Config {
+            groups: vec![],
+            expanded: vec!["a".into(), "gone".into()],
+            ..Default::default()
+        };
+        let changed = cfg.reconcile(&["a".to_string()]);
+        assert!(changed);
+        assert_eq!(cfg.expanded, vec!["a".to_string()]);
+    }
+
+    #[test]
+    fn legacy_config_without_expanded_settings_defaults_cleanly() {
+        let dir = std::env::temp_dir().join(format!("rolomux-noexpanded-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.toml");
+        // A config_version=1 file from before this setting existed.
+        std::fs::write(&path, "config_version = 1\nsort = \"activity\"\n").unwrap();
+        let cfg = Config::load_from(&path);
+        assert!(!cfg.remember_expanded_sessions);
+        assert!(cfg.expanded.is_empty());
         std::fs::remove_dir_all(&dir).ok();
     }
 }
