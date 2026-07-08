@@ -587,6 +587,22 @@ impl PickerState {
         v
     }
 
+    /// Copy the current mutable picker state into the persisted config model.
+    pub fn apply_to_config(&self, config: &mut Config) {
+        config.groups = self.groups.clone();
+        config.dormant = self.dormant_list();
+        config.hide_dormant = self.hiding_dormant();
+        config.default_mode = self.default_mode;
+        config.number_dormant_sessions = self.number_dormant_sessions;
+        config.new_group_color_policy = self.new_group_color_policy;
+        config.static_color = self.static_color.clone();
+        config.active_palette = self.active_palette.clone();
+        config.attached_color = self.attached_color.clone();
+        config.border_color = self.border_color.clone();
+        config.remember_expanded_sessions = self.remember_expanded_sessions;
+        config.expanded = self.expanded_list();
+    }
+
     pub fn focus_session(&mut self, name: &str) {
         let rows = self.visible_rows();
         let ordered = self.ordered();
@@ -2809,6 +2825,39 @@ mod tests {
         assert_eq!(st.border_color, "gray");
         assert!(st.dirty);
         assert_eq!(st.settings_visible_rows().len(), 7, "stays collapsed");
+    }
+
+    #[test]
+    fn apply_to_config_persists_settings_preferences() {
+        let dir = std::env::temp_dir().join(format!("rolomux-state-config-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.toml");
+        let mut cfg = Config::default();
+        let mut st = PickerState::build(vec![s("a", 1, 1)], &cfg);
+        st.attached_color = "magenta".to_string();
+        st.border_color = "yellow".to_string();
+        st.default_mode = DefaultMode::Search;
+        st.number_dormant_sessions = false;
+        st.hide_dormant = true;
+        st.new_group_color_policy = ColorPolicy::Static;
+        st.static_color = "white".to_string();
+        st.active_palette = vec!["red".to_string(), "white".to_string()];
+        st.remember_expanded_sessions = true;
+
+        st.apply_to_config(&mut cfg);
+        cfg.save_to(&path).unwrap();
+        let reloaded = Config::load_from(&path);
+
+        assert_eq!(reloaded.attached_color, "magenta");
+        assert_eq!(reloaded.border_color, "yellow");
+        assert_eq!(reloaded.default_mode, DefaultMode::Search);
+        assert!(!reloaded.number_dormant_sessions);
+        assert!(reloaded.hide_dormant);
+        assert_eq!(reloaded.new_group_color_policy, ColorPolicy::Static);
+        assert_eq!(reloaded.static_color, "white");
+        assert_eq!(reloaded.active_palette, vec!["red".to_string(), "white".to_string()]);
+        assert!(reloaded.remember_expanded_sessions);
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

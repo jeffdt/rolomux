@@ -1,6 +1,6 @@
 [package]
 name = "rolomux"
-version = "0.19.2"
+version = "0.19.3"
 edition = "2021"
 description = "A slick tmux session picker that sorts your sessions into color-coded groups to bring some zen to tmux"
 license = "MIT"
