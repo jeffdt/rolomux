@@ -418,6 +418,8 @@ fn draw_settings(frame: &mut Frame, state: &PickerState, inner: Rect) {
             }
             SettingsRow::ColorPolicy => {
                 let mut spans = vec![
+                    gutter_span(),
+                    Span::raw(" "),
                     Span::styled("New group color", Style::default().add_modifier(Modifier::BOLD)),
                     Span::styled(
                         format!("  {}", color_policy_label(state.new_group_color_policy)),
@@ -437,6 +439,7 @@ fn draw_settings(frame: &mut Frame, state: &PickerState, inner: Rect) {
             SettingsRow::Palette => {
                 let glyph = if state.palette_expanded() { "▾" } else { "▸" };
                 Line::from(vec![
+                    gutter_span(),
                     Span::styled(format!("{glyph} "), secondary(selected)),
                     Span::styled("Color palette", Style::default().add_modifier(Modifier::BOLD)),
                     Span::styled(
@@ -449,6 +452,7 @@ fn draw_settings(frame: &mut Frame, state: &PickerState, inner: Rect) {
                 let (name, active) = &palette_entries[*idx];
                 let checkbox = if *active { "[x]" } else { "[ ]" };
                 Line::from(vec![
+                    gutter_span(),
                     Span::raw("     "),
                     Span::styled(checkbox.to_string(), secondary(selected)),
                     Span::raw(" "),
@@ -475,19 +479,30 @@ fn draw_settings(frame: &mut Frame, state: &PickerState, inner: Rect) {
     frame.render_widget(footer, footer_area);
 }
 
+/// The dim leading `│` every Settings row renders in its first column,
+/// tying rows visually to their section header. Unlike the main session
+/// list's per-group gutter color, every Settings row uses the same dim
+/// color — there is no per-section color coding.
+fn gutter_span() -> Span<'static> {
+    Span::styled("│", Style::default().fg(DIM))
+}
+
 fn settings_value_line(label: &str, value: &str, selected: bool) -> Line<'static> {
     Line::from(vec![
+        gutter_span(),
+        Span::raw(" "),
         Span::styled(label.to_string(), Style::default().add_modifier(Modifier::BOLD)),
         Span::styled(format!("  {value}"), secondary(selected)),
     ])
 }
 
-/// Render a collapsed single-color settings row: an expand glyph, the bold
-/// label, a swatch, and the color's name. Shared by Attached session color
-/// and Border color.
+/// Render a collapsed single-color settings row: a gutter bar, an expand
+/// glyph, the bold label, a swatch, and the color's name. Shared by
+/// Attached session color and Border color.
 fn settings_color_line(label: &str, color_name: &str, expanded: bool, selected: bool) -> Line<'static> {
     let glyph = if expanded { "▾" } else { "▸" };
     Line::from(vec![
+        gutter_span(),
         Span::styled(format!("{glyph} "), secondary(selected)),
         Span::styled(label.to_string(), Style::default().add_modifier(Modifier::BOLD)),
         Span::raw("  "),
@@ -496,13 +511,15 @@ fn settings_color_line(label: &str, color_name: &str, expanded: bool, selected: 
     ])
 }
 
-/// Render one child row of an expanded single-color picker: a radio glyph
-/// (`●` if `name` is the currently selected color, `○` otherwise), a swatch,
-/// and the name. Distinct from `PaletteColor`'s `[x]`/`[ ]` checkbox glyph,
-/// which communicates "pick many" instead of "pick one."
+/// Render one child row of an expanded single-color picker: a gutter bar, a
+/// radio glyph (`●` if `name` is the currently selected color, `○`
+/// otherwise), a swatch, and the name. Distinct from `PaletteColor`'s
+/// `[x]`/`[ ]` checkbox glyph, which communicates "pick many" instead of
+/// "pick one."
 fn settings_color_option_line(name: &str, current: &str, selected: bool) -> Line<'static> {
     let radio = if name == current { "●" } else { "○" };
     Line::from(vec![
+        gutter_span(),
         Span::raw("     "),
         Span::styled(radio.to_string(), secondary(selected)),
         Span::raw(" "),
@@ -2285,6 +2302,82 @@ mod tests {
             2,
             "no extra swatch for Rotate/Random policies beyond the Attached/Border color rows"
         );
+    }
+
+    #[test]
+    fn draw_settings_rows_start_with_a_dim_gutter_bar() {
+        let text = render_to_string(&settings_view());
+        let row = text
+            .lines()
+            .find(|line| line.contains("Default mode"))
+            .expect("Default mode row is rendered");
+        // Strip margin and frame border to check the actual content.
+        let content = row.chars().skip(3).collect::<String>();
+        assert!(content.starts_with("│"), "settings row should start with a gutter bar: {row:?}");
+    }
+
+    #[test]
+    fn draw_settings_gutter_bar_is_dim_colored() {
+        let state = settings_view();
+        let backend = TestBackend::new(80, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| draw(f, &state)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+        let mut found_dim_bar = false;
+        for y in 0..buf.area.height {
+            let line: String = (0..buf.area.width).map(|x| buf[(x, y)].symbol()).collect();
+            if let Some(label_x) = line.find("Default mode") {
+                for x in (POPUP_MARGIN + 1)..(label_x as u16) {
+                    let cell = &buf[(x, y)];
+                    if cell.symbol() == "│" && cell.style().fg == Some(Color::DarkGray) {
+                        found_dim_bar = true;
+                    }
+                }
+            }
+        }
+        assert!(found_dim_bar, "Default mode row shows a dim gutter bar");
+    }
+
+    #[test]
+    fn draw_settings_gutter_bar_continues_through_expanded_color_options() {
+        let mut st = settings_view();
+        st.settings_move_cursor(3); // AttachedColor
+        st.settings_step_right(); // expand
+        let text = render_to_string(&st);
+        let row = text
+            .lines()
+            .find(|line| line.contains("○"))
+            .expect("an unselected color radio-option row is rendered");
+        // Strip margin and frame border to check the actual content.
+        let content = row.chars().skip(3).collect::<String>();
+        assert!(content.starts_with("│"), "expanded color option row should continue the gutter bar: {row:?}");
+    }
+
+    #[test]
+    fn draw_settings_gutter_bar_continues_through_expanded_palette_rows() {
+        let mut st = settings_view();
+        st.settings_move_cursor(6); // Palette
+        st.settings_step_right(); // expand
+        let text = render_to_string(&st);
+        let row = text
+            .lines()
+            .find(|line| line.contains("[ ]"))
+            .expect("an inactive palette checkbox row is rendered");
+        // Strip margin and frame border to check the actual content.
+        let content = row.chars().skip(3).collect::<String>();
+        assert!(content.starts_with("│"), "expanded palette row should continue the gutter bar: {row:?}");
+    }
+
+    #[test]
+    fn draw_settings_color_policy_row_continues_the_gutter_bar() {
+        let text = render_to_string(&settings_view());
+        let row = text
+            .lines()
+            .find(|line| line.contains("New group color"))
+            .expect("New group color row is rendered");
+        // Strip margin and frame border to check the actual content.
+        let content = row.chars().skip(3).collect::<String>();
+        assert!(content.starts_with("│"), "ColorPolicy row should continue the gutter bar: {row:?}");
     }
 
     #[test]
