@@ -1980,8 +1980,14 @@ mod tests {
         st.settings_move_cursor(2); // RememberExpanded
         st.settings_step_right();
         let text = render_to_string(&st);
-        assert!(text.contains("Remember expanded sessions"));
-        assert!(text.contains("Yes"));
+        let row = text
+            .lines()
+            .find(|line| line.contains("Remember expanded sessions"))
+            .expect("Remember expanded sessions row is rendered");
+        // "Number dormant sessions" also renders "Yes" by default, so the
+        // assertion must target this row specifically rather than the
+        // whole screen's text.
+        assert!(row.contains("Yes"), "row should show Yes once toggled on: {row:?}");
     }
 
     #[test]
