@@ -138,7 +138,6 @@ fn event_loop(
                             return Ok(Some(action));
                         }
                     }
-                    Input::Focus(n) => state.focus_session_number(n),
                     Input::Quit => return Ok(None),
                     Input::None => {}
                 },
