@@ -384,8 +384,17 @@ fn draw_settings(frame: &mut Frame, state: &PickerState, inner: Rect) {
     // rebuilding the 16-entry palette Vec on every iteration.
     let palette_entries = state.settings_palette_rows();
     let mut items: Vec<ListItem> = Vec::new();
+    let mut selected_line: Option<usize> = None;
     for (i, row) in rows.iter().enumerate() {
+        match row {
+            SettingsRow::DefaultMode => push_settings_section_header(&mut items, "BEHAVIOR", list_area.width),
+            SettingsRow::AttachedColor => push_settings_section_header(&mut items, "APPEARANCE", list_area.width),
+            _ => {}
+        }
         let selected = i == state.settings_cursor();
+        if selected {
+            selected_line = Some(items.len());
+        }
         let line = match row {
             SettingsRow::DefaultMode => {
                 settings_value_line("Default mode", default_mode_label(state.default_mode), selected)
@@ -468,7 +477,7 @@ fn draw_settings(frame: &mut Frame, state: &PickerState, inner: Rect) {
     let list = List::new(items)
         .highlight_style(Style::default().bg(SEL_BG).add_modifier(Modifier::BOLD));
     let mut list_state = ListState::default();
-    list_state.select(Some(state.settings_cursor()));
+    list_state.select(selected_line);
     frame.render_stateful_widget(list, list_area, &mut list_state);
 
     let rule = "─".repeat(footer_area.width as usize);
@@ -485,6 +494,22 @@ fn draw_settings(frame: &mut Frame, state: &PickerState, inner: Rect) {
 /// color — there is no per-section color coding.
 fn gutter_span() -> Span<'static> {
     Span::styled("│", Style::default().fg(DIM))
+}
+
+fn settings_section_header_item(label: &str, width: u16) -> ListItem<'static> {
+    let rule_len = (width as usize).saturating_sub(label.chars().count() + 2);
+    ListItem::new(Line::from(vec![
+        Span::styled(label.to_string(), Style::default().fg(DIM).add_modifier(Modifier::BOLD)),
+        Span::raw(" "),
+        Span::styled("─".repeat(rule_len), Style::default().fg(DIM)),
+    ]))
+}
+
+fn push_settings_section_header(items: &mut Vec<ListItem<'static>>, label: &str, width: u16) {
+    if !items.is_empty() {
+        items.push(ListItem::new(Line::from("")));
+    }
+    items.push(settings_section_header_item(label, width));
 }
 
 fn settings_value_line(label: &str, value: &str, selected: bool) -> Line<'static> {
@@ -963,7 +988,11 @@ mod tests {
     use ratatui::Terminal;
 
     fn render_to_string(state: &PickerState) -> String {
-        let backend = TestBackend::new(80, 20);
+        render_to_string_sized(state, 80, 20)
+    }
+
+    fn render_to_string_sized(state: &PickerState, width: u16, height: u16) -> String {
+        let backend = TestBackend::new(width, height);
         let mut terminal = Terminal::new(backend).unwrap();
         terminal.draw(|f| draw(f, state)).unwrap();
         let buf = terminal.backend().buffer().clone();
@@ -2270,7 +2299,9 @@ mod tests {
         let mut st = settings_view();
         st.settings_move_cursor(6); // Palette
         st.settings_step_right(); // expand
-        let text = render_to_string(&st);
+        // Taller than the usual 80x20: section headers now push the palette
+        // rows further down than the default viewport reveals.
+        let text = render_to_string_sized(&st, 80, 24);
         assert!(text.contains("[x]"), "active color checked");
         assert!(text.contains("[ ]"), "inactive color unchecked");
         assert!(text.contains("cyan"));
@@ -2358,7 +2389,9 @@ mod tests {
         let mut st = settings_view();
         st.settings_move_cursor(6); // Palette
         st.settings_step_right(); // expand
-        let text = render_to_string(&st);
+        // Taller than the usual 80x20: section headers now push the palette
+        // rows further down than the default viewport reveals.
+        let text = render_to_string_sized(&st, 80, 24);
         let row = text
             .lines()
             .find(|line| line.contains("[ ]"))
@@ -2378,6 +2411,101 @@ mod tests {
         // Strip margin and frame border to check the actual content.
         let content = row.chars().skip(3).collect::<String>();
         assert!(content.starts_with("│"), "ColorPolicy row should continue the gutter bar: {row:?}");
+    }
+
+    #[test]
+    fn draw_settings_shows_behavior_and_appearance_section_headers() {
+        let text = render_to_string(&settings_view());
+        assert!(text.contains("BEHAVIOR"), "Behavior section header is rendered");
+        assert!(text.contains("APPEARANCE"), "Appearance section header is rendered");
+    }
+
+    #[test]
+    fn draw_settings_behavior_header_precedes_default_mode_row() {
+        let text = render_to_string(&settings_view());
+        let lines: Vec<&str> = text.lines().collect();
+        let header_idx = lines.iter().position(|l| l.contains("BEHAVIOR")).expect("BEHAVIOR header rendered");
+        let row_idx = lines.iter().position(|l| l.contains("Default mode")).expect("Default mode row rendered");
+        assert!(header_idx < row_idx, "BEHAVIOR header should render above the Default mode row");
+    }
+
+    #[test]
+    fn draw_settings_appearance_header_precedes_attached_color_row() {
+        let text = render_to_string(&settings_view());
+        let lines: Vec<&str> = text.lines().collect();
+        let header_idx = lines.iter().position(|l| l.contains("APPEARANCE")).expect("APPEARANCE header rendered");
+        let row_idx = lines.iter().position(|l| l.contains("Attached session color")).expect("Attached session color row rendered");
+        assert!(header_idx < row_idx, "APPEARANCE header should render above the Attached session color row");
+    }
+
+    #[test]
+    fn draw_settings_section_headers_are_dim_not_palette_colored() {
+        let state = settings_view();
+        let backend = TestBackend::new(80, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| draw(f, &state)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+        let mut found_dim_header = false;
+        for y in 0..buf.area.height {
+            let line: String = (0..buf.area.width).map(|x| buf[(x, y)].symbol()).collect();
+            if let Some(i) = line.find("BEHAVIOR") {
+                found_dim_header = buf[(i as u16, y)].style().fg == Some(Color::DarkGray);
+            }
+        }
+        assert!(found_dim_header, "BEHAVIOR header should render in dim gray, not a palette color");
+    }
+
+    #[test]
+    fn draw_settings_blank_line_separates_behavior_and_appearance_sections() {
+        let text = render_to_string(&settings_view());
+        let lines: Vec<&str> = text.lines().collect();
+        let appearance_idx = lines.iter().position(|l| l.contains("APPEARANCE")).expect("APPEARANCE header rendered");
+        let prev_line = lines[appearance_idx - 1];
+        // Strip the popup's outer margin and left/right border chars, which are
+        // present on every line, before checking that the list content itself is blank.
+        let content_start = (POPUP_MARGIN + 1) as usize;
+        let content_end = prev_line.chars().count() - content_start;
+        let content: String = prev_line.chars().skip(content_start).take(content_end - content_start).collect();
+        assert!(
+            content.trim().is_empty(),
+            "a blank line should separate BEHAVIOR's rows from the APPEARANCE header, got: {:?}",
+            prev_line
+        );
+    }
+
+    #[test]
+    fn push_settings_section_header_skips_blank_line_when_list_is_empty() {
+        let mut items: Vec<ListItem> = Vec::new();
+        push_settings_section_header(&mut items, "BEHAVIOR", 40);
+        assert_eq!(items.len(), 1, "no blank spacer should precede the very first header");
+    }
+
+    #[test]
+    fn push_settings_section_header_adds_blank_line_before_subsequent_headers() {
+        let mut items: Vec<ListItem> = vec![ListItem::new(Line::from("existing row"))];
+        push_settings_section_header(&mut items, "APPEARANCE", 40);
+        assert_eq!(items.len(), 3, "a blank spacer plus the header should be appended after existing rows");
+    }
+
+    #[test]
+    fn draw_settings_selection_stays_aligned_with_cursor_after_headers_are_spliced_in() {
+        let mut st = settings_view();
+        st.settings_move_cursor(2); // RememberExpanded: 3rd row in the model's flat, header-free list
+        let backend = TestBackend::new(80, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| draw(f, &st)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+        let mut selected_row_highlighted = false;
+        for y in 0..buf.area.height {
+            let line: String = (0..buf.area.width).map(|x| buf[(x, y)].symbol()).collect();
+            if line.contains("Remember expanded sessions") {
+                selected_row_highlighted = buf[(POPUP_MARGIN + 1, y)].style().bg == Some(Color::DarkGray);
+            }
+        }
+        assert!(
+            selected_row_highlighted,
+            "Remember expanded sessions should still render highlighted as the cursor row, even though the BEHAVIOR header now precedes it in the rendered list"
+        );
     }
 
     #[test]
