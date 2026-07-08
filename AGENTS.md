@@ -74,12 +74,19 @@ These are deliberate and have driven past work. Do not reverse them casually.
   jumpable, so only sessions are numbered. Numbering is stable, follows
   final visual top-to-bottom order (the inbox group can be reordered above
   named groups, per issue #23, so there is no more hardcoded
-  "named groups always first"), continuous, capped at 1-9, and
+  "named groups always first"), continuous, capped at 1-20, and
   **never renumbers on expand**. This is the
   intentional divergence from tmux choose-tree, which renumbers every visible
-  line as the tree opens. Plain digit switches and closes; `Option/Alt + digit`
-  focuses and expands a session without switching (uses the legacy ESC-prefix
-  Meta encoding crossterm decodes to `KeyModifiers::ALT`; no kitty protocol).
+  line as the tree opens. Plain digit (`1`-`9`, `0`) switches to sessions
+  1-10 (`0` = the 10th); `Option/Alt + digit` switches to sessions 11-20
+  (`Alt+1` = 11th ... `Alt+0` = 20th), reusing the legacy ESC-prefix Meta
+  encoding crossterm decodes to `KeyModifiers::ALT` (no kitty protocol). A
+  prior version of this picker used `Alt+digit` for a Focus feature
+  (highlight and expand without switching); it was removed in issue #61 to
+  free up `Alt` for the second decade of sessions. `Ctrl+digit` was
+  considered for the second decade instead and rejected: without the kitty
+  keyboard protocol, most terminals can't reliably deliver a `Ctrl` modifier
+  on digit keys (confirmed empirically, not every digit even round-trips).
 - **Test seams.** tmux access sits behind a trait so the UI and model are
   testable without a live tmux. Keep new I/O behind seams like these.
 - **Graceful no-op on tmux failure.** Switch/select actions swallow non-zero
@@ -94,7 +101,7 @@ These are deliberate and have driven past work. Do not reverse them casually.
   runtime dep (still just tmux). The `Mode` enum and `DEFAULT_MODE` constant
   mirror the existing `INITIAL_FOCUS` seam and are the hook for a
   future `default_mode` config key (deferred, not shipped). During search,
-  section headers and 1-9 jump numbers are suppressed by design (digits are
+  section headers and jump numbers (1-20) are suppressed by design (digits are
   query text; numbers cannot be stable when results re-rank on every keystroke).
   Window-name matching is intentionally reachable via the `session_haystack`
   seam in `src/model.rs` but is not built.

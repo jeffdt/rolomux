@@ -185,11 +185,11 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
                 let dormant = state.is_dormant(&sess.name);
                 let numbered = state.number_dormant_sessions || !dormant;
                 // Stable jump number: 1-based position among numbered sessions,
-                // for the first 9 sessions. Unaffected by what is expanded.
+                // for the first 20 sessions. Unaffected by what is expanded.
                 let number = if numbered {
                     let n = next_jump_number;
                     next_jump_number += 1;
-                    if n <= 9 { Some(n) } else { None }
+                    if n <= 20 { Some(n) } else { None }
                 } else {
                     None
                 };
@@ -653,6 +653,22 @@ impl MetaLayout {
     }
 }
 
+/// Two-character jump-number label for a session's gutter, given its
+/// 1-based stable position. Slots 1-9 show the digit; slot 10 shows "0"
+/// (previously unbound, now the 10th session); slots 11-20 show the macOS
+/// Option-key glyph plus the digit that reaches them via Alt+digit
+/// (Alt+1 = 11th session ... Alt+0 = 20th) — Alt itself has no printable
+/// character to echo back, unlike the plain-digit case. Callers cap
+/// `number` at 20 before it reaches here.
+fn jump_label(n: usize) -> String {
+    match n {
+        1..=9 => format!("{n} "),
+        10 => "0 ".to_string(),
+        11..=19 => format!("⌥{}", n - 10),
+        _ => "⌥0".to_string(),
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn session_item(
     sess: &Session,
@@ -666,7 +682,7 @@ fn session_item(
     gutter: Option<Color>,
 ) -> ListItem<'static> {
     let glyph = if expanded { "▾" } else { "▸" };
-    let num = match number { Some(n) => format!("{n} "), None => "  ".to_string() };
+    let num = match number { Some(n) => jump_label(n), None => "  ".to_string() };
     let name_style = if sess.attached {
         Style::default().fg(attached_color).add_modifier(Modifier::BOLD)
     } else if dormant {
@@ -727,7 +743,6 @@ pub enum Input {
     ToggleAll,
     Select,
     Switch(usize),
-    Focus(usize),
     EnterGroups,
     EnterSettings,
     MoveUp,
@@ -831,6 +846,7 @@ pub fn map_search_key(key: KeyEvent) -> SearchInput {
 
 pub fn map_key(key: KeyEvent) -> Input {
     let shift = key.modifiers.contains(KeyModifiers::SHIFT);
+    let alt = key.modifiers.contains(KeyModifiers::ALT);
     match key.code {
         KeyCode::Char('K') | KeyCode::Up if shift => Input::MoveUp,
         KeyCode::Char('J') | KeyCode::Down if shift => Input::MoveDown,
@@ -845,10 +861,10 @@ pub fn map_key(key: KeyEvent) -> Input {
         KeyCode::Char(',') => Input::EnterSettings,
         KeyCode::Char('/') => Input::EnterSearch,
         KeyCode::Char('d') => Input::ToggleDormant,
-        KeyCode::Char(c @ '1'..='9') if key.modifiers.contains(KeyModifiers::ALT) => {
-            Input::Focus(c as usize - '0' as usize)
-        }
+        KeyCode::Char(c @ '1'..='9') if alt => Input::Switch(10 + (c as usize - '0' as usize)),
+        KeyCode::Char('0') if alt => Input::Switch(20),
         KeyCode::Char(c @ '1'..='9') => Input::Switch(c as usize - '0' as usize),
+        KeyCode::Char('0') => Input::Switch(10),
         KeyCode::Char('q') | KeyCode::Esc => Input::Quit,
         _ => Input::None,
     }
@@ -1082,12 +1098,12 @@ mod tests {
         assert_eq!(map_key(key(KeyCode::Char('z'))), Input::ToggleAll);
         assert_eq!(map_key(key(KeyCode::Char('1'))), Input::Switch(1));
         assert_eq!(map_key(key(KeyCode::Char('9'))), Input::Switch(9));
-        assert_eq!(map_key(key(KeyCode::Char('0'))), Input::None);
+        assert_eq!(map_key(key(KeyCode::Char('0'))), Input::Switch(10));
         assert_eq!(map_key(key(KeyCode::Char('x'))), Input::None);
-        // Option/Alt+digit focuses (moves highlight) instead of switching.
-        assert_eq!(map_key(alt(KeyCode::Char('1'))), Input::Focus(1));
-        assert_eq!(map_key(alt(KeyCode::Char('9'))), Input::Focus(9));
-        assert_eq!(map_key(alt(KeyCode::Char('0'))), Input::None);
+        // Option/Alt+digit reaches the second decade of sessions (11-20).
+        assert_eq!(map_key(alt(KeyCode::Char('1'))), Input::Switch(11));
+        assert_eq!(map_key(alt(KeyCode::Char('9'))), Input::Switch(19));
+        assert_eq!(map_key(alt(KeyCode::Char('0'))), Input::Switch(20));
     }
 
     #[test]
@@ -1349,6 +1365,54 @@ mod tests {
                 assert!(line.starts_with("│2 "), "other row gutter: got {line:?}");
             }
         }
+    }
+
+    #[test]
+    fn draw_numbers_extend_past_nine_with_alt_glyph() {
+        let sessions: Vec<Session> = (1..=12)
+            .map(|i| Session {
+                name: format!("s{i}"),
+                activity: 0,
+                created: i as i64,
+                attached: false,
+                windows: vec![Window { index: 0, name: "w".into(), active: true }],
+            })
+            .collect();
+        let cfg = Config { groups: vec![], ..Default::default() };
+        let state = PickerState::build(sessions, &cfg); // created-ascending: s1 = #1 ... s12 = #12
+
+        let backend = TestBackend::new(60, 30);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| draw(f, &state)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+        let inner_line = |y: u16| -> String {
+            ((POPUP_MARGIN + 1)..buf.area.width).map(|x| buf[(x, y)].symbol()).collect()
+        };
+
+        let mut saw_s10 = false;
+        let mut saw_s11 = false;
+        for y in 0..buf.area.height {
+            let line = inner_line(y);
+            if line.contains("s10") {
+                assert!(line.starts_with("│0 "), "10th session shows '0': got {line:?}");
+                saw_s10 = true;
+            }
+            if line.contains("s11") {
+                assert!(line.starts_with("│⌥1"), "11th session shows the Alt-glyph label: got {line:?}");
+                saw_s11 = true;
+            }
+        }
+        assert!(saw_s10 && saw_s11, "both boundary rows must be visible in the test viewport");
+    }
+
+    #[test]
+    fn jump_label_covers_both_decades() {
+        assert_eq!(jump_label(1), "1 ");
+        assert_eq!(jump_label(9), "9 ");
+        assert_eq!(jump_label(10), "0 ");
+        assert_eq!(jump_label(11), "⌥1");
+        assert_eq!(jump_label(19), "⌥9");
+        assert_eq!(jump_label(20), "⌥0");
     }
 
     #[test]
