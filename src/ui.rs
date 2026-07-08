@@ -770,10 +770,13 @@ fn session_item(
 }
 
 fn window_item(win: &Window, last: bool, selected: bool, gutter_color: Color) -> ListItem<'static> {
-    // Three leading spaces align under the session's number gutter. No window
+    // Two leading blank cells skip the session's number gutter (no window
     // number is shown: numbers are reserved for things you can jump to, and
-    // windows aren't jumpable yet.
-    let connector = if last { "   └─ " } else { "   ├─ " };
+    // windows aren't jumpable yet), so the connector lands directly under the
+    // parent session's expand glyph rather than under its number. The dot's
+    // two cells then continue past the connector, leaving the window name
+    // indented one step to the right of the session name above it.
+    let connector = if last { "  └─" } else { "  ├─" };
     let dot = if win.active { "●" } else { " " };
     ListItem::new(Line::from(vec![
         Span::styled("│", Style::default().fg(gutter_color)),
@@ -2385,6 +2388,32 @@ mod tests {
             }
         }
         assert!(found_magenta_bar_on_window_row, "editor window row shows the parent session's magenta gutter bar");
+    }
+
+    #[test]
+    fn draw_expanded_window_name_indents_one_step_past_session_name() {
+        // issue #76: expanded window rows were indented too far right,
+        // because the tree connector reserved more cells than the session's
+        // number gutter it is meant to stand in for. The connector should
+        // land under the parent session's expand glyph, one indent step (the
+        // width of the number gutter windows don't have) to the right of
+        // where the session's own name starts.
+        let sessions = vec![
+            Session { name: "claude".into(), activity: 30, created: 1, attached: false,
+                      windows: vec![Window { index: 0, name: "editor".into(), active: true }] },
+        ];
+        let cfg = Config::default();
+        let mut state = PickerState::build(sessions, &cfg);
+        state.expand();
+
+        let backend = TestBackend::new(80, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| draw(f, &state)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+
+        let session_x = (0..buf.area.height).find_map(|y| find_text_x(&buf, y, "claude")).unwrap();
+        let window_x = (0..buf.area.height).find_map(|y| find_text_x(&buf, y, "editor")).unwrap();
+        assert_eq!(window_x, session_x + 2, "window name should indent one step past its parent session's name");
     }
 
     #[test]
