@@ -38,6 +38,43 @@ impl DefaultMode {
     }
 }
 
+/// Governs which timestamp the session-row metadata column reflects. A
+/// 3-state cycle (unlike `DefaultMode`'s 2-state toggle), so `h`, `l`, and
+/// `Enter`/`Space` on the Session Metadata settings row all call `next()`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SessionMetric {
+    #[default]
+    Recency,
+    Age,
+    Hidden,
+}
+
+impl SessionMetric {
+    pub fn from_config_str(s: &str) -> SessionMetric {
+        match s {
+            "age" => SessionMetric::Age,
+            "hidden" => SessionMetric::Hidden,
+            _ => SessionMetric::Recency,
+        }
+    }
+
+    pub fn as_config_str(self) -> &'static str {
+        match self {
+            SessionMetric::Recency => "recency",
+            SessionMetric::Age => "age",
+            SessionMetric::Hidden => "hidden",
+        }
+    }
+
+    pub fn next(self) -> SessionMetric {
+        match self {
+            SessionMetric::Recency => SessionMetric::Age,
+            SessionMetric::Age => SessionMetric::Hidden,
+            SessionMetric::Hidden => SessionMetric::Recency,
+        }
+    }
+}
+
 /// Governs the header color assigned when a new group is created
 /// (`PickerState::group_new`). Never retroactively recolors existing groups.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -1364,6 +1401,25 @@ mod tests {
         assert_eq!(DefaultMode::Search.as_mode(), Mode::Search);
         assert_eq!(DefaultMode::Command.as_config_str(), "command");
         assert_eq!(DefaultMode::Search.as_config_str(), "search");
+    }
+
+    #[test]
+    fn session_metric_parses_with_recency_fallback() {
+        assert_eq!(SessionMetric::from_config_str("age"), SessionMetric::Age);
+        assert_eq!(SessionMetric::from_config_str("hidden"), SessionMetric::Hidden);
+        assert_eq!(SessionMetric::from_config_str("recency"), SessionMetric::Recency);
+        assert_eq!(SessionMetric::from_config_str("garbage"), SessionMetric::Recency);
+        assert_eq!(SessionMetric::default(), SessionMetric::Recency);
+    }
+
+    #[test]
+    fn session_metric_next_cycles_through_all_three_and_wraps() {
+        assert_eq!(SessionMetric::Recency.next(), SessionMetric::Age);
+        assert_eq!(SessionMetric::Age.next(), SessionMetric::Hidden);
+        assert_eq!(SessionMetric::Hidden.next(), SessionMetric::Recency);
+        assert_eq!(SessionMetric::Recency.as_config_str(), "recency");
+        assert_eq!(SessionMetric::Age.as_config_str(), "age");
+        assert_eq!(SessionMetric::Hidden.as_config_str(), "hidden");
     }
 
     #[test]
