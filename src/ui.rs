@@ -374,7 +374,7 @@ const SETTINGS_FOOTER_HINT: &str =
 fn draw_settings(frame: &mut Frame, state: &PickerState, inner: Rect) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Min(0), Constraint::Length(2)])
+        .constraints([Constraint::Min(0), Constraint::Length(3)])
         .split(inner);
     let list_area = chunks[0];
     let footer_area = chunks[1];
@@ -481,9 +481,11 @@ fn draw_settings(frame: &mut Frame, state: &PickerState, inner: Rect) {
     frame.render_stateful_widget(list, list_area, &mut list_state);
 
     let rule = "─".repeat(footer_area.width as usize);
+    let current_description = rows[state.settings_cursor().min(rows.len().saturating_sub(1))].description();
     let footer = Paragraph::new(vec![
         Line::from(Span::styled(rule, Style::default().fg(DIM))),
         Line::from(Span::styled(SETTINGS_FOOTER_HINT, Style::default().fg(DIM))),
+        Line::from(Span::styled(current_description, Style::default().fg(DIM))),
     ]);
     frame.render_widget(footer, footer_area);
 }
@@ -2223,8 +2225,26 @@ mod tests {
     }
 
     #[test]
-    fn draw_settings_shows_rows_and_footer() {
+    fn draw_settings_shows_description_of_selected_row() {
         let text = render_to_string(&settings_view());
+        // Cursor starts on the first row, DefaultMode.
+        assert!(text.contains("Whether the picker opens in Command mode or straight into Search."));
+    }
+
+    #[test]
+    fn draw_settings_description_updates_as_cursor_moves() {
+        let mut st = settings_view();
+        st.settings_move_cursor(1); // DormantNumbering
+        let text = render_to_string(&st);
+        assert!(text.contains("Whether visible dormant sessions get jump numbers (1-20)."));
+    }
+
+    #[test]
+    fn draw_settings_shows_rows_and_footer() {
+        // One row taller than the default viewport: the footer grew from 2
+        // to 3 rows (rule, key-hint, description), pushing the last visible
+        // list row off a fixed 20-row viewport.
+        let text = render_to_string_sized(&settings_view(), 80, 21);
         assert!(text.contains("Default mode"));
         assert!(text.contains("Command"));
         assert!(text.contains("Number dormant sessions"));
