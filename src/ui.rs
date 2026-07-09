@@ -484,8 +484,8 @@ fn draw_settings(frame: &mut Frame, state: &PickerState, inner: Rect) {
     let current_description = rows[state.settings_cursor().min(rows.len().saturating_sub(1))].description();
     let footer = Paragraph::new(vec![
         Line::from(Span::styled(rule, Style::default().fg(DIM))),
+        Line::from(Span::styled(current_description, Style::default())),
         Line::from(Span::styled(SETTINGS_FOOTER_HINT, Style::default().fg(DIM))),
-        Line::from(Span::styled(current_description, Style::default().fg(DIM))),
     ]);
     frame.render_widget(footer, footer_area);
 }
@@ -2237,6 +2237,43 @@ mod tests {
         st.settings_move_cursor(1); // DormantNumbering
         let text = render_to_string(&st);
         assert!(text.contains("Whether visible dormant sessions get jump numbers (1-20)."));
+    }
+
+    #[test]
+    fn draw_settings_description_line_sits_above_the_key_hint_line() {
+        let text = render_to_string(&settings_view());
+        let lines: Vec<&str> = text.lines().collect();
+        let description_idx = lines
+            .iter()
+            .position(|l| l.contains("Whether the picker opens in Command mode or straight into Search."))
+            .expect("description line rendered");
+        let hint_idx = lines
+            .iter()
+            .position(|l| l.contains(SETTINGS_FOOTER_HINT))
+            .expect("key-hint line rendered");
+        assert!(description_idx < hint_idx, "description should render above the key-hint line");
+    }
+
+    #[test]
+    fn draw_settings_description_renders_at_full_contrast_not_dim() {
+        let state = settings_view();
+        let backend = TestBackend::new(80, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| draw(f, &state)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+        let mut found_description = false;
+        for y in 0..buf.area.height {
+            let line: String = (0..buf.area.width).map(|x| buf[(x, y)].symbol()).collect();
+            if let Some(i) = line.find("Whether the picker opens") {
+                found_description = true;
+                assert_ne!(
+                    buf[(i as u16, y)].style().fg,
+                    Some(Color::DarkGray),
+                    "description line should render at full contrast, not dimmed"
+                );
+            }
+        }
+        assert!(found_description, "description line rendered");
     }
 
     #[test]
