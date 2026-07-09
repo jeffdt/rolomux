@@ -223,7 +223,7 @@ impl SettingsRow {
     /// A short, single-line explanation of what this setting does, shown
     /// on the Settings footer's description line. Child/option rows
     /// (individual color choices) reuse their parent setting's text since
-    /// the option itself — a named color, a checkbox — is self-explanatory.
+    /// the option itself (a named color, a checkbox) is self-explanatory.
     pub fn description(&self) -> &'static str {
         match self {
             SettingsRow::DefaultMode => {
