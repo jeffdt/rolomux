@@ -393,7 +393,7 @@ const SETTINGS_FOOTER_HINT: &str =
 fn draw_settings(frame: &mut Frame, state: &PickerState, inner: Rect) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Min(0), Constraint::Length(2)])
+        .constraints([Constraint::Min(0), Constraint::Length(3)])
         .split(inner);
     let list_area = chunks[0];
     let footer_area = chunks[1];
@@ -503,8 +503,10 @@ fn draw_settings(frame: &mut Frame, state: &PickerState, inner: Rect) {
     frame.render_stateful_widget(list, list_area, &mut list_state);
 
     let rule = "─".repeat(footer_area.width as usize);
+    let current_description = rows[state.settings_cursor().min(rows.len().saturating_sub(1))].description();
     let footer = Paragraph::new(vec![
         Line::from(Span::styled(rule, Style::default().fg(DIM))),
+        Line::from(Span::styled(current_description, Style::default())),
         Line::from(Span::styled(SETTINGS_FOOTER_HINT, Style::default().fg(DIM))),
     ]);
     frame.render_widget(footer, footer_area);
@@ -2329,10 +2331,64 @@ mod tests {
     }
 
     #[test]
+    fn draw_settings_shows_description_of_selected_row() {
+        let text = render_to_string(&settings_view());
+        // Cursor starts on the first row, DefaultMode.
+        assert!(text.contains("Whether the picker opens in Command mode or straight into Search."));
+    }
+
+    #[test]
+    fn draw_settings_description_updates_as_cursor_moves() {
+        let mut st = settings_view();
+        st.settings_move_cursor(1); // DormantNumbering
+        let text = render_to_string(&st);
+        assert!(text.contains("Whether visible dormant sessions get jump numbers (1-20)."));
+    }
+
+    #[test]
+    fn draw_settings_description_line_sits_above_the_key_hint_line() {
+        let text = render_to_string(&settings_view());
+        let lines: Vec<&str> = text.lines().collect();
+        let description_idx = lines
+            .iter()
+            .position(|l| l.contains("Whether the picker opens in Command mode or straight into Search."))
+            .expect("description line rendered");
+        let hint_idx = lines
+            .iter()
+            .position(|l| l.contains(SETTINGS_FOOTER_HINT))
+            .expect("key-hint line rendered");
+        assert!(description_idx < hint_idx, "description should render above the key-hint line");
+    }
+
+    #[test]
+    fn draw_settings_description_renders_at_full_contrast_not_dim() {
+        let state = settings_view();
+        let backend = TestBackend::new(80, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| draw(f, &state)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+        let mut found_description = false;
+        for y in 0..buf.area.height {
+            let line: String = (0..buf.area.width).map(|x| buf[(x, y)].symbol()).collect();
+            if let Some(i) = line.find("Whether the picker opens") {
+                found_description = true;
+                assert_ne!(
+                    buf[(i as u16, y)].style().fg,
+                    Some(Color::DarkGray),
+                    "description line should render at full contrast, not dimmed"
+                );
+            }
+        }
+        assert!(found_description, "description line rendered");
+    }
+
+    #[test]
     fn draw_settings_shows_rows_and_footer() {
-        // Taller than the usual 80x20: the added Session metadata row pushes
-        // later rows past the default viewport (mirrors the palette tests).
-        let text = render_to_string_sized(&settings_view(), 80, 24);
+        // Taller than the usual 80x20 for two stacking reasons: the added
+        // Session metadata row pushes later rows down (mirrors the palette
+        // tests), and the footer grew from 2 to 3 rows (rule, key-hint,
+        // description), consuming one more row of the list area.
+        let text = render_to_string_sized(&settings_view(), 80, 25);
         assert!(text.contains("Default mode"));
         assert!(text.contains("Command"));
         assert!(text.contains("Number dormant sessions"));
@@ -2457,7 +2513,9 @@ mod tests {
 
     #[test]
     fn draw_settings_does_not_show_a_color_value_for_rotate_or_random() {
-        let text = render_to_string(&settings_view()); // default policy is Rotate
+        // Taller than the default 80x20: the Session metadata row and the
+        // 3-row footer both push "New group color" further down the list.
+        let text = render_to_string_sized(&settings_view(), 80, 22); // default policy is Rotate
         // "Rotate" itself is on screen, but no color name should follow it
         // since Rotate has no single fixed color to show. The only two
         // swatches on screen are the always-present Attached/Border color
@@ -2538,7 +2596,9 @@ mod tests {
 
     #[test]
     fn draw_settings_color_policy_row_continues_the_gutter_bar() {
-        let text = render_to_string(&settings_view());
+        // Taller than the default 80x20: the Session metadata row and the
+        // 3-row footer both push "New group color" further down the list.
+        let text = render_to_string_sized(&settings_view(), 80, 22);
         let row = text
             .lines()
             .find(|line| line.contains("New group color"))

@@ -257,6 +257,41 @@ pub enum SettingsRow {
     PaletteColor(usize),
 }
 
+impl SettingsRow {
+    /// A short, single-line explanation of what this setting does, shown
+    /// on the Settings footer's description line. Child/option rows
+    /// (individual color choices) reuse their parent setting's text since
+    /// the option itself (a named color, a checkbox) is self-explanatory.
+    pub fn description(&self) -> &'static str {
+        match self {
+            SettingsRow::DefaultMode => {
+                "Whether the picker opens in Command mode or straight into Search."
+            }
+            SettingsRow::DormantNumbering => {
+                "Whether visible dormant sessions get jump numbers (1-20)."
+            }
+            SettingsRow::RememberExpanded => {
+                "When on, expand/collapse state persists across popups."
+            }
+            SettingsRow::SessionMetric => {
+                "Whether the row's trailing timestamp shows Recency, Age, or is Hidden."
+            }
+            SettingsRow::AttachedColor | SettingsRow::AttachedColorOption(_) => {
+                "Highlight color for the session your tmux client is attached to."
+            }
+            SettingsRow::BorderColor | SettingsRow::BorderColorOption(_) => {
+                "rolomux's own border frame color."
+            }
+            SettingsRow::ColorPolicy => {
+                "How a new group picks its header color: Rotate, Random, or Static."
+            }
+            SettingsRow::Palette | SettingsRow::PaletteColor(_) => {
+                "Which of the 16 terminal colors are in rotation for new group headers."
+            }
+        }
+    }
+}
+
 use crate::store::Config;
 use std::collections::HashSet;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -3039,5 +3074,29 @@ mod tests {
         ensure_single_inbox(&mut groups);
         assert!(groups[0].inbox);
         assert!(!groups[1].inbox);
+    }
+
+    #[test]
+    fn settings_row_description_describes_default_mode() {
+        assert_eq!(
+            SettingsRow::DefaultMode.description(),
+            "Whether the picker opens in Command mode or straight into Search."
+        );
+    }
+
+    #[test]
+    fn settings_row_description_child_rows_reuse_parent_text() {
+        assert_eq!(
+            SettingsRow::AttachedColorOption(0).description(),
+            SettingsRow::AttachedColor.description()
+        );
+        assert_eq!(
+            SettingsRow::BorderColorOption(0).description(),
+            SettingsRow::BorderColor.description()
+        );
+        assert_eq!(
+            SettingsRow::PaletteColor(0).description(),
+            SettingsRow::Palette.description()
+        );
     }
 }

@@ -119,7 +119,7 @@ Think of it as one more optional tool in your kit to help you tend your sessions
 
 ### Settings
 
-Press `,` to open Settings, a full-screen view of picker-wide preferences, grouped into two sections:
+Press `,` to open Settings, a full-screen view of picker-wide preferences, grouped into two sections. A description of the currently selected setting is always shown at the bottom.
 
 **Behavior**
 
