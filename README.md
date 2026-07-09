@@ -147,6 +147,10 @@ Press `,` to open Settings, a full-screen view of picker-wide preferences, group
 
 Groups, session order, dormant sessions, and settings persist to `~/.config/rolomux/config.toml`:
 
+rolomux also remembers each tracked session's tmux session id in a
+`session_ids` table, so a plain `tmux rename-session` (or `prefix ,`) keeps
+that session's group, dormant, and expanded state instead of losing it.
+
 ```toml
 config_version = 3
 dormant = ["zen-mod"]
