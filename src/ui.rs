@@ -1,6 +1,6 @@
 use crate::model::{
-    ColorPolicy, DefaultMode, Group, Mode, PickerState, Row, Session, SettingsRow, Window,
-    ALL_NAMED_COLORS,
+    ColorPolicy, DefaultMode, Group, Mode, PickerState, Row, Session, SessionMetric, SettingsRow,
+    Window, ALL_NAMED_COLORS,
 };
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
@@ -413,6 +413,9 @@ fn draw_settings(frame: &mut Frame, state: &PickerState, inner: Rect) {
                     selected,
                 )
             }
+            SettingsRow::SessionMetric => {
+                settings_value_line("Session metadata", session_metric_label(state.session_metric), selected)
+            }
             SettingsRow::AttachedColor => {
                 settings_color_line("Attached session color", &state.attached_color, state.attached_color_expanded(), selected)
             }
@@ -563,6 +566,14 @@ fn default_mode_label(m: DefaultMode) -> &'static str {
 
 fn dormant_numbering_label(number_dormant_sessions: bool) -> &'static str {
     if number_dormant_sessions { "Yes" } else { "No" }
+}
+
+fn session_metric_label(m: SessionMetric) -> &'static str {
+    match m {
+        SessionMetric::Recency => "Recency",
+        SessionMetric::Age => "Age",
+        SessionMetric::Hidden => "Hidden",
+    }
 }
 
 fn remember_expanded_label(remember_expanded_sessions: bool) -> &'static str {
