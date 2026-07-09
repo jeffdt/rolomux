@@ -224,6 +224,8 @@ impl SettingsRow {
     /// on the Settings footer's description line. Child/option rows
     /// (individual color choices) reuse their parent setting's text since
     /// the option itself — a named color, a checkbox — is self-explanatory.
+    #[allow(dead_code)]
+    // Wired into the UI in a follow-up task; remove this allow once draw_settings calls it.
     pub fn description(&self) -> &'static str {
         match self {
             SettingsRow::DefaultMode => {
