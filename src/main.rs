@@ -61,7 +61,7 @@ fn main() -> io::Result<()> {
 
     let path = store::config_path();
     let mut config = store::Config::load_from(&path);
-    if config.reconcile(&live) {
+    if config.reconcile(&gathered.ids) {
         let _ = config.save_to(&path);
     }
 

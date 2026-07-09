@@ -1,5 +1,6 @@
 use crate::model::{ColorPolicy, DefaultMode, Group, HEADER_COLORS, SessionMetric, ensure_single_inbox};
 use serde::Deserialize;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io;
 use std::path::{Path, PathBuf};
 
@@ -32,6 +33,12 @@ pub struct Config {
     pub remember_expanded_sessions: bool,
     pub expanded: Vec<String>,
     pub session_metric: SessionMetric,
+    /// Last-known tmux `session_id` (e.g. `"$3"`) for every name currently
+    /// tracked in a group's `members`, in `dormant`, or in `expanded`. Used
+    /// by `reconcile` to recover tracking across a plain tmux rename
+    /// (issue #38) — untracked sessions are never recorded here, since
+    /// there's nothing to recover for them.
+    pub session_ids: HashMap<String, String>,
 }
 
 /// The active palette a fresh `Config` starts with, and the fallback when a
@@ -56,6 +63,7 @@ impl Default for Config {
             remember_expanded_sessions: false,
             expanded: Vec::new(),
             session_metric: SessionMetric::default(),
+            session_ids: HashMap::new(),
         }
     }
 }
@@ -129,6 +137,8 @@ struct RawConfig {
     settings: RawSettings,
     #[serde(default)]
     expanded: Vec<String>,
+    #[serde(default)]
+    session_ids: HashMap<String, String>,
 }
 
 #[derive(serde::Serialize)]
@@ -150,6 +160,8 @@ struct OutConfig {
     hide_dormant: bool,
     settings: OutSettings,
     expanded: Vec<String>,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    session_ids: BTreeMap<String, String>,
 }
 
 impl Config {
@@ -226,6 +238,7 @@ impl Config {
             remember_expanded_sessions: raw.settings.remember_expanded_sessions.unwrap_or(false),
             expanded: raw.expanded,
             session_metric,
+            session_ids: raw.session_ids,
         }
     }
 
@@ -237,6 +250,7 @@ impl Config {
         dormant.sort();
         let mut expanded = self.expanded.clone();
         expanded.sort();
+        let session_ids: BTreeMap<String, String> = self.session_ids.clone().into_iter().collect();
         let out = OutConfig {
             config_version: CONFIG_VERSION,
             groups: self
@@ -264,26 +278,97 @@ impl Config {
                 session_metric: self.session_metric.as_config_str().to_string(),
             },
             expanded,
+            session_ids,
         };
         let body = toml::to_string(&out).map_err(io::Error::other)?;
         std::fs::write(path, body)
     }
 
-    pub fn reconcile(&mut self, live_names: &[String]) -> bool {
-        let is_live = |name: &String| live_names.iter().any(|n| n == name);
+    fn tracked_names(&self) -> HashSet<String> {
+        let mut names: HashSet<String> = HashSet::new();
+        for g in &self.groups {
+            names.extend(g.members.iter().cloned());
+        }
+        names.extend(self.dormant.iter().cloned());
+        names.extend(self.expanded.iter().cloned());
+        names
+    }
+
+    pub fn reconcile(&mut self, live: &[(String, String)]) -> bool {
+        let live_by_name: HashMap<&str, &str> =
+            live.iter().map(|(n, i)| (n.as_str(), i.as_str())).collect();
+        let live_by_id: HashMap<&str, &str> =
+            live.iter().map(|(n, i)| (i.as_str(), n.as_str())).collect();
+
+        // A tracked name that's gone dark: if its last-known id now belongs to
+        // a different live name, that's a plain-tmux rename, not a dead
+        // session -- carry the tracking forward under the new name.
+        let mut renames: HashMap<String, String> = HashMap::new();
+        for name in self.tracked_names() {
+            if live_by_name.contains_key(name.as_str()) {
+                continue;
+            }
+            if let Some(id) = self.session_ids.get(&name) {
+                if let Some(&new_name) = live_by_id.get(id.as_str()) {
+                    if new_name != name && !renames.values().any(|v| v.as_str() == new_name) {
+                        renames.insert(name, new_name.to_string());
+                    }
+                }
+            }
+        }
+
         let before: usize = self.groups.iter().map(|g| g.members.len()).sum::<usize>()
             + self.dormant.len()
             + self.expanded.len();
+
+        for g in &mut self.groups {
+            for m in &mut g.members {
+                if let Some(new_name) = renames.get(m) {
+                    *m = new_name.clone();
+                }
+            }
+        }
+        for name in &mut self.dormant {
+            if let Some(new_name) = renames.get(name) {
+                *name = new_name.clone();
+            }
+        }
+        for name in &mut self.expanded {
+            if let Some(new_name) = renames.get(name) {
+                *name = new_name.clone();
+            }
+        }
+
+        let is_live = |name: &String| live_by_name.contains_key(name.as_str());
         for g in &mut self.groups {
             g.members.retain(&is_live);
+            dedup_preserving_order(&mut g.members);
         }
         self.dormant.retain(&is_live);
+        dedup_preserving_order(&mut self.dormant);
         self.expanded.retain(&is_live);
+        dedup_preserving_order(&mut self.expanded);
+
         let after: usize = self.groups.iter().map(|g| g.members.len()).sum::<usize>()
             + self.dormant.len()
             + self.expanded.len();
-        before != after
+
+        let mut new_ids: HashMap<String, String> = HashMap::new();
+        for name in self.tracked_names() {
+            if let Some(&id) = live_by_name.get(name.as_str()) {
+                new_ids.insert(name, id.to_string());
+            }
+        }
+        let ids_changed = new_ids != self.session_ids;
+        self.session_ids = new_ids;
+
+        before != after || !renames.is_empty() || ids_changed
     }
+}
+
+fn dedup_preserving_order(v: &mut Vec<String>) {
+    let mut seen = HashSet::new();
+    v.retain(|x| seen.insert(x.clone()));
 }
 
 pub fn config_path() -> PathBuf {
@@ -328,6 +413,43 @@ mod tests {
     }
 
     #[test]
+    fn session_ids_round_trips_through_toml() {
+        let dir = std::env::temp_dir().join(format!("rolomux-sessionids-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.toml");
+        let cfg = Config {
+            session_ids: HashMap::from([("work".to_string(), "$3".to_string())]),
+            ..Default::default()
+        };
+        cfg.save_to(&path).unwrap();
+        let reloaded = Config::load_from(&path);
+        assert_eq!(reloaded.session_ids.get("work"), Some(&"$3".to_string()));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn legacy_config_without_session_ids_defaults_to_empty_map() {
+        let dir = std::env::temp_dir().join(format!("rolomux-nosessionids-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.toml");
+        std::fs::write(&path, "config_version = 3\n").unwrap();
+        let cfg = Config::load_from(&path);
+        assert!(cfg.session_ids.is_empty());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn empty_session_ids_are_omitted_from_saved_toml() {
+        let dir = std::env::temp_dir().join(format!("rolomux-emptysessionids-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.toml");
+        Config::default().save_to(&path).unwrap();
+        let written = std::fs::read_to_string(&path).unwrap();
+        assert!(!written.contains("session_ids"), "empty map should be skipped: {written}");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
     fn round_trips_hide_dormant_preference() {
         let dir = std::env::temp_dir().join(format!("rolomux-hide-dormant-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
@@ -348,7 +470,7 @@ mod tests {
             dormant: vec!["a".into(), "gone".into()],
             ..Default::default()
         };
-        let changed = cfg.reconcile(&["a".to_string()]);
+        let changed = cfg.reconcile(&live_ids(&["a"]));
         assert!(changed);
         assert_eq!(cfg.dormant, vec!["a".to_string()]);
     }
@@ -406,7 +528,7 @@ mod tests {
             ],
             ..Default::default()
         };
-        let live = vec!["a".to_string(), "b".to_string()];
+        let live = live_ids(&["a", "b"]);
         let changed = cfg.reconcile(&live);
         assert!(changed);
         assert_eq!(cfg.groups[0].members, vec!["a".to_string(), "b".to_string()]);
@@ -531,7 +653,7 @@ mod tests {
             dormant: vec![], groups: vec![Group { name: "G".into(), members: vec!["a".into(), "gone".into()], color: String::new(), ..Default::default() }],
             ..Default::default()
         };
-        let live = vec!["a".to_string()];
+        let live = live_ids(&["a"]);
         assert!(cfg.reconcile(&live));
         assert_eq!(cfg.groups[0].members, vec!["a".to_string()]);
         // Even if all members die, the group survives.
@@ -769,9 +891,101 @@ inbox = true
             expanded: vec!["a".into(), "gone".into()],
             ..Default::default()
         };
-        let changed = cfg.reconcile(&["a".to_string()]);
+        let changed = cfg.reconcile(&live_ids(&["a"]));
         assert!(changed);
         assert_eq!(cfg.expanded, vec!["a".to_string()]);
+    }
+
+    fn live_ids(names: &[&str]) -> Vec<(String, String)> {
+        names.iter().map(|n| (n.to_string(), format!("id-{n}"))).collect()
+    }
+
+    #[test]
+    fn reconcile_detects_rename_via_session_id_and_preserves_group_membership() {
+        let mut cfg = Config {
+            groups: vec![Group { name: "WORK".into(), members: vec!["old-name".into()], ..Default::default() }],
+            session_ids: HashMap::from([("old-name".to_string(), "$3".to_string())]),
+            ..Default::default()
+        };
+        let changed = cfg.reconcile(&[("new-name".to_string(), "$3".to_string())]);
+        assert!(changed);
+        assert_eq!(cfg.groups[0].members, vec!["new-name".to_string()]);
+        assert_eq!(cfg.session_ids.get("new-name"), Some(&"$3".to_string()));
+        assert!(!cfg.session_ids.contains_key("old-name"));
+    }
+
+    #[test]
+    fn reconcile_detects_rename_via_session_id_and_preserves_dormant_status() {
+        let mut cfg = Config {
+            dormant: vec!["old-name".into()],
+            session_ids: HashMap::from([("old-name".to_string(), "$5".to_string())]),
+            ..Default::default()
+        };
+        let changed = cfg.reconcile(&[("new-name".to_string(), "$5".to_string())]);
+        assert!(changed);
+        assert_eq!(cfg.dormant, vec!["new-name".to_string()]);
+    }
+
+    #[test]
+    fn reconcile_detects_rename_via_session_id_and_preserves_expanded_status() {
+        let mut cfg = Config {
+            expanded: vec!["old-name".into()],
+            session_ids: HashMap::from([("old-name".to_string(), "$7".to_string())]),
+            ..Default::default()
+        };
+        let changed = cfg.reconcile(&[("new-name".to_string(), "$7".to_string())]);
+        assert!(changed);
+        assert_eq!(cfg.expanded, vec!["new-name".to_string()]);
+    }
+
+    #[test]
+    fn reconcile_still_drops_dead_session_with_no_matching_live_id() {
+        let mut cfg = Config {
+            groups: vec![Group { name: "WORK".into(), members: vec!["gone".into()], ..Default::default() }],
+            session_ids: HashMap::from([("gone".to_string(), "$9".to_string())]),
+            ..Default::default()
+        };
+        // "other" is live but its id doesn't match "gone"'s last-known id, so
+        // this is a dead session, not a detected rename.
+        let changed = cfg.reconcile(&live_ids(&["other"]));
+        assert!(changed);
+        assert!(cfg.groups[0].members.is_empty());
+        assert!(cfg.session_ids.is_empty());
+    }
+
+    #[test]
+    fn reconcile_prunes_session_ids_for_names_no_longer_tracked() {
+        let mut cfg = Config {
+            groups: vec![Group { name: "WORK".into(), members: vec!["a".into()], ..Default::default() }],
+            session_ids: HashMap::from([
+                ("a".to_string(), "$1".to_string()),
+                ("stale".to_string(), "$2".to_string()),
+            ]),
+            ..Default::default()
+        };
+        assert!(cfg.reconcile(&live_ids(&["a"])));
+        assert_eq!(cfg.session_ids.len(), 1);
+        assert_eq!(cfg.session_ids.get("a"), Some(&"id-a".to_string()));
+        assert!(!cfg.session_ids.contains_key("stale"));
+    }
+
+    #[test]
+    fn reconcile_deduplicates_when_rename_target_collides_with_existing_tracked_entry() {
+        let mut cfg = Config {
+            groups: vec![Group {
+                name: "WORK".into(),
+                members: vec!["foo".into(), "oldbar".into()],
+                ..Default::default()
+            }],
+            session_ids: HashMap::from([
+                ("foo".to_string(), "$1".to_string()),
+                ("oldbar".to_string(), "$2".to_string()),
+            ]),
+            ..Default::default()
+        };
+        // "$2" died; "foo"/"$1" was renamed to "oldbar" via plain tmux.
+        cfg.reconcile(&[("oldbar".to_string(), "$1".to_string())]);
+        assert_eq!(cfg.groups[0].members, vec!["oldbar".to_string()]);
     }
 
     #[test]
