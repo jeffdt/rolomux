@@ -310,7 +310,7 @@ impl Config {
             }
             if let Some(id) = self.session_ids.get(&name) {
                 if let Some(&new_name) = live_by_id.get(id.as_str()) {
-                    if new_name != name && !renames.values().any(|v| v.as_str() == new_name) {
+                    if new_name != name {
                         renames.insert(name, new_name.to_string());
                     }
                 }
