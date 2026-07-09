@@ -1,6 +1,6 @@
 [package]
 name = "rolomux"
-version = "0.21.1"
+version = "0.21.2"
 edition = "2021"
 description = "A slick tmux session picker that sorts your sessions into color-coded groups to bring some zen to tmux"
 license = "MIT"
@@ -14,7 +14,7 @@ path = "src/main.rs"
 [dependencies]
 crossterm = "0.28"
 nucleo-matcher = "0.3"
-ratatui = "0.29"
+ratatui = "0.30"
 serde = { version = "1", features = ["derive"] }
 toml = "0.8"
 
