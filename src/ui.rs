@@ -1,6 +1,6 @@
 use crate::model::{
-    ColorPolicy, DefaultMode, Group, Mode, PickerState, Row, Session, SettingsRow, Window,
-    ALL_NAMED_COLORS,
+    ColorPolicy, DefaultMode, Group, Mode, PickerState, Row, Session, SessionMetric, SettingsRow,
+    Window, ALL_NAMED_COLORS,
 };
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
@@ -86,6 +86,17 @@ fn activity_age(activity: i64) -> String {
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0);
     fmt_age(now.saturating_sub(activity).max(0))
+}
+
+/// Which `Session` timestamp field feeds the metadata age string, per the
+/// current `SessionMetric` setting. `None` for `Hidden`, meaning the row
+/// shows no age string (and no trailing separator) at all.
+fn session_metric_timestamp(sess: &Session, metric: SessionMetric) -> Option<i64> {
+    match metric {
+        SessionMetric::Recency => Some(sess.activity),
+        SessionMetric::Age => Some(sess.created),
+        SessionMetric::Hidden => None,
+    }
 }
 
 /// Shrink `area` by `margin` cells on every side. The margin is reduced toward
@@ -218,6 +229,7 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
                     attached_color,
                     None,
                     Some(current_gutter_color),
+                    state.session_metric,
                 ));
             }
             Row::Window(si, wi) => {
@@ -282,10 +294,14 @@ fn draw_search(frame: &mut Frame, state: &PickerState, inner: Rect) {
         let attached_color = color_from_name(&state.attached_color);
         // Widest age string among tagged rows, so every tag in this render
         // starts at the same column regardless of its own row's age width.
+        // Degenerates to 0 when `session_metric` is Hidden (every row's
+        // resolved timestamp is `None`), which the pad math below already
+        // handles as a no-op.
         let age_width = results
             .iter()
             .filter(|s| state.group_index_of(&s.name).is_some())
-            .map(|s| activity_age(s.activity).chars().count())
+            .filter_map(|s| session_metric_timestamp(s, state.session_metric))
+            .map(|ts| activity_age(ts).chars().count())
             .max()
             .unwrap_or(0);
         for (i, sess) in results.iter().enumerate() {
@@ -294,11 +310,14 @@ fn draw_search(frame: &mut Frame, state: &PickerState, inner: Rect) {
                 selected_line = Some(items.len());
             }
             let group_tag = state.group_index_of(&sess.name).map(|gi| {
-                let age_pad = age_width.saturating_sub(activity_age(sess.activity).chars().count());
+                let this_age_width = session_metric_timestamp(sess, state.session_metric)
+                    .map(|ts| activity_age(ts).chars().count())
+                    .unwrap_or(0);
+                let age_pad = age_width.saturating_sub(this_age_width);
                 (state.groups[gi].name.clone(), group_color(&state.groups[gi], gi, &state.active_palette), age_pad)
             });
             // Flat, collapsed, no jump number (None), normal metadata.
-            items.push(session_item(sess, false, selected, None, meta, state.is_dormant(&sess.name), attached_color, group_tag, None));
+            items.push(session_item(sess, false, selected, None, meta, state.is_dormant(&sess.name), attached_color, group_tag, None, state.session_metric));
         }
     }
     let list = List::new(items)
@@ -412,6 +431,9 @@ fn draw_settings(frame: &mut Frame, state: &PickerState, inner: Rect) {
                     remember_expanded_label(state.remember_expanded_sessions),
                     selected,
                 )
+            }
+            SettingsRow::SessionMetric => {
+                settings_value_line("Session metadata", session_metric_label(state.session_metric), selected)
             }
             SettingsRow::AttachedColor => {
                 settings_color_line("Attached session color", &state.attached_color, state.attached_color_expanded(), selected)
@@ -565,6 +587,14 @@ fn default_mode_label(m: DefaultMode) -> &'static str {
 
 fn dormant_numbering_label(number_dormant_sessions: bool) -> &'static str {
     if number_dormant_sessions { "Yes" } else { "No" }
+}
+
+fn session_metric_label(m: SessionMetric) -> &'static str {
+    match m {
+        SessionMetric::Recency => "Recency",
+        SessionMetric::Age => "Age",
+        SessionMetric::Hidden => "Hidden",
+    }
 }
 
 fn remember_expanded_label(remember_expanded_sessions: bool) -> &'static str {
@@ -774,6 +804,7 @@ fn session_item(
     attached_color: Color,
     group_tag: Option<(String, Color, usize)>,
     gutter: Option<Color>,
+    metric: SessionMetric,
 ) -> ListItem<'static> {
     let glyph = if expanded { "▾" } else { "▸" };
     let num = match number { Some(n) => jump_label(n), None => "  ".to_string() };
@@ -789,7 +820,7 @@ fn session_item(
     let pad = meta.col.saturating_sub(prefix_len);
     let count = window_count(sess.windows.len());
     let count_pad = meta.count_width.saturating_sub(count.chars().count());
-    let age = activity_age(sess.activity);
+    let age = session_metric_timestamp(sess, metric).map(activity_age);
     let mut spans = Vec::new();
     if let Some(color) = gutter {
         spans.push(Span::styled("│", Style::default().fg(color)));
@@ -797,10 +828,11 @@ fn session_item(
     spans.push(Span::styled(num, secondary(selected)));
     spans.push(Span::styled(format!("{glyph} "), secondary(selected)));
     spans.push(Span::styled(sess.name.clone(), name_style));
-    spans.push(Span::styled(
-        format!("{}{count}{} · {age}", " ".repeat(pad), " ".repeat(count_pad)),
-        secondary(selected),
-    ));
+    let trailing = match &age {
+        Some(age) => format!("{}{count}{} · {age}", " ".repeat(pad), " ".repeat(count_pad)),
+        None => format!("{}{count}{}", " ".repeat(pad), " ".repeat(count_pad)),
+    };
+    spans.push(Span::styled(trailing, secondary(selected)));
     // age_pad brings every tagged row's age up to the widest age string among
     // this render's tagged rows, so tags line up in a column even though ages
     // ("4h" vs "53m") naturally differ in width. Untagged rows (command mode,
@@ -1990,6 +2022,80 @@ mod tests {
     }
 
     #[test]
+    fn session_row_shows_recency_by_default_and_age_when_switched() {
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
+        let sessions = vec![Session {
+            name: "alpha".into(),
+            activity: now - 30, // "30s"
+            created: now - 7200, // "2h"
+            attached: false,
+            windows: vec![Window { index: 0, name: "w".into(), active: true }],
+        }];
+        let cfg = Config::default();
+        let mut state = PickerState::build(sessions, &cfg);
+
+        let text = render_to_string(&state);
+        assert!(text.contains("· 30s"), "Recency (default) shows time since activity: {text:?}");
+        assert!(!text.contains("· 2h"));
+
+        state.session_metric = SessionMetric::Age;
+        let text = render_to_string(&state);
+        assert!(text.contains("· 2h"), "Age shows time since created: {text:?}");
+        assert!(!text.contains("· 30s"));
+    }
+
+    #[test]
+    fn session_row_hides_age_and_separator_when_metric_is_hidden() {
+        let sessions = vec![Session {
+            name: "alpha".into(),
+            activity: 1,
+            created: 1,
+            attached: false,
+            windows: vec![
+                Window { index: 0, name: "w".into(), active: true },
+                Window { index: 1, name: "w2".into(), active: false },
+            ],
+        }];
+        let cfg = Config::default();
+        let mut state = PickerState::build(sessions, &cfg);
+        state.session_metric = SessionMetric::Hidden;
+        let text = render_to_string(&state);
+        let row = text.lines().find(|l| l.contains("alpha")).expect("session row rendered");
+        assert!(row.contains("2 windows"), "window count still shows: {row:?}");
+        assert!(!row.contains(" · "), "no middot separator when the age is hidden: {row:?}");
+    }
+
+    #[test]
+    fn draw_search_still_aligns_tags_when_metric_is_hidden() {
+        // Regression guard: age_width degenerates to 0 when Hidden, so the
+        // age_pad computation must not panic or misalign group tags.
+        let sessions = vec![
+            Session { name: "short-age".into(), activity: 1, created: 1, attached: false,
+                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+            Session { name: "long-age".into(), activity: 2, created: 2, attached: false,
+                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+        ];
+        let cfg = Config {
+            groups: vec![Group {
+                name: "dev".into(),
+                members: vec!["short-age".into(), "long-age".into()],
+                color: String::new(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let mut state = PickerState::build(sessions, &cfg);
+        state.session_metric = SessionMetric::Hidden;
+        state.enter_search();
+        state.search_push('a');
+        state.search_push('g');
+        state.search_push('e');
+
+        let text = render_to_string(&state);
+        assert!(text.contains("DEV"), "group tag still renders when metric is Hidden: {text:?}");
+    }
+
+    #[test]
     fn group_keys_map_to_ops() {
         assert_eq!(map_group_key(key(KeyCode::Char('j'))), GroupInput::Down);
         assert_eq!(map_group_key(key(KeyCode::Char('k'))), GroupInput::Up);
@@ -2278,10 +2384,11 @@ mod tests {
 
     #[test]
     fn draw_settings_shows_rows_and_footer() {
-        // One row taller than the default viewport: the footer grew from 2
-        // to 3 rows (rule, key-hint, description), pushing the last visible
-        // list row off a fixed 20-row viewport.
-        let text = render_to_string_sized(&settings_view(), 80, 21);
+        // Taller than the usual 80x20 for two stacking reasons: the added
+        // Session metadata row pushes later rows down (mirrors the palette
+        // tests), and the footer grew from 2 to 3 rows (rule, key-hint,
+        // description), consuming one more row of the list area.
+        let text = render_to_string_sized(&settings_view(), 80, 25);
         assert!(text.contains("Default mode"));
         assert!(text.contains("Command"));
         assert!(text.contains("Number dormant sessions"));
@@ -2317,6 +2424,33 @@ mod tests {
     }
 
     #[test]
+    fn draw_settings_shows_session_metric_row() {
+        let text = render_to_string(&settings_view());
+        assert!(text.contains("Session metadata"));
+        assert!(text.contains("Recency"), "defaults to Recency");
+    }
+
+    #[test]
+    fn draw_settings_session_metric_cycles_through_labels() {
+        let mut st = settings_view();
+        st.settings_move_cursor(3); // SessionMetric
+        st.settings_step_right();
+        let text = render_to_string(&st);
+        let row = text
+            .lines()
+            .find(|line| line.contains("Session metadata"))
+            .expect("Session metadata row is rendered");
+        assert!(row.contains("Age"), "row should show Age after one step: {row:?}");
+        st.settings_step_right();
+        let text = render_to_string(&st);
+        let row = text
+            .lines()
+            .find(|line| line.contains("Session metadata"))
+            .expect("Session metadata row is rendered");
+        assert!(row.contains("Hidden"), "row should show Hidden after two steps: {row:?}");
+    }
+
+    #[test]
     fn draw_settings_shows_attached_and_border_color_rows() {
         let text = render_to_string(&settings_view());
         assert!(text.contains("Attached session color"));
@@ -2328,7 +2462,7 @@ mod tests {
     #[test]
     fn draw_settings_expanded_attached_color_shows_radio_glyphs() {
         let mut st = settings_view();
-        st.settings_move_cursor(3); // AttachedColor
+        st.settings_move_cursor(4); // AttachedColor
         st.settings_step_right(); // expand
         let text = render_to_string(&st);
         assert!(text.contains("●"), "the currently selected color is marked filled");
@@ -2344,7 +2478,7 @@ mod tests {
     #[test]
     fn draw_settings_expanded_border_color_shows_radio_glyphs() {
         let mut st = settings_view();
-        st.settings_move_cursor(4); // BorderColor
+        st.settings_move_cursor(5); // BorderColor
         st.settings_step_right();
         let text = render_to_string(&st);
         assert!(text.contains("●"));
@@ -2354,7 +2488,7 @@ mod tests {
     #[test]
     fn draw_settings_expanded_palette_shows_swatches_and_checkboxes() {
         let mut st = settings_view();
-        st.settings_move_cursor(6); // Palette
+        st.settings_move_cursor(7); // Palette
         st.settings_step_right(); // expand
         // Taller than the usual 80x20: section headers now push the palette
         // rows further down than the default viewport reveals.
@@ -2368,7 +2502,7 @@ mod tests {
     #[test]
     fn draw_settings_shows_static_color_value_when_policy_is_static() {
         let mut st = settings_view();
-        st.settings_move_cursor(5); // ColorPolicy row
+        st.settings_move_cursor(6); // ColorPolicy row
         st.settings_step_right(); // Rotate -> Random
         st.settings_step_right(); // Random -> Static
         st.static_color = "magenta".to_string();
@@ -2379,7 +2513,9 @@ mod tests {
 
     #[test]
     fn draw_settings_does_not_show_a_color_value_for_rotate_or_random() {
-        let text = render_to_string(&settings_view()); // default policy is Rotate
+        // Taller than the default 80x20: the Session metadata row and the
+        // 3-row footer both push "New group color" further down the list.
+        let text = render_to_string_sized(&settings_view(), 80, 22); // default policy is Rotate
         // "Rotate" itself is on screen, but no color name should follow it
         // since Rotate has no single fixed color to show. The only two
         // swatches on screen are the always-present Attached/Border color
@@ -2429,7 +2565,7 @@ mod tests {
     #[test]
     fn draw_settings_gutter_bar_continues_through_expanded_color_options() {
         let mut st = settings_view();
-        st.settings_move_cursor(3); // AttachedColor
+        st.settings_move_cursor(4); // AttachedColor
         st.settings_step_right(); // expand
         let text = render_to_string(&st);
         let row = text
@@ -2444,7 +2580,7 @@ mod tests {
     #[test]
     fn draw_settings_gutter_bar_continues_through_expanded_palette_rows() {
         let mut st = settings_view();
-        st.settings_move_cursor(6); // Palette
+        st.settings_move_cursor(7); // Palette
         st.settings_step_right(); // expand
         // Taller than the usual 80x20: section headers now push the palette
         // rows further down than the default viewport reveals.
@@ -2460,7 +2596,9 @@ mod tests {
 
     #[test]
     fn draw_settings_color_policy_row_continues_the_gutter_bar() {
-        let text = render_to_string(&settings_view());
+        // Taller than the default 80x20: the Session metadata row and the
+        // 3-row footer both push "New group color" further down the list.
+        let text = render_to_string_sized(&settings_view(), 80, 22);
         let row = text
             .lines()
             .find(|line| line.contains("New group color"))

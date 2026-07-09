@@ -126,6 +126,7 @@ Press `,` to open Settings, a full-screen view of picker-wide preferences, group
 - **Default mode.** Whether the picker opens in Command mode or straight into Search.
 - **Number dormant sessions.** Whether visible dormant sessions are included in jump numbering (sessions 1-20).
 - **Remember expanded sessions.** Off by default (every popup starts fully collapsed). When on, expanding or collapsing a session's window tree (`l`/`h`/`z`) persists across popups, so the sessions you're actively jumping between stay expanded.
+- **Session metadata.** Whether the row's trailing timestamp shows time since last activity (**Recency**, default), time since the session was created (**Age**), or is omitted entirely (**Hidden**).
 
 **Appearance**
 
@@ -168,6 +169,7 @@ inbox = true
 [settings]
 default_mode = "command"           # or "search"
 number_dormant_sessions = true      # false skips visible dormant sessions in jump numbering
+session_metric = "recency"         # or "age", "hidden"
 new_group_color_policy = "rotate"  # or "random", "static"
 attached_color = "cyan"
 border_color = "cyan"

@@ -1,4 +1,4 @@
-use crate::model::{ColorPolicy, DefaultMode, Group, HEADER_COLORS, ensure_single_inbox};
+use crate::model::{ColorPolicy, DefaultMode, Group, HEADER_COLORS, SessionMetric, ensure_single_inbox};
 use serde::Deserialize;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -31,6 +31,7 @@ pub struct Config {
     pub border_color: String,
     pub remember_expanded_sessions: bool,
     pub expanded: Vec<String>,
+    pub session_metric: SessionMetric,
 }
 
 /// The active palette a fresh `Config` starts with, and the fallback when a
@@ -54,6 +55,7 @@ impl Default for Config {
             border_color: "cyan".to_string(),
             remember_expanded_sessions: false,
             expanded: Vec::new(),
+            session_metric: SessionMetric::default(),
         }
     }
 }
@@ -87,6 +89,8 @@ struct RawSettings {
     border_color: Option<String>,
     #[serde(default)]
     remember_expanded_sessions: Option<bool>,
+    #[serde(default)]
+    session_metric: Option<String>,
 }
 
 #[derive(serde::Serialize)]
@@ -99,6 +103,7 @@ struct OutSettings {
     attached_color: String,
     border_color: String,
     remember_expanded_sessions: bool,
+    session_metric: String,
 }
 
 #[derive(Deserialize, Default)]
@@ -201,6 +206,12 @@ impl Config {
             .active_palette
             .filter(|p| !p.is_empty())
             .unwrap_or_else(default_active_palette);
+        let session_metric = raw
+            .settings
+            .session_metric
+            .as_deref()
+            .map(SessionMetric::from_config_str)
+            .unwrap_or_default();
         Config {
             groups,
             dormant: raw.dormant,
@@ -214,6 +225,7 @@ impl Config {
             border_color,
             remember_expanded_sessions: raw.settings.remember_expanded_sessions.unwrap_or(false),
             expanded: raw.expanded,
+            session_metric,
         }
     }
 
@@ -249,6 +261,7 @@ impl Config {
                 attached_color: self.attached_color.clone(),
                 border_color: self.border_color.clone(),
                 remember_expanded_sessions: self.remember_expanded_sessions,
+                session_metric: self.session_metric.as_config_str().to_string(),
             },
             expanded,
         };
@@ -771,6 +784,35 @@ inbox = true
         let cfg = Config::load_from(&path);
         assert!(!cfg.remember_expanded_sessions);
         assert!(cfg.expanded.is_empty());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn default_config_has_session_metric_recency() {
+        let cfg = Config::default();
+        assert_eq!(cfg.session_metric, SessionMetric::Recency);
+    }
+
+    #[test]
+    fn round_trips_session_metric() {
+        let dir = std::env::temp_dir().join(format!("rolomux-session-metric-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.toml");
+        let cfg = Config { session_metric: SessionMetric::Age, ..Default::default() };
+        cfg.save_to(&path).unwrap();
+        let reloaded = Config::load_from(&path);
+        assert_eq!(reloaded.session_metric, SessionMetric::Age);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn legacy_config_without_session_metric_defaults_to_recency() {
+        let dir = std::env::temp_dir().join(format!("rolomux-nometric-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.toml");
+        std::fs::write(&path, "config_version = 3\n").unwrap();
+        let cfg = Config::load_from(&path);
+        assert_eq!(cfg.session_metric, SessionMetric::Recency);
         std::fs::remove_dir_all(&dir).ok();
     }
 }
