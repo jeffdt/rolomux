@@ -41,6 +41,9 @@ impl DefaultMode {
 /// Governs which timestamp the session-row metadata column reflects. A
 /// 3-state cycle (unlike `DefaultMode`'s 2-state toggle), so `h`, `l`, and
 /// `Enter`/`Space` on the Session Metadata settings row all call `next()`.
+/// Currently used only in tests; wiring into config and UI is deferred to a
+/// later task. This is an intentional reserved seam, not a dead-code mistake.
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SessionMetric {
     #[default]
@@ -49,6 +52,7 @@ pub enum SessionMetric {
     Hidden,
 }
 
+#[allow(dead_code)]
 impl SessionMetric {
     pub fn from_config_str(s: &str) -> SessionMetric {
         match s {
