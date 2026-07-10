@@ -37,7 +37,7 @@ const POPUP_MARGIN: u16 = 2;
 const TITLE_CHROME_ROWS: u16 = 2;
 
 const FOOTER_HINT: &str =
-    "/ search · ⇧JK mv · g groups · , settings · d dim · h hide · q quit";
+    "/ search · R rename · ⇧JK mv · g groups · , settings · d dim · h hide · q quit";
 
 const CREATE_GROUP_HINT: &str =
     "No groups yet: press g then n to create one, then use ⇧J/⇧K to move sessions.";
@@ -219,6 +219,7 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
                 } else {
                     None
                 };
+                let rename_buf = if selected && state.renaming() { state.rename_edit_buffer() } else { None };
                 items.push(session_item(
                     sess,
                     state.is_expanded(&sess.name),
@@ -230,6 +231,7 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
                     None,
                     Some(current_gutter_color),
                     state.session_metric,
+                    rename_buf,
                 ));
             }
             Row::Window(si, wi) => {
@@ -239,7 +241,8 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
                     selected_line = Some(items.len());
                 }
                 let last = *wi + 1 == sess.windows.len();
-                items.push(window_item(&sess.windows[*wi], last, selected, current_gutter_color));
+                let rename_buf = if selected && state.renaming() { state.rename_edit_buffer() } else { None };
+                items.push(window_item(&sess.windows[*wi], last, selected, current_gutter_color, rename_buf));
             }
         }
     }
@@ -317,7 +320,7 @@ fn draw_search(frame: &mut Frame, state: &PickerState, inner: Rect) {
                 (state.groups[gi].name.clone(), group_color(&state.groups[gi], gi, &state.active_palette), age_pad)
             });
             // Flat, collapsed, no jump number (None), normal metadata.
-            items.push(session_item(sess, false, selected, None, meta, state.is_dormant(&sess.name), attached_color, group_tag, None, state.session_metric));
+            items.push(session_item(sess, false, selected, None, meta, state.is_dormant(&sess.name), attached_color, group_tag, None, state.session_metric, None));
         }
     }
     let list = List::new(items)
@@ -805,6 +808,7 @@ fn session_item(
     group_tag: Option<(String, Color, usize)>,
     gutter: Option<Color>,
     metric: SessionMetric,
+    rename_buf: Option<&str>,
 ) -> ListItem<'static> {
     let glyph = if expanded { "▾" } else { "▸" };
     let num = match number { Some(n) => jump_label(n), None => "  ".to_string() };
@@ -815,6 +819,17 @@ fn session_item(
     } else {
         Style::default()
     };
+    if let Some(buf) = rename_buf {
+        let mut spans = Vec::new();
+        if let Some(color) = gutter {
+            spans.push(Span::styled("│", Style::default().fg(color)));
+        }
+        spans.push(Span::styled(num, secondary(selected)));
+        spans.push(Span::styled(format!("{glyph} "), secondary(selected)));
+        spans.push(Span::styled(buf.to_string(), Style::default().add_modifier(Modifier::BOLD)));
+        spans.push(Span::raw("▏"));
+        return ListItem::new(Line::from(spans));
+    }
     let gutter_width = if gutter.is_some() { 1 } else { 0 };
     let prefix_len = gutter_width + SESSION_PREFIX + sess.name.chars().count(); // gutter + num + "glyph " + name
     let pad = meta.col.saturating_sub(prefix_len);
@@ -845,15 +860,18 @@ fn session_item(
     ListItem::new(Line::from(spans))
 }
 
-fn window_item(win: &Window, last: bool, selected: bool, gutter_color: Color) -> ListItem<'static> {
-    // Two leading blank cells skip the session's number gutter (no window
-    // number is shown: numbers are reserved for things you can jump to, and
-    // windows aren't jumpable yet), so the connector lands directly under the
-    // parent session's expand glyph rather than under its number. The dot's
-    // two cells then continue past the connector, leaving the window name
-    // indented one step to the right of the session name above it.
+fn window_item(win: &Window, last: bool, selected: bool, gutter_color: Color, rename_buf: Option<&str>) -> ListItem<'static> {
     let connector = if last { "  └─" } else { "  ├─" };
     let dot = if win.active { "●" } else { " " };
+    if let Some(buf) = rename_buf {
+        return ListItem::new(Line::from(vec![
+            Span::styled("│", Style::default().fg(gutter_color)),
+            Span::styled(connector.to_string(), secondary(selected)),
+            Span::styled(format!("{dot} "), Style::default().fg(DOT)),
+            Span::styled(buf.to_string(), Style::default().add_modifier(Modifier::BOLD)),
+            Span::raw("▏"),
+        ]));
+    }
     ListItem::new(Line::from(vec![
         Span::styled("│", Style::default().fg(gutter_color)),
         Span::styled(connector.to_string(), secondary(selected)),
@@ -1583,6 +1601,22 @@ mod tests {
     }
 
     #[test]
+    fn draw_command_shows_inline_rename_field() {
+        let sessions = vec![
+            Session { name: "alpha".into(), activity: 30, created: 1, attached: false,
+                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+        ];
+        let cfg = Config { groups: vec![], ..Default::default() };
+        let mut st = PickerState::build(sessions, &cfg);
+        st.start_rename();
+        st.rename_edit_clear();
+        for c in "renamed".chars() { st.rename_edit_push(c); }
+        let text = render_to_string(&st);
+        assert!(text.contains("renamed"), "inline rename buffer visible");
+        assert!(!text.contains("alpha"), "old name no longer shown while editing");
+    }
+
+    #[test]
     fn draw_shows_footer_hints() {
         let sessions = vec![
             Session { name: "main".into(), activity: 100, created: 1, attached: false,
@@ -1590,11 +1624,13 @@ mod tests {
         ];
         let cfg = Config { groups: vec![], ..Default::default() };
         let state = PickerState::build(sessions, &cfg);
-        let text = render_to_string(&state);
+        // tmux popup is 84 columns wide; test needs 84 to avoid footer truncation
+        let text = render_to_string_sized(&state, 84, 20);
         assert!(text.contains("search"), "footer hint: search present");
         assert!(text.contains("groups"), "footer hint: groups present");
         assert!(text.contains("settings"), "footer hint: settings present");
         assert!(text.contains("quit"), "footer hint: quit present");
+        assert!(text.contains("rename"), "footer hint: rename present");
         assert!(!text.contains("1-9"), "footer no longer spends space on number shortcuts");
     }
 
