@@ -43,7 +43,7 @@ You can use other dimensions, but these work well for me. `-h` also accepts a fi
 - **On demand, no daemon.** tmux launches it via `tmux popup -E`; it makes one tmux query, renders, and exits.
   Its own overhead is a couple of milliseconds, so it opens about as fast as tmux can answer.
 - **Fuzzy search built in.** Press `/` to filter sessions by name; matching is in-process with no extra runtime dependency. If this is your preferred way of working, tweak the settings to always launch in search mode.
-- **Dim or hide the sessions you're not using.** Press `d` to mark a session dormant; it stays in place but renders in a dimmed state to indicate that it's on the back burner. Press `h` to hide dormant sessions entirely, and `h` again to show them. The hide/show choice persists across popups. Dormant sessions are still fully usable when shown, and Settings lets you choose whether they keep or skip jump numbers.
+- **Dim sessions, then focus past them.** Press `d` to mark a session dormant; it stays in place but renders in a dimmed state to indicate that it's on the back burner. Press `f` to enter focus mode, hiding dormant sessions and any group left with nothing visible in it; press `f` again to show everything. The focus choice persists across popups. Dormant sessions are still fully usable when shown, and Settings lets you choose whether they keep or skip jump numbers.
 - **Tune the colors.** Press `,` to open Settings and tune the color of the application border, palette used for group headers, and more. Uses your terminal's ANSI colors to ensure it harmonizes with your existing terminal themes.
 
 **Note:** rolomux depends on (and promotes) good tmux hygiene.
@@ -70,7 +70,7 @@ bind C new-session \; command-prompt -I "" "rename-session '%%'" \; command-prom
 | `g` | Open group-management mode |
 | `,` | Open settings |
 | `d` | Toggle dormant (dim) on the selected session |
-| `h` | Hide or show dormant sessions |
+| `f` | Toggle focus mode (hide dormant sessions and empty groups) |
 | `/` | Enter search mode (type to filter, `↵` switch, `Esc` back) |
 | `q` / `Esc` | Quit |
 
@@ -106,16 +106,17 @@ Move within results with `↑`/`↓` (or `Ctrl-n`/`Ctrl-p`, `Ctrl-j`/`Ctrl-k`), 
 `Backspace` deletes the last character, `Ctrl-W` (or `Option/Alt` + `Backspace`) deletes the last word, and `Ctrl-U` clears the query.
 
 While searching, section headers and jump numbers (sessions 1-20) are hidden; the list is flat and collapsed.
-If dormant sessions are hidden, search results exclude them and the footer shows how many are currently hidden.
+If focus mode is on, search results exclude dormant sessions, and the footer shows how many are currently hidden.
 
-### Dormant sessions
+### Focus mode
 
 Press `d` to mark the selected session dormant; it renders dimmed in place as a "not in active rotation" cue.
 When dormant sessions are shown, they keep their group membership and position. By default they also keep jump numbers; in Settings, change **Number dormant sessions** to **No** if you want visible dormant sessions to be omitted from jump numbering.
-Press `h` to hide dormant sessions entirely; press `h` again to show them.
+Press `f` to enter focus mode, hiding dormant sessions entirely; press `f` again to show everything.
 Hidden dormant sessions are excluded from the normal picker and from search results, and both modes show a reminder such as `8 dormant sessions hidden` while the filter is active.
+Focus mode also hides any group left with nothing visible in it, whether it's genuinely empty or every member just went dormant, so a hard focus session doesn't leave empty shelves cluttering the screen. A group reappears the moment something in it becomes visible again.
 Press `d` again on a dormant session to undim it.
-The dormant set and the hide/show filter both persist across popups, so reopening rolomux keeps your last dormant visibility choice.
+The dormant set and the focus-mode choice both persist across popups, so reopening rolomux keeps your last focus preference.
 Think of it as one more optional tool in your kit to help you tend your sessions, if you find it helpful.
 
 ### Settings
@@ -153,9 +154,9 @@ rolomux also remembers each tracked session's tmux session id in a
 that session's group, dormant, and expanded state instead of losing it.
 
 ```toml
-config_version = 3
+config_version = 4
 dormant = ["zen-mod"]
-hide_dormant = true
+focus_mode = true
 
 [[groups]]
 name = "CONFIG"

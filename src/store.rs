@@ -16,13 +16,16 @@ use std::path::{Path, PathBuf};
 // v2 -> v3: the residual `manual_order` list is folded into `groups` as a
 // real, flagged `inbox` group (issue #23). `manual_order` becomes
 // migration-input-only, exactly as `pinned` was for v0 -> v1.
-pub const CONFIG_VERSION: u32 = 3;
+//
+// v3 -> v4: `hide_dormant` renamed to `focus_mode` (issue #100), same
+// boolean, no semantic change. `hide_dormant` becomes migration-input-only.
+pub const CONFIG_VERSION: u32 = 4;
 
 #[derive(Debug, Clone)]
 pub struct Config {
     pub groups: Vec<Group>,
     pub dormant: Vec<String>,
-    pub hide_dormant: bool,
+    pub focus_mode: bool,
     pub default_mode: DefaultMode,
     pub number_dormant_sessions: bool,
     pub new_group_color_policy: ColorPolicy,
@@ -52,7 +55,7 @@ impl Default for Config {
         Config {
             groups: Vec::new(),
             dormant: Vec::new(),
-            hide_dormant: false,
+            focus_mode: false,
             default_mode: DefaultMode::default(),
             number_dormant_sessions: true,
             new_group_color_policy: ColorPolicy::default(),
@@ -131,8 +134,11 @@ struct RawConfig {
     // still loads cleanly, and the value is dropped on next save.
     #[serde(default)]
     dormant: Vec<String>,
+    // migration input only, superseded by `focus_mode` at version 4
     #[serde(default)]
     hide_dormant: bool,
+    #[serde(default)]
+    focus_mode: bool,
     #[serde(default)]
     settings: RawSettings,
     #[serde(default)]
@@ -157,7 +163,7 @@ struct OutConfig {
     groups: Vec<OutGroup>,
     dormant: Vec<String>,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
-    hide_dormant: bool,
+    focus_mode: bool,
     settings: OutSettings,
     expanded: Vec<String>,
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
@@ -224,10 +230,11 @@ impl Config {
             .as_deref()
             .map(SessionMetric::from_config_str)
             .unwrap_or_default();
+        let focus_mode = if raw.config_version < 4 { raw.hide_dormant } else { raw.focus_mode };
         Config {
             groups,
             dormant: raw.dormant,
-            hide_dormant: raw.hide_dormant,
+            focus_mode,
             default_mode,
             number_dormant_sessions: raw.settings.number_dormant_sessions.unwrap_or(true),
             new_group_color_policy,
@@ -265,7 +272,7 @@ impl Config {
                 })
                 .collect(),
             dormant,
-            hide_dormant: self.hide_dormant,
+            focus_mode: self.focus_mode,
             settings: OutSettings {
                 default_mode: self.default_mode.as_config_str().to_string(),
                 number_dormant_sessions: self.number_dormant_sessions,
@@ -391,7 +398,7 @@ mod tests {
         assert_eq!(cfg.groups.len(), 1);
         assert!(cfg.groups[0].inbox);
         assert!(cfg.dormant.is_empty());
-        assert!(!cfg.hide_dormant);
+        assert!(!cfg.focus_mode);
         assert!(cfg.number_dormant_sessions);
     }
 
@@ -450,16 +457,42 @@ mod tests {
     }
 
     #[test]
-    fn round_trips_hide_dormant_preference() {
-        let dir = std::env::temp_dir().join(format!("rolomux-hide-dormant-{}", std::process::id()));
+    fn round_trips_focus_mode_preference() {
+        let dir = std::env::temp_dir().join(format!("rolomux-focus-mode-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("config.toml");
-        let cfg = Config { hide_dormant: true, ..Default::default() };
+        let cfg = Config { focus_mode: true, ..Default::default() };
         cfg.save_to(&path).unwrap();
         let written = std::fs::read_to_string(&path).unwrap();
-        assert!(written.contains("hide_dormant = true"));
+        assert!(written.contains("focus_mode = true"));
         let reloaded = Config::load_from(&path);
-        assert!(reloaded.hide_dormant);
+        assert!(reloaded.focus_mode);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn hide_dormant_migrates_to_focus_mode_preserving_value() {
+        let dir = std::env::temp_dir().join(format!("rolomux-mig-v3-focus-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.toml");
+        std::fs::write(&path, "config_version = 3\nhide_dormant = true\n").unwrap();
+        let cfg = Config::load_from(&path);
+        assert!(cfg.focus_mode, "legacy hide_dormant value carries into focus_mode");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn current_version_config_ignores_stray_legacy_hide_dormant_key() {
+        let dir = std::env::temp_dir().join(format!("rolomux-nomig-focus-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.toml");
+        std::fs::write(
+            &path,
+            format!("config_version = {CONFIG_VERSION}\nhide_dormant = true\nfocus_mode = false\n"),
+        )
+        .unwrap();
+        let cfg = Config::load_from(&path);
+        assert!(!cfg.focus_mode, "current-version file reads focus_mode, not the stale legacy key");
         std::fs::remove_dir_all(&dir).ok();
     }
 
