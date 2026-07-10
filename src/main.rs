@@ -129,16 +129,14 @@ fn commit_rename(
         let _ = config.save_to(path);
     }
 
-    let focus_name = match &pending.target {
+    match &pending.target {
         RenameTarget::Session(old_name) => {
             let _ = tmux.rename_session(old_name, &pending.new_name);
-            pending.new_name.clone()
         }
         RenameTarget::Window(session, index) => {
             let _ = tmux.rename_window(session, *index, &pending.new_name);
-            session.clone()
         }
-    };
+    }
 
     let gathered = tmux.gather();
     if config.reconcile(&gathered.ids) {
@@ -146,7 +144,10 @@ fn commit_rename(
     }
 
     *state = PickerState::build_with_expanded(gathered.sessions, config, expanded_snapshot);
-    state.focus_session(&focus_name);
+    match &pending.target {
+        RenameTarget::Session(_) => state.focus_session(&pending.new_name),
+        RenameTarget::Window(session, index) => state.focus_window(session, *index),
+    }
 }
 
 fn event_loop(
@@ -344,6 +345,51 @@ mod tests {
         commit_rename(pending, &tmux, &mut config, &path, &mut state);
 
         assert_eq!(config.dormant, vec!["kept".to_string()], "pending dormant toggle survived the rebuild");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn commit_rename_window_focuses_the_renamed_window_row_not_the_session() {
+        let dir = std::env::temp_dir().join(format!("rolomux-commit-rename-window-{}", std::process::id()));
+        let path = dir.join("config.toml");
+
+        let mut config = Config {
+            session_ids: HashMap::from([("host".to_string(), "$3".to_string())]),
+            ..Default::default()
+        };
+
+        let windows_before = vec![
+            Window { index: 0, name: "editor".into(), active: true },
+            Window { index: 1, name: "old-window".into(), active: false },
+        ];
+        let sessions = vec![Session { name: "host".into(), activity: 1, created: 1, attached: false, windows: windows_before }];
+        let mut state = PickerState::build(sessions, &config);
+        state.expand();
+        state.move_cursor(2); // rows are [session, window 0 "editor", window 1 "old-window"]
+        state.start_rename();
+        state.rename_edit_clear();
+        for c in "new-window".chars() { state.rename_edit_push(c); }
+        let pending = state.take_rename_commit().expect("changed name commits");
+
+        let windows_after = vec![
+            Window { index: 0, name: "editor".into(), active: true },
+            Window { index: 1, name: "new-window".into(), active: false },
+        ];
+        let tmux = FakeTmux::with_gather(Gathered {
+            sessions: vec![Session { name: "host".into(), activity: 1, created: 1, attached: false, windows: windows_after }],
+            current: None,
+            ids: vec![("host".to_string(), "$3".to_string())],
+        });
+
+        commit_rename(pending, &tmux, &mut config, &path, &mut state);
+
+        assert_eq!(*tmux.calls.borrow(), vec!["rename-window:host:1:new-window"]);
+        assert_eq!(
+            state.selected_action(),
+            Some(crate::model::Action::SwitchWindow("host".to_string(), 1)),
+            "cursor should land back on the renamed window row, not its session"
+        );
 
         let _ = std::fs::remove_dir_all(&dir);
     }
