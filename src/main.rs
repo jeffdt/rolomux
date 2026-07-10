@@ -104,13 +104,12 @@ fn run_ui(
     result
 }
 
-/// Apply a committed session/window rename: call the real tmux rename,
-/// flush any already-pending in-run config changes first (so they aren't
-/// lost when `state` gets rebuilt below), re-gather from tmux, let the
-/// existing `Config::reconcile` carry group/dormant membership across the
-/// id-matched rename, rebuild the picker state with the (possibly
-/// old-name-to-new-name remapped) expand set preserved, and refocus the
-/// cursor on the renamed row.
+/// Apply a committed session/window rename: flush any already-pending in-run
+/// config changes first (so they aren't lost when `state` gets rebuilt below),
+/// call the real tmux rename, re-gather from tmux, let the existing
+/// `Config::reconcile` carry group/dormant membership across the id-matched
+/// rename, rebuild the picker state with the (possibly old-name-to-new-name
+/// remapped) expand set preserved, and refocus the cursor on the renamed row.
 fn commit_rename(
     pending: PendingRename,
     tmux: &dyn Tmux,

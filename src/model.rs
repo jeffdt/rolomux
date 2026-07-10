@@ -324,7 +324,6 @@ pub struct PickerState {
     /// In-flight rename buffer; `Some` while a rename is in progress.
     pub group_edit: Option<String>,
     /// In-flight session/window rename buffer; `Some` while a rename is in progress.
-    #[allow(dead_code)]
     rename_edit: Option<String>,
     pub default_mode: DefaultMode,
     pub number_dormant_sessions: bool,
@@ -720,13 +719,11 @@ impl PickerState {
     }
 
     /// Whether an inline session/window rename is currently in progress.
-    #[allow(dead_code)]
     pub fn renaming(&self) -> bool {
         self.rename_edit.is_some()
     }
 
     /// The in-flight rename buffer, if a rename is in progress.
-    #[allow(dead_code)]
     pub fn rename_edit_buffer(&self) -> Option<&str> {
         self.rename_edit.as_deref()
     }
