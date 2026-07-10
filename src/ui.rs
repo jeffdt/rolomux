@@ -879,6 +879,7 @@ pub enum Input {
     EnterSearch,
     ToggleDormant,
     ToggleDormantVisibility,
+    Rename,
     Quit,
     None,
 }
@@ -979,6 +980,7 @@ pub fn map_key(key: KeyEvent) -> Input {
     match key.code {
         KeyCode::Char('K') | KeyCode::Up if shift => Input::MoveUp,
         KeyCode::Char('J') | KeyCode::Down if shift => Input::MoveDown,
+        KeyCode::Char('R') if shift => Input::Rename,
         KeyCode::Char('j') | KeyCode::Down => Input::Down,
         KeyCode::Char('k') | KeyCode::Up => Input::Up,
         KeyCode::Char('l') | KeyCode::Right => Input::Expand,
@@ -1323,6 +1325,16 @@ mod tests {
     #[test]
     fn maps_toggle_dormant_key() {
         assert_eq!(map_key(key(KeyCode::Char('d'))), Input::ToggleDormant);
+    }
+
+    #[test]
+    fn map_key_shift_r_is_rename() {
+        assert_eq!(map_key(shift(KeyCode::Char('R'))), Input::Rename);
+    }
+
+    #[test]
+    fn map_key_lowercase_r_is_unmapped() {
+        assert_eq!(map_key(key(KeyCode::Char('r'))), Input::None);
     }
 
     #[test]

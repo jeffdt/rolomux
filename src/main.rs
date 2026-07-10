@@ -123,6 +123,7 @@ fn event_loop(
                     Input::EnterSearch => state.enter_search(),
                     Input::ToggleDormant => state.toggle_dormant(),
                     Input::ToggleDormantVisibility => state.toggle_dormant_visibility(),
+                    Input::Rename => {},
                     Input::Select => return Ok(state.selected_action()),
                     Input::Switch(n) => {
                         if let Some(action) = state.action_for_session_number(n) {
