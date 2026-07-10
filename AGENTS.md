@@ -268,11 +268,11 @@ and updating `scripts/release.sh`'s asset handling.
   window."
 - **Mock up visual/rendering changes before writing the spec.** When a design
   discussion touches how something renders (colors, layout, new glyphs/columns),
-  don't rely on a text description alone — render an ANSI mockup (a small script
-  with `printf`/`echo -e` escape codes, not the real binary) in a new tmux window
-  via `mux spawn` (same pattern as the live-preview step below), so Jeff can look
-  at it before design gets locked in. Skip this for changes with no visual
-  surface (model/logic-only work).
+  don't rely on a text description alone — render an ANSI mockup (never the
+  real binary) so Jeff can look at it before design gets locked in. See the
+  `mockup` skill for the standardized construction method, dimensions, color
+  constraints, window naming, and cleanup rules. Skip this for changes with no
+  visual surface (model/logic-only work).
 - Specs live in `specs/`, plans in `plans/`, the build ledger in
   `.superpowers/`; all three are git-ignored scratch, not part of the package.
 - **Review gate is the plan, not the spec.** When brainstorming a feature
