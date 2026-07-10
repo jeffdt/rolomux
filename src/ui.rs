@@ -192,7 +192,9 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
                 if last_section != Some(section) {
                     let target = section;
                     while next_group < target {
-                        push_empty_group_header(&mut items, &state.groups[next_group], list_area.width);
+                        if !state.focus_mode() {
+                            push_empty_group_header(&mut items, &state.groups[next_group], list_area.width);
+                        }
                         next_group += 1;
                     }
                     let color = group_color(&state.groups[section], section, &state.active_palette);
@@ -247,8 +249,14 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
         }
     }
     // Trailing empty groups (after the last session row, with no residual below).
+    // Every group index reached by either loop above is guaranteed to have zero
+    // visible sessions -- a group with any visible session always gets its real
+    // header via push_section_header instead, so no separate visibility check
+    // is needed here beyond `focus_mode` itself.
     while next_group < state.groups.len() {
-        push_empty_group_header(&mut items, &state.groups[next_group], list_area.width);
+        if !state.focus_mode() {
+            push_empty_group_header(&mut items, &state.groups[next_group], list_area.width);
+        }
         next_group += 1;
     }
 
@@ -1599,6 +1607,78 @@ mod tests {
         assert!(c < t && t < s, "empty group header sits in order: got {c:?} {t:?} {s:?}");
         assert!(tools_dim, "empty group header renders dimmed (gray)");
         assert!(config_accent, "populated group header keeps the accent color");
+    }
+
+    #[test]
+    fn focus_mode_hides_group_header_when_all_members_are_dormant() {
+        let sessions = vec![
+            Session { name: "claude".into(), activity: 30, created: 1, attached: false,
+                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+            Session { name: "old-deploy".into(), activity: 10, created: 2, attached: false,
+                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+        ];
+        let cfg = Config {
+            dormant: vec!["old-deploy".into()],
+            groups: vec![
+                Group { name: "config".into(), members: vec!["claude".into()], color: String::new(), ..Default::default() },
+                Group { name: "deploys".into(), members: vec!["old-deploy".into()], color: String::new(), ..Default::default() },
+            ],
+            ..Default::default()
+        };
+        let mut state = PickerState::build(sessions, &cfg);
+        state.toggle_focus_mode();
+
+        let text = render_to_string(&state);
+        assert!(text.contains("CONFIG"), "group with a visible session still shows");
+        assert!(!text.contains("DEPLOYS"), "group whose only member is now dormant is hidden in focus mode");
+    }
+
+    #[test]
+    fn focus_mode_hides_truly_empty_group_header() {
+        let sessions = vec![
+            Session { name: "claude".into(), activity: 30, created: 1, attached: false,
+                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+        ];
+        let cfg = Config {
+            dormant: vec![],
+            groups: vec![
+                Group { name: "config".into(), members: vec!["claude".into()], color: String::new(), ..Default::default() },
+                Group { name: "tools".into(), members: vec![], color: String::new(), ..Default::default() },
+            ],
+            ..Default::default()
+        };
+        let mut state = PickerState::build(sessions, &cfg);
+
+        let off_text = render_to_string(&state);
+        assert!(off_text.contains("TOOLS"), "focus mode off: empty group still shows dimmed, as before");
+
+        state.toggle_focus_mode();
+        let on_text = render_to_string(&state);
+        assert!(!on_text.contains("TOOLS"), "focus mode on: genuinely empty group is hidden too");
+    }
+
+    #[test]
+    fn focus_mode_hides_inbox_header_when_it_has_no_visible_sessions() {
+        let sessions = vec![
+            Session { name: "claude".into(), activity: 30, created: 1, attached: false,
+                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+            Session { name: "loose".into(), activity: 10, created: 2, attached: false,
+                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+        ];
+        let cfg = Config {
+            dormant: vec!["loose".into()],
+            groups: vec![
+                Group { name: "config".into(), members: vec!["claude".into()], color: String::new(), ..Default::default() },
+                Group { name: "INBOX".into(), members: vec![], inbox: true, ..Default::default() },
+            ],
+            ..Default::default()
+        };
+        let mut state = PickerState::build(sessions, &cfg);
+        state.toggle_focus_mode();
+
+        let text = render_to_string(&state);
+        assert!(text.contains("CONFIG"));
+        assert!(!text.contains("INBOX"), "inbox with zero visible sessions is hidden in focus mode too");
     }
 
     #[test]
