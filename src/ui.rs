@@ -37,7 +37,7 @@ const POPUP_MARGIN: u16 = 2;
 const TITLE_CHROME_ROWS: u16 = 2;
 
 const FOOTER_HINT: &str =
-    "/ search · R rename · ⇧JK mv · g groups · , settings · d dim · h hide · q quit";
+    "/ search · R rename · ⇧JK mv · g groups · , settings · d dim · f hide · q quit";
 
 const CREATE_GROUP_HINT: &str =
     "No groups yet: press g then n to create one, then use ⇧J/⇧K to move sessions.";
@@ -725,7 +725,7 @@ fn hidden_dormant_status(count: usize) -> String {
 
 fn footer_rule(width: u16, state: &PickerState) -> String {
     let width = width as usize;
-    if !state.hiding_dormant() {
+    if !state.focus_mode() {
         return "─".repeat(width);
     }
     let label = format!("─ {} ", hidden_dormant_status(state.hidden_dormant_count()));
@@ -737,8 +737,8 @@ fn footer_rule(width: u16, state: &PickerState) -> String {
 }
 
 fn command_footer_hint(state: &PickerState) -> String {
-    if state.hiding_dormant() {
-        FOOTER_HINT.replace("h hide", "h show")
+    if state.focus_mode() {
+        FOOTER_HINT.replace("f hide", "f show")
     } else {
         FOOTER_HINT.to_string()
     }
@@ -896,7 +896,7 @@ pub enum Input {
     MoveDown,
     EnterSearch,
     ToggleDormant,
-    ToggleDormantVisibility,
+    ToggleFocusMode,
     Rename,
     Quit,
     None,
@@ -1003,7 +1003,7 @@ pub fn map_key(key: KeyEvent) -> Input {
         KeyCode::Char('k') | KeyCode::Up => Input::Up,
         KeyCode::Char('l') | KeyCode::Right => Input::Expand,
         KeyCode::Left => Input::Collapse,
-        KeyCode::Char('h') => Input::ToggleDormantVisibility,
+        KeyCode::Char('f') => Input::ToggleFocusMode,
         KeyCode::Char('z') => Input::ToggleAll,
         KeyCode::Enter => Input::Select,
         KeyCode::Char('g') => Input::EnterGroups,
@@ -1319,7 +1319,8 @@ mod tests {
         assert_eq!(map_key(key(KeyCode::Char('l'))), Input::Expand);
         assert_eq!(map_key(key(KeyCode::Right)), Input::Expand);
         assert_eq!(map_key(key(KeyCode::Left)), Input::Collapse);
-        assert_eq!(map_key(key(KeyCode::Char('h'))), Input::ToggleDormantVisibility);
+        assert_eq!(map_key(key(KeyCode::Char('h'))), Input::None, "h is retired; f replaces it");
+        assert_eq!(map_key(key(KeyCode::Char('f'))), Input::ToggleFocusMode);
         assert_eq!(map_key(key(KeyCode::Enter)), Input::Select);
         assert_eq!(map_key(key(KeyCode::Char('g'))), Input::EnterGroups);
         assert_eq!(map_key(key(KeyCode::Char('p'))), Input::None);
@@ -1356,7 +1357,7 @@ mod tests {
     }
 
     #[test]
-    fn command_footer_keeps_h_hint_in_place_when_dormant_sessions_are_hidden() {
+    fn command_footer_keeps_f_hint_in_place_when_focus_mode_is_on() {
         let sessions = vec![
             Session { name: "alpha".into(), activity: 30, created: 1, attached: false,
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
@@ -1367,12 +1368,12 @@ mod tests {
         let mut state = PickerState::build(sessions, &cfg);
         let shown_hint = command_footer_hint(&state);
 
-        state.toggle_dormant_visibility();
+        state.toggle_focus_mode();
         let hidden_hint = command_footer_hint(&state);
 
-        assert_eq!(shown_hint.find("h "), hidden_hint.find("h "));
-        assert!(shown_hint.contains("h hide"));
-        assert!(hidden_hint.contains("h show"));
+        assert_eq!(shown_hint.find("f "), hidden_hint.find("f "));
+        assert!(shown_hint.contains("f hide"));
+        assert!(hidden_hint.contains("f show"));
     }
 
     #[test]
@@ -1385,13 +1386,13 @@ mod tests {
         ];
         let cfg = Config { groups: vec![], dormant: vec!["beta".into()], ..Default::default() };
         let mut state = PickerState::build(sessions, &cfg);
-        state.toggle_dormant_visibility();
+        state.toggle_focus_mode();
 
         let text = render_to_string(&state);
         assert!(text.contains("alpha"), "active session remains visible");
         assert!(!text.contains("beta"), "dormant session is hidden");
         assert!(text.contains("1 dormant session hidden"), "hidden count reminder is visible");
-        assert!(text.contains("h show"), "footer shows how to restore dormant sessions");
+        assert!(text.contains("f show"), "footer shows how to restore dormant sessions");
     }
 
     #[test]
@@ -1406,7 +1407,7 @@ mod tests {
         ];
         let cfg = Config { groups: vec![], dormant: vec!["beta".into(), "bravo".into()], ..Default::default() };
         let mut state = PickerState::build(sessions, &cfg);
-        state.toggle_dormant_visibility();
+        state.toggle_focus_mode();
         state.enter_search();
         state.search_push('b');
 

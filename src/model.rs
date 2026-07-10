@@ -313,7 +313,7 @@ pub struct PickerState {
     pub groups: Vec<Group>,
     expanded: HashSet<String>,
     dormant: HashSet<String>,
-    hide_dormant: bool,
+    focus_mode: bool,
     pub cursor: usize,
     pub dirty: bool,
     pub mode: Mode,
@@ -366,7 +366,7 @@ impl PickerState {
                 HashSet::new()
             },
             dormant: config.dormant.iter().cloned().collect(),
-            hide_dormant: config.hide_dormant,
+            focus_mode: config.focus_mode,
             cursor: 0,
             dirty: false,
             mode: config.default_mode.as_mode(),
@@ -510,7 +510,7 @@ impl PickerState {
                 }
             }
         }
-        if self.hide_dormant {
+        if self.focus_mode {
             out.retain(|s| !self.dormant.contains(&s.name));
         }
         out
@@ -593,14 +593,14 @@ impl PickerState {
     }
 
     /// Whether `name` is marked dormant. When dormant sessions are shown, they
-    /// are dimmed but otherwise fully normal; `hide_dormant` is the only filter
+    /// are dimmed but otherwise fully normal; `focus_mode` is the only filter
     /// that removes them from the picker.
     pub fn is_dormant(&self, name: &str) -> bool {
         self.dormant.contains(name)
     }
 
-    pub fn hiding_dormant(&self) -> bool {
-        self.hide_dormant
+    pub fn focus_mode(&self) -> bool {
+        self.focus_mode
     }
 
     pub fn dormant_count(&self) -> usize {
@@ -608,20 +608,21 @@ impl PickerState {
     }
 
     pub fn hidden_dormant_count(&self) -> usize {
-        if self.hide_dormant { self.dormant_count() } else { 0 }
+        if self.focus_mode { self.dormant_count() } else { 0 }
     }
 
     fn session_visible(&self, name: &str) -> bool {
-        !self.hide_dormant || !self.is_dormant(name)
+        !self.focus_mode || !self.is_dormant(name)
     }
 
-    /// Toggle whether dormant sessions are hidden from the picker. The filter
-    /// is persisted as a preference so it survives closing and reopening the
-    /// popup, same as the dormant set itself.
-    pub fn toggle_dormant_visibility(&mut self) {
+    /// Toggle whether focus mode (hiding dormant sessions, and any group left
+    /// with nothing visible) is on. The filter is persisted as a preference so
+    /// it survives closing and reopening the popup, same as the dormant set
+    /// itself.
+    pub fn toggle_focus_mode(&mut self) {
         let command_focus = self.cursor_session_name();
         let search_focus = self.search_cursor_name();
-        self.hide_dormant = !self.hide_dormant;
+        self.focus_mode = !self.focus_mode;
         self.dirty = true;
         if let Some(name) = command_focus.as_deref().filter(|name| self.session_visible(name)) {
             self.focus_session(name);
@@ -692,7 +693,7 @@ impl PickerState {
     pub fn apply_to_config(&self, config: &mut Config) {
         config.groups = self.groups.clone();
         config.dormant = self.dormant_list();
-        config.hide_dormant = self.hiding_dormant();
+        config.focus_mode = self.focus_mode();
         config.default_mode = self.default_mode;
         config.number_dormant_sessions = self.number_dormant_sessions;
         config.new_group_color_policy = self.new_group_color_policy;
@@ -1828,7 +1829,7 @@ mod tests {
         let sessions = vec![s("alpha", 10, 1), s("beta", 20, 2), s("gamma", 30, 3)];
         let cfg = Config {
             dormant: vec!["beta".into()],
-            hide_dormant: true,
+            focus_mode: true,
             number_dormant_sessions: true,
             ..Default::default()
         };
@@ -2155,16 +2156,16 @@ mod tests {
     }
 
     #[test]
-    fn hide_dormant_loads_from_config() {
+    fn focus_mode_loads_from_config() {
         let sessions = vec![s("a", 30, 1), s("b", 20, 2)];
         let cfg = Config {
             groups: vec![],
             dormant: vec!["a".into()],
-            hide_dormant: true,
+            focus_mode: true,
             ..Default::default()
         };
         let state = PickerState::build(sessions, &cfg);
-        assert!(state.hiding_dormant());
+        assert!(state.focus_mode());
         assert_eq!(state.hidden_dormant_count(), 1);
         let visible: Vec<&str> = state.ordered().iter().map(|s| s.name.as_str()).collect();
         assert_eq!(visible, vec!["b"]);
@@ -2268,7 +2269,7 @@ mod tests {
     }
 
     #[test]
-    fn toggle_dormant_visibility_filters_command_and_search_and_dirties() {
+    fn toggle_focus_mode_filters_command_and_search_and_dirties() {
         let sessions = vec![s("alpha", 1, 1), s("beta", 1, 2), s("gamma", 1, 3)];
         let cfg = Config { groups: vec![], dormant: vec!["beta".into()], ..Default::default() };
         let mut state = PickerState::build(sessions, &cfg);
@@ -2277,10 +2278,10 @@ mod tests {
         let shown: Vec<&str> = state.ordered().iter().map(|s| s.name.as_str()).collect();
         assert_eq!(shown, vec!["alpha", "beta", "gamma"]);
 
-        state.toggle_dormant_visibility();
-        assert!(state.hiding_dormant());
+        state.toggle_focus_mode();
+        assert!(state.focus_mode());
         assert_eq!(state.hidden_dormant_count(), 1);
-        assert!(state.dirty, "hiding dormant sessions persists the preference");
+        assert!(state.dirty, "entering focus mode persists the preference");
         let visible: Vec<&str> = state.ordered().iter().map(|s| s.name.as_str()).collect();
         assert_eq!(visible, vec!["alpha", "gamma"]);
 
@@ -2291,21 +2292,21 @@ mod tests {
         let search_visible: Vec<&str> = state.search_results().iter().map(|s| s.name.as_str()).collect();
         assert_eq!(search_visible, vec!["alpha", "gamma"]);
 
-        state.toggle_dormant_visibility();
-        assert!(!state.hiding_dormant());
+        state.toggle_focus_mode();
+        assert!(!state.focus_mode());
         let restored: Vec<&str> = state.ordered().iter().map(|s| s.name.as_str()).collect();
         assert_eq!(restored, vec!["alpha", "beta", "gamma"]);
     }
 
     #[test]
-    fn hiding_dormant_clamps_cursor_when_selected_session_disappears() {
+    fn focus_mode_clamps_cursor_when_selected_session_disappears() {
         let sessions = vec![s("alpha", 1, 1), s("beta", 1, 2)];
         let cfg = Config { groups: vec![], dormant: vec!["beta".into()], ..Default::default() };
         let mut state = PickerState::build(sessions, &cfg);
         state.focus_session("beta");
         assert_eq!(state.cursor_session_name().as_deref(), Some("beta"));
 
-        state.toggle_dormant_visibility();
+        state.toggle_focus_mode();
 
         assert_eq!(state.cursor_session_name().as_deref(), Some("alpha"));
         assert_eq!(state.visible_rows().len(), 1);
@@ -2316,7 +2317,7 @@ mod tests {
         let sessions = vec![s("alpha", 1, 1), s("beta", 1, 2)];
         let cfg = Config { groups: vec![], ..Default::default() };
         let mut state = PickerState::build(sessions, &cfg);
-        state.toggle_dormant_visibility();
+        state.toggle_focus_mode();
         assert_eq!(state.cursor_session_name().as_deref(), Some("alpha"));
 
         state.toggle_dormant();
@@ -2341,7 +2342,7 @@ mod tests {
             ..Default::default()
         };
         let mut state = PickerState::build(sessions, &cfg);
-        state.toggle_dormant_visibility();
+        state.toggle_focus_mode();
         state.focus_session("alpha");
 
         state.move_row(1);
@@ -3191,7 +3192,7 @@ mod tests {
         st.border_color = "yellow".to_string();
         st.default_mode = DefaultMode::Search;
         st.number_dormant_sessions = false;
-        st.hide_dormant = true;
+        st.focus_mode = true;
         st.new_group_color_policy = ColorPolicy::Static;
         st.static_color = "white".to_string();
         st.active_palette = vec!["red".to_string(), "white".to_string()];
@@ -3206,7 +3207,7 @@ mod tests {
         assert_eq!(reloaded.border_color, "yellow");
         assert_eq!(reloaded.default_mode, DefaultMode::Search);
         assert!(!reloaded.number_dormant_sessions);
-        assert!(reloaded.hide_dormant);
+        assert!(reloaded.focus_mode);
         assert_eq!(reloaded.new_group_color_policy, ColorPolicy::Static);
         assert_eq!(reloaded.static_color, "white");
         assert_eq!(reloaded.active_palette, vec!["red".to_string(), "white".to_string()]);
