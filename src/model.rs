@@ -395,6 +395,18 @@ impl PickerState {
         state
     }
 
+    /// Like `build`, but seeds the transient expand set from `expanded`
+    /// instead of from `config.expanded`/`remember_expanded_sessions`. Used
+    /// to rebuild the picker after a mid-run session/window rename, so a
+    /// session expanded this run (even with "remember expanded" off)
+    /// survives the rebuild under its possibly-new name.
+    #[allow(dead_code)]
+    pub fn build_with_expanded(sessions: Vec<Session>, config: &Config, expanded: Vec<String>) -> PickerState {
+        let mut state = Self::build_with_focus(sessions, config, INITIAL_FOCUS, None);
+        state.expanded = expanded.into_iter().collect();
+        state
+    }
+
     /// Refine the initial cursor with the precise current-session name resolved
     /// from `$TMUX` (which `build` can't see). Only applies under the
     /// `CurrentSession` policy, so swapping `INITIAL_FOCUS` to `FirstRow` is
@@ -3313,5 +3325,27 @@ mod tests {
             SettingsRow::PaletteColor(0).description(),
             SettingsRow::Palette.description()
         );
+    }
+
+    #[test]
+    fn build_with_expanded_seeds_expand_set_regardless_of_remember_setting() {
+        let sessions = vec![s("alpha", 1, 1), s("beta", 1, 2)];
+        let cfg = Config { remember_expanded_sessions: false, ..Default::default() };
+        let st = PickerState::build_with_expanded(sessions, &cfg, vec!["alpha".to_string()]);
+        assert!(st.is_expanded("alpha"));
+        assert!(!st.is_expanded("beta"));
+    }
+
+    #[test]
+    fn build_with_expanded_ignores_config_expanded_field() {
+        let sessions = vec![s("alpha", 1, 1)];
+        let cfg = Config {
+            remember_expanded_sessions: true,
+            expanded: vec!["alpha".to_string()],
+            ..Default::default()
+        };
+        // Even though config.expanded lists "alpha", the explicit (empty) override wins.
+        let st = PickerState::build_with_expanded(sessions, &cfg, vec![]);
+        assert!(!st.is_expanded("alpha"));
     }
 }
