@@ -37,7 +37,7 @@ const POPUP_MARGIN: u16 = 2;
 const TITLE_CHROME_ROWS: u16 = 2;
 
 const FOOTER_HINT: &str =
-    "/ search · R rename · ⇧JK mv · g groups · , settings · d dim · f hide · q quit";
+    "/ search · R rename · JK mv · g groups · , settings · d dim · f focus · q quit";
 
 const CREATE_GROUP_HINT: &str =
     "No groups yet: press g then n to create one, then use ⇧J/⇧K to move sessions.";
@@ -746,7 +746,7 @@ fn footer_rule(width: u16, state: &PickerState) -> String {
 
 fn command_footer_hint(state: &PickerState) -> String {
     if state.focus_mode() {
-        FOOTER_HINT.replace("f hide", "f show")
+        FOOTER_HINT.replace("f focus", "f show")
     } else {
         FOOTER_HINT.to_string()
     }
@@ -1380,7 +1380,7 @@ mod tests {
         let hidden_hint = command_footer_hint(&state);
 
         assert_eq!(shown_hint.find("f "), hidden_hint.find("f "));
-        assert!(shown_hint.contains("f hide"));
+        assert!(shown_hint.contains("f focus"));
         assert!(hidden_hint.contains("f show"));
     }
 
