@@ -22,9 +22,7 @@ pub trait Tmux {
     fn gather(&self) -> Gathered;
     fn switch_session(&self, name: &str) -> io::Result<()>;
     fn select_window(&self, name: &str, index: u32) -> io::Result<()>;
-    #[allow(dead_code)]
     fn rename_session(&self, old: &str, new: &str) -> io::Result<()>;
-    #[allow(dead_code)]
     fn rename_window(&self, session: &str, index: u32, new: &str) -> io::Result<()>;
 }
 

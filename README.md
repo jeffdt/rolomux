@@ -66,6 +66,7 @@ bind C new-session \; command-prompt -I "" "rename-session '%%'" \; command-prom
 | `←` | Collapse a session's window tree |
 | `z` | Expand or collapse window trees for all sessions |
 | `⇧J` / `⇧K` | Move the selected session up or down within its group, or into the neighboring group (also `⇧↓` / `⇧↑`) |
+| `R` | Rename the selected session or window |
 | `g` | Open group-management mode |
 | `,` | Open settings |
 | `d` | Toggle dormant (dim) on the selected session |

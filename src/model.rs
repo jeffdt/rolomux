@@ -245,7 +245,6 @@ pub enum RenameTarget {
     Window(String, u32),
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PendingRename {
     pub target: RenameTarget,
@@ -400,7 +399,6 @@ impl PickerState {
     /// to rebuild the picker after a mid-run session/window rename, so a
     /// session expanded this run (even with "remember expanded" off)
     /// survives the rebuild under its possibly-new name.
-    #[allow(dead_code)]
     pub fn build_with_expanded(sessions: Vec<Session>, config: &Config, expanded: Vec<String>) -> PickerState {
         let mut state = Self::build_with_focus(sessions, config, INITIAL_FOCUS, None);
         state.expanded = expanded.into_iter().collect();
@@ -735,7 +733,6 @@ impl PickerState {
 
     /// Begin renaming whatever row the cursor is on, seeding the buffer
     /// with its current name. A no-op if the cursor addresses no row.
-    #[allow(dead_code)]
     pub fn start_rename(&mut self) {
         let rows = self.visible_rows();
         let ordered = self.ordered();
@@ -749,19 +746,16 @@ impl PickerState {
     }
 
     /// Push a character onto the in-flight rename buffer.
-    #[allow(dead_code)]
     pub fn rename_edit_push(&mut self, c: char) {
         if let Some(buf) = self.rename_edit.as_mut() { buf.push(c); }
     }
 
     /// Remove the last character from the in-flight rename buffer.
-    #[allow(dead_code)]
     pub fn rename_edit_backspace(&mut self) {
         if let Some(buf) = self.rename_edit.as_mut() { buf.pop(); }
     }
 
     /// Delete the trailing word from the in-flight rename buffer (Ctrl-W convention).
-    #[allow(dead_code)]
     pub fn rename_edit_delete_word(&mut self) {
         if let Some(buf) = self.rename_edit.as_mut() {
             let trimmed = buf.trim_end_matches(char::is_whitespace);
@@ -771,13 +765,11 @@ impl PickerState {
     }
 
     /// Clear the entire in-flight rename buffer (Ctrl-U convention).
-    #[allow(dead_code)]
     pub fn rename_edit_clear(&mut self) {
         if let Some(buf) = self.rename_edit.as_mut() { buf.clear(); }
     }
 
     /// Cancel the in-flight rename, discarding the buffer.
-    #[allow(dead_code)]
     pub fn cancel_rename(&mut self) {
         self.rename_edit = None;
     }
@@ -787,7 +779,6 @@ impl PickerState {
     /// return what to rename and to what. Returns `None` (having still
     /// cleared the buffer) for an empty or unchanged commit -- both are
     /// treated as a no-op, mirroring group rename's empty-name guard.
-    #[allow(dead_code)]
     pub fn take_rename_commit(&mut self) -> Option<PendingRename> {
         let buf = self.rename_edit.take()?;
         let new_name = buf.trim().to_string();
