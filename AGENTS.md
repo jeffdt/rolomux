@@ -113,8 +113,9 @@ User config persists to `$XDG_CONFIG_HOME/rolomux/config.toml` (else
 ordered `members` list, and an optional `color` from the named palette in
 `HEADER_COLORS`; empty/absent means the positional default, and `c` in group
 mode flips it; exactly one group is marked `inbox = true`), a top-level `dormant`
-list, a top-level `hide_dormant` bool that persists the current hide/show
-filter across popups, and `[settings]` preferences including
+list, a top-level `focus_mode` bool that persists the current focus filter
+(hiding dormant sessions and any group left with nothing visible) across
+popups, and `[settings]` preferences including
 `number_dormant_sessions` for whether visible dormant sessions receive jump
 numbers. Legacy top-level `pinned` and `manual_order` lists are still read and
 migrate to groups. Users normally never edit it by hand; the picker writes it
