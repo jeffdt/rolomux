@@ -718,6 +718,23 @@ impl PickerState {
         }
     }
 
+    /// Focus a specific window row by session name and stable tmux window
+    /// index (unlike a window's name, its index survives a rename). Requires
+    /// the session to already be expanded, which holds after a window rename
+    /// since only a visible window row can be renamed in the first place.
+    pub fn focus_window(&mut self, session: &str, index: u32) {
+        let rows = self.visible_rows();
+        let ordered = self.ordered();
+        for (i, r) in rows.iter().enumerate() {
+            if let Row::Window(si, wi) = r {
+                if ordered[*si].name == session && ordered[*si].windows[*wi].index == index {
+                    self.cursor = i;
+                    return;
+                }
+            }
+        }
+    }
+
     /// Whether an inline session/window rename is currently in progress.
     pub fn renaming(&self) -> bool {
         self.rename_edit.is_some()
