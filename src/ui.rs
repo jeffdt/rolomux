@@ -1635,6 +1635,22 @@ mod tests {
     }
 
     #[test]
+    fn draw_footer_hint_fits_within_real_popup_width_untruncated() {
+        let sessions = vec![
+            Session { name: "main".into(), activity: 100, created: 1, attached: false,
+                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+        ];
+        let cfg = Config { groups: vec![], ..Default::default() };
+        let state = PickerState::build(sessions, &cfg);
+        // 84 columns matches the real tmux popup width this app is bound at (AGENTS.md).
+        let text = render_to_string_sized(&state, 84, 20);
+        assert!(
+            text.contains(FOOTER_HINT),
+            "footer hint must render untruncated at the real 84-column popup width"
+        );
+    }
+
+    #[test]
     fn draw_numbers_sessions_in_left_gutter() {
         let sessions = vec![
             Session { name: "main".into(), activity: 30, created: 1, attached: false,
