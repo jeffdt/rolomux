@@ -6,6 +6,7 @@ pub const FMT: &str = "#{session_name}\x1f#{session_activity}\x1f#{session_creat
 
 /// Result of a single gather: the sessions plus the name of the session the
 /// popup was launched from (when it can be resolved from `$TMUX`).
+#[derive(Debug, Clone, Default)]
 pub struct Gathered {
     pub sessions: Vec<Session>,
     pub current: Option<String>,
@@ -21,6 +22,8 @@ pub trait Tmux {
     fn gather(&self) -> Gathered;
     fn switch_session(&self, name: &str) -> io::Result<()>;
     fn select_window(&self, name: &str, index: u32) -> io::Result<()>;
+    fn rename_session(&self, old: &str, new: &str) -> io::Result<()>;
+    fn rename_window(&self, session: &str, index: u32, new: &str) -> io::Result<()>;
 }
 
 pub struct RealTmux {
@@ -121,6 +124,21 @@ impl Tmux for RealTmux {
             .status()
             .map(|_| ())
     }
+
+    fn rename_session(&self, old: &str, new: &str) -> io::Result<()> {
+        self.command()
+            .args(["rename-session", "-t", old, new])
+            .status()
+            .map(|_| ())
+    }
+
+    fn rename_window(&self, session: &str, index: u32, new: &str) -> io::Result<()> {
+        let target = format!("{session}:{index}");
+        self.command()
+            .args(["rename-window", "-t", &target, new])
+            .status()
+            .map(|_| ())
+    }
 }
 
 /// Extract the tmux server socket path from `$TMUX` (its first comma-separated
@@ -213,10 +231,46 @@ pub fn parse_windows(raw: &str) -> (Vec<Session>, Vec<(String, String)>) {
 }
 
 #[cfg(test)]
+#[derive(Default)]
+pub(crate) struct FakeTmux {
+    pub calls: std::cell::RefCell<Vec<String>>,
+    gathered: std::cell::RefCell<Gathered>,
+}
+
+#[cfg(test)]
+impl FakeTmux {
+    pub fn with_gather(gathered: Gathered) -> Self {
+        FakeTmux { calls: std::cell::RefCell::new(Vec::new()), gathered: std::cell::RefCell::new(gathered) }
+    }
+}
+
+#[cfg(test)]
+impl Tmux for FakeTmux {
+    fn gather(&self) -> Gathered {
+        self.gathered.borrow().clone()
+    }
+    fn switch_session(&self, name: &str) -> std::io::Result<()> {
+        self.calls.borrow_mut().push(format!("switch:{name}"));
+        Ok(())
+    }
+    fn select_window(&self, name: &str, index: u32) -> std::io::Result<()> {
+        self.calls.borrow_mut().push(format!("select:{name}:{index}"));
+        Ok(())
+    }
+    fn rename_session(&self, old: &str, new: &str) -> std::io::Result<()> {
+        self.calls.borrow_mut().push(format!("rename-session:{old}:{new}"));
+        Ok(())
+    }
+    fn rename_window(&self, session: &str, index: u32, new: &str) -> std::io::Result<()> {
+        self.calls.borrow_mut().push(format!("rename-window:{session}:{index}:{new}"));
+        Ok(())
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::model::Action;
-    use std::cell::RefCell;
 
     #[test]
     fn parses_two_sessions_grouping_windows_in_order() {
@@ -336,24 +390,6 @@ scratch\u{1f}50\u{1f}5\u{1f}0\u{1f}0\u{1f}shell\u{1f}1\u{1f}$8
         assert_eq!(current_session(SAMPLE, Some("sock,123")), None);
     }
 
-    #[derive(Default)]
-    struct FakeTmux {
-        calls: RefCell<Vec<String>>,
-    }
-    impl Tmux for FakeTmux {
-        fn gather(&self) -> Gathered {
-            Gathered { sessions: Vec::new(), current: None, ids: Vec::new() }
-        }
-        fn switch_session(&self, name: &str) -> std::io::Result<()> {
-            self.calls.borrow_mut().push(format!("switch:{name}"));
-            Ok(())
-        }
-        fn select_window(&self, name: &str, index: u32) -> std::io::Result<()> {
-            self.calls.borrow_mut().push(format!("select:{name}:{index}"));
-            Ok(())
-        }
-    }
-
     #[test]
     fn apply_switch_session_calls_switch_only() {
         let t = FakeTmux::default();
@@ -366,5 +402,31 @@ scratch\u{1f}50\u{1f}5\u{1f}0\u{1f}0\u{1f}shell\u{1f}1\u{1f}$8
         let t = FakeTmux::default();
         apply_action(&t, &Action::SwitchWindow("work".into(), 2)).unwrap();
         assert_eq!(*t.calls.borrow(), vec!["switch:work", "select:work:2"]);
+    }
+
+    #[test]
+    fn fake_tmux_records_rename_session_call() {
+        let t = FakeTmux::default();
+        t.rename_session("old", "new").unwrap();
+        assert_eq!(*t.calls.borrow(), vec!["rename-session:old:new"]);
+    }
+
+    #[test]
+    fn fake_tmux_records_rename_window_call() {
+        let t = FakeTmux::default();
+        t.rename_window("work", 2, "logs").unwrap();
+        assert_eq!(*t.calls.borrow(), vec!["rename-window:work:2:logs"]);
+    }
+
+    #[test]
+    fn fake_tmux_with_gather_returns_configured_snapshot() {
+        let t = FakeTmux::with_gather(Gathered {
+            sessions: vec![],
+            current: Some("work".to_string()),
+            ids: vec![("work".to_string(), "$3".to_string())],
+        });
+        let g = t.gather();
+        assert_eq!(g.current.as_deref(), Some("work"));
+        assert_eq!(g.ids, vec![("work".to_string(), "$3".to_string())]);
     }
 }
