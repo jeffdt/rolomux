@@ -192,9 +192,12 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
                 if last_section != Some(section) {
                     let target = section;
                     while next_group < target {
-                        if !state.focus_mode() {
-                            push_empty_group_header(&mut items, &state.groups[next_group], list_area.width);
-                        }
+                        push_empty_group_header_unless_focused(
+                            &mut items,
+                            &state.groups[next_group],
+                            list_area.width,
+                            state.focus_mode(),
+                        );
                         next_group += 1;
                     }
                     let color = group_color(&state.groups[section], section, &state.active_palette);
@@ -249,14 +252,13 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
         }
     }
     // Trailing empty groups (after the last session row, with no residual below).
-    // Every group index reached by either loop above is guaranteed to have zero
-    // visible sessions -- a group with any visible session always gets its real
-    // header via push_section_header instead, so no separate visibility check
-    // is needed here beyond `focus_mode` itself.
     while next_group < state.groups.len() {
-        if !state.focus_mode() {
-            push_empty_group_header(&mut items, &state.groups[next_group], list_area.width);
-        }
+        push_empty_group_header_unless_focused(
+            &mut items,
+            &state.groups[next_group],
+            list_area.width,
+            state.focus_mode(),
+        );
         next_group += 1;
     }
 
@@ -681,6 +683,21 @@ fn push_create_group_hint(items: &mut Vec<ListItem<'static>>) {
 /// Push a bare, dimmed header for an empty named group (a labeled shelf to fill).
 fn push_empty_group_header(items: &mut Vec<ListItem<'static>>, g: &Group, width: u16) {
     push_section_header(items, g, width, DIM);
+}
+
+/// Same as `push_empty_group_header`, but skipped entirely in focus mode. Every
+/// call site reaches this only for a group already known to have zero visible
+/// sessions (a group with any visible session always gets its real header via
+/// `push_section_header` instead), so gating on `focus_mode` alone is correct.
+fn push_empty_group_header_unless_focused(
+    items: &mut Vec<ListItem<'static>>,
+    g: &Group,
+    width: u16,
+    focus_mode: bool,
+) {
+    if !focus_mode {
+        push_empty_group_header(items, g, width);
+    }
 }
 
 const INBOX_GLYPH: &str = "⊛ ";
