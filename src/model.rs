@@ -239,6 +239,30 @@ pub enum Row {
     Window(usize, usize),
 }
 
+/// A planned window-level `⇧J`/`⇧K` action, computed by `plan_window_move`.
+/// Pure data -- no tmux call happens until `main.rs` commits it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WindowMove {
+    /// Swap two windows within the same session (`tmux swap-window`).
+    SwapWithin { session: String, a_index: u32, b_index: u32 },
+    /// Move a window into an adjacent session (`tmux move-window`).
+    /// `before: true` inserts before `dst_anchor_index` (landing first),
+    /// `false` inserts after it (landing last). `kills_source` is true iff
+    /// `window_index` is the only window left in `src_session` -- moving it
+    /// away would destroy that session. `src_attached` is `src_session`'s
+    /// `Session::attached` flag, carried through so callers don't need to
+    /// re-look it up.
+    CrossSession {
+        src_session: String,
+        window_index: u32,
+        dst_session: String,
+        dst_anchor_index: u32,
+        before: bool,
+        kills_source: bool,
+        src_attached: bool,
+    },
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RenameTarget {
     Session(String),
@@ -828,6 +852,68 @@ impl PickerState {
     /// Wraps around at the very top and bottom of the whole list (top wraps
     /// to the end of the last group, bottom wraps to the front of the first
     /// group) rather than clamping.
+    /// Compute what a window-row `⇧J`/`⇧K` press should do, without doing
+    /// it. Returns `None` when the cursor isn't on a window row, or when
+    /// there is truly nowhere for the window to go (a single session with a
+    /// single window). Never mutates `self` -- the actual tmux call and
+    /// state rebuild happen in `main.rs`, mirroring how rename works.
+    pub fn plan_window_move(&self, delta: i32) -> Option<WindowMove> {
+        let rows = self.visible_rows();
+        let (si, wi) = match rows.get(self.cursor) {
+            Some(Row::Window(si, wi)) => (*si, *wi),
+            _ => return None,
+        };
+        let ordered = self.ordered();
+        let sess = ordered[si];
+
+        if delta < 0 && wi > 0 {
+            let neighbor = &sess.windows[wi - 1];
+            return Some(WindowMove::SwapWithin {
+                session: sess.name.clone(),
+                a_index: sess.windows[wi].index,
+                b_index: neighbor.index,
+            });
+        }
+        if delta > 0 && wi + 1 < sess.windows.len() {
+            let neighbor = &sess.windows[wi + 1];
+            return Some(WindowMove::SwapWithin {
+                session: sess.name.clone(),
+                a_index: sess.windows[wi].index,
+                b_index: neighbor.index,
+            });
+        }
+
+        // At the edge of this session's own window list: cross into the
+        // adjacent session in the flat visible order, wrapping around the
+        // whole list -- unless this is the only session on screen, in
+        // which case there is nowhere else to go.
+        if ordered.len() <= 1 {
+            return None;
+        }
+        let dst_si = if delta < 0 {
+            (si + ordered.len() - 1) % ordered.len()
+        } else {
+            (si + 1) % ordered.len()
+        };
+        let dst = ordered[dst_si];
+        let (dst_anchor_index, before) = if delta < 0 {
+            // Moving up and out: land at the *last* slot of the session above.
+            (dst.windows.last().expect("a session always has >= 1 window").index, false)
+        } else {
+            // Moving down and out: land at the *first* slot of the session below.
+            (dst.windows[0].index, true)
+        };
+        Some(WindowMove::CrossSession {
+            src_session: sess.name.clone(),
+            window_index: sess.windows[wi].index,
+            dst_session: dst.name.clone(),
+            dst_anchor_index,
+            before,
+            kills_source: sess.windows.len() == 1,
+            src_attached: sess.attached,
+        })
+    }
+
     pub fn move_row(&mut self, delta: i32) {
         let name = match self.cursor_session_name() { Some(n) => n, None => return };
         let gi = match self.group_index_of(&name) { Some(g) => g, None => return };
@@ -1565,6 +1651,161 @@ mod tests {
             attached: false,
             windows: vec![Window { index: 0, name: "w".into(), active: true }],
         }
+    }
+
+    fn win(index: u32, name: &str) -> Window {
+        Window { index, name: name.into(), active: false }
+    }
+
+    fn session_with_windows(name: &str, created: i64, windows: Vec<Window>) -> Session {
+        Session { name: name.into(), activity: created, created, attached: false, windows }
+    }
+
+    #[test]
+    fn plan_window_move_swaps_with_previous_window_in_same_session() {
+        let sessions = vec![session_with_windows("work", 1, vec![win(0, "a"), win(1, "b"), win(2, "c")])];
+        let cfg = Config::default();
+        let mut st = PickerState::build(sessions, &cfg);
+        st.focus_session("work");
+        st.expand();
+        st.move_cursor(3); // rows: [work, a, b, c]; lands on "c" (wi = 2)
+        assert_eq!(
+            st.plan_window_move(-1),
+            Some(WindowMove::SwapWithin { session: "work".into(), a_index: 2, b_index: 1 })
+        );
+    }
+
+    #[test]
+    fn plan_window_move_swaps_with_next_window_in_same_session() {
+        let sessions = vec![session_with_windows("work", 1, vec![win(0, "a"), win(1, "b"), win(2, "c")])];
+        let cfg = Config::default();
+        let mut st = PickerState::build(sessions, &cfg);
+        st.focus_session("work");
+        st.expand();
+        st.move_cursor(1); // rows: [work, a, b, c]; lands on "a" (wi = 0)
+        assert_eq!(
+            st.plan_window_move(1),
+            Some(WindowMove::SwapWithin { session: "work".into(), a_index: 0, b_index: 1 })
+        );
+    }
+
+    #[test]
+    fn plan_window_move_up_from_first_window_crosses_into_session_above_last_slot() {
+        let sessions = vec![
+            session_with_windows("alpha", 1, vec![win(0, "a1"), win(3, "a2")]),
+            session_with_windows("beta", 2, vec![win(0, "b1")]),
+        ];
+        let cfg = Config {
+            groups: vec![Group {
+                name: "ONLY".into(),
+                members: vec!["alpha".into(), "beta".into()],
+                inbox: true,
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let mut st = PickerState::build(sessions, &cfg);
+        st.focus_session("beta");
+        st.expand();
+        st.move_cursor(1); // rows: [alpha, a1, a2, beta, b1]; lands on "b1" (wi = 0, only window)
+        assert_eq!(
+            st.plan_window_move(-1),
+            Some(WindowMove::CrossSession {
+                src_session: "beta".into(),
+                window_index: 0,
+                dst_session: "alpha".into(),
+                dst_anchor_index: 3,
+                before: false,
+                kills_source: true,
+                src_attached: false,
+            })
+        );
+    }
+
+    #[test]
+    fn plan_window_move_down_from_last_window_crosses_into_session_below_first_slot() {
+        let sessions = vec![
+            session_with_windows("alpha", 1, vec![win(0, "a1"), win(1, "a2")]),
+            session_with_windows("beta", 2, vec![win(0, "b1"), win(2, "b2")]),
+        ];
+        let cfg = Config {
+            groups: vec![Group {
+                name: "ONLY".into(),
+                members: vec!["alpha".into(), "beta".into()],
+                inbox: true,
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let mut st = PickerState::build(sessions, &cfg);
+        st.focus_session("alpha");
+        st.expand();
+        st.move_cursor(2); // rows: [alpha, a1, a2, beta]; lands on "a2" (wi = 1, last window)
+        assert_eq!(
+            st.plan_window_move(1),
+            Some(WindowMove::CrossSession {
+                src_session: "alpha".into(),
+                window_index: 1,
+                dst_session: "beta".into(),
+                dst_anchor_index: 0,
+                before: true,
+                kills_source: false,
+                src_attached: false,
+            })
+        );
+    }
+
+    #[test]
+    fn plan_window_move_wraps_from_first_session_up_to_last_session_last_slot() {
+        let sessions = vec![
+            session_with_windows("alpha", 1, vec![win(0, "a1")]),
+            session_with_windows("beta", 2, vec![win(0, "b1"), win(1, "b2")]),
+        ];
+        let cfg = Config {
+            groups: vec![Group {
+                name: "ONLY".into(),
+                members: vec!["alpha".into(), "beta".into()],
+                inbox: true,
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let mut st = PickerState::build(sessions, &cfg);
+        st.focus_session("alpha");
+        st.expand();
+        st.move_cursor(1); // rows: [alpha, a1, beta, b1, b2]; lands on "a1" (wi = 0, only window)
+        assert_eq!(
+            st.plan_window_move(-1),
+            Some(WindowMove::CrossSession {
+                src_session: "alpha".into(),
+                window_index: 0,
+                dst_session: "beta".into(), // wraps around to the last session on screen
+                dst_anchor_index: 1,
+                before: false,
+                kills_source: true,
+                src_attached: false,
+            })
+        );
+    }
+
+    #[test]
+    fn plan_window_move_is_none_when_only_one_session_with_one_window() {
+        let sessions = vec![session_with_windows("solo", 1, vec![win(0, "only")])];
+        let cfg = Config::default();
+        let mut st = PickerState::build(sessions, &cfg);
+        st.focus_session("solo");
+        st.expand();
+        st.move_cursor(1); // the only window
+        assert_eq!(st.plan_window_move(-1), None);
+        assert_eq!(st.plan_window_move(1), None);
+    }
+
+    #[test]
+    fn plan_window_move_is_none_when_cursor_is_on_a_session_row() {
+        let sessions = vec![session_with_windows("solo", 1, vec![win(0, "only"), win(1, "other")])];
+        let cfg = Config::default();
+        let st = PickerState::build(sessions, &cfg); // cursor defaults onto the session row
+        assert_eq!(st.plan_window_move(-1), None);
     }
 
     #[test]
