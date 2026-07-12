@@ -108,16 +108,23 @@ Move within results with `↑`/`↓` (or `Ctrl-n`/`Ctrl-p`, `Ctrl-j`/`Ctrl-k`), 
 While searching, section headers and jump numbers (sessions 1-20) are hidden; the list is flat and collapsed.
 If focus mode is on, search results exclude dormant sessions, and the footer shows how many are currently hidden.
 
-### Focus mode
+### Dormant sessions and focus mode
 
-Press `d` to mark the selected session dormant; it renders dimmed in place as a "not in active rotation" cue.
-When dormant sessions are shown, they keep their group membership and position. By default they also keep jump numbers; in Settings, change **Number dormant sessions** to **No** if you want visible dormant sessions to be omitted from jump numbering.
-Press `f` to enter focus mode, hiding dormant sessions entirely; press `f` again to show everything.
-Hidden dormant sessions are excluded from the normal picker and from search results, and both modes show a reminder such as `8 dormant sessions hidden` while the filter is active.
-Focus mode also hides any group left with nothing visible in it, whether it's genuinely empty or every member just went dormant, so a hard focus session doesn't leave empty shelves cluttering the screen. A group reappears the moment something in it becomes visible again.
-Press `d` again on a dormant session to undim it.
-The dormant set and the focus-mode choice both persist across popups, so reopening rolomux keeps your last focus preference.
-Think of it as one more optional tool in your kit to help you tend your sessions, if you find it helpful.
+Press `d` to mark the selected session dormant.
+It will render in a dimmed state as a visual cue of your paused work.
+Dormant sessions are still fully usable, and by default they also get assigned jump numbers.
+In Settings, change **Number dormant sessions** to **No** if you want dormant sessions to be skipped when jump numbers are assigned.
+
+Once you have a few sessions marked dormant, you can press `f` to enter focus mode.
+In focus mode, both dormant sessions and empty groups disappear from view altogether.
+This is a powerful tool when you cannot afford distractions luring you away from your priorities.
+You will see a small reminder like `8 dormant sessions hidden` while focus mode is active.
+
+Dormant sessions and focus mode persist across popups until turned off.
+Press `f` again to exit focus mode and everything will be restored exactly as it was.
+Press `d` again on a dormant session to mark it active again.
+
+Think of this as one more tool in your kit to help you tend your sessions and retain focus.
 
 ### Settings
 
@@ -147,41 +154,9 @@ Press `,` to open Settings, a full-screen view of picker-wide preferences, group
 
 ## Configuration
 
-Groups, session order, dormant sessions, and settings persist to `~/.config/rolomux/config.toml`:
+Groups, session state, and settings persist to `~/.config/rolomux/config.toml`. You normally don't edit this by hand; rolomux updates it automatically as you work.
 
-rolomux also remembers each tracked session's tmux session id in a
-`session_ids` table, so a plain `tmux rename-session` (or `prefix ,`) keeps
-that session's group, dormant, and expanded state instead of losing it.
-
-```toml
-config_version = 4
-dormant = ["zen-mod"]
-focus_mode = true
-
-[[groups]]
-name = "CONFIG"
-members = ["workbench", "config-tmux"]
-
-[[groups]]
-name = "TOOLS"
-members = ["dev-stack"]
-color = "magenta"  # optional; omit to use the rotating default
-
-[[groups]]
-name = "INBOX"
-members = ["etsy"]
-inbox = true
-
-[settings]
-default_mode = "command"           # or "search"
-number_dormant_sessions = true      # false skips visible dormant sessions in jump numbering
-session_metric = "recency"         # or "age", "hidden"
-new_group_color_policy = "rotate"  # or "random", "static"
-attached_color = "cyan"
-border_color = "cyan"
-```
-
-You normally don't edit this by hand; groups, order, dormant status, and settings all save automatically as you use the picker.
+**Note:** rolomux tracks each session by its tmux session id in this file, so renaming a session won't lose any of its rolomux state.
 
 ## Motivation
 
