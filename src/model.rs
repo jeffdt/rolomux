@@ -263,6 +263,13 @@ pub enum WindowMove {
     },
 }
 
+/// What's armed by `arm_window_move`, and which direction confirms it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PendingWindowMove {
+    mv: WindowMove,
+    delta: i32,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RenameTarget {
     Session(String),
@@ -349,6 +356,10 @@ pub struct PickerState {
     pub group_edit: Option<String>,
     /// In-flight session/window rename buffer; `Some` while a rename is in progress.
     rename_edit: Option<String>,
+    /// In-flight window-move confirmation, armed when a press would destroy
+    /// a session; `Some` until the same-direction key repeats it or any
+    /// other key clears it.
+    pending_window_move: Option<PendingWindowMove>,
     pub default_mode: DefaultMode,
     pub number_dormant_sessions: bool,
     pub remember_expanded_sessions: bool,
@@ -399,6 +410,7 @@ impl PickerState {
             group_cursor: 0,
             group_edit: None,
             rename_edit: None,
+            pending_window_move: None,
             default_mode: config.default_mode,
             number_dormant_sessions: config.number_dormant_sessions,
             remember_expanded_sessions: config.remember_expanded_sessions,
@@ -758,6 +770,49 @@ impl PickerState {
                 }
             }
         }
+    }
+
+    /// Force `name` into the expanded set regardless of its prior state --
+    /// used after a cross-session window move lands in a session that may
+    /// not already be expanded.
+    pub fn expand_session(&mut self, name: &str) {
+        self.expanded.insert(name.to_string());
+        if self.remember_expanded_sessions {
+            self.dirty = true;
+        }
+    }
+
+    /// Arm a confirm: the next matching-direction `MoveUp`/`MoveDown` will
+    /// commit `mv` instead of re-planning; anything else clears it.
+    pub fn arm_window_move(&mut self, mv: WindowMove, delta: i32) {
+        self.pending_window_move = Some(PendingWindowMove { mv, delta });
+    }
+
+    /// Consume and return the armed move if `delta` matches what was armed;
+    /// otherwise leaves the arm untouched (a different direction doesn't
+    /// confirm it) and returns `None`.
+    pub fn take_confirmed_window_move(&mut self, delta: i32) -> Option<WindowMove> {
+        match &self.pending_window_move {
+            Some(p) if p.delta == delta => self.pending_window_move.take().map(|p| p.mv),
+            _ => None,
+        }
+    }
+
+    /// Drop any armed confirm with no side effect. Called for every input
+    /// other than `MoveUp`/`MoveDown`.
+    pub fn clear_pending_window_move(&mut self) {
+        self.pending_window_move = None;
+    }
+
+    /// The footer warning to show while a confirm is armed, or `None`.
+    pub fn pending_window_move_warning(&self) -> Option<&'static str> {
+        self.pending_window_move.as_ref().map(|p| {
+            if p.delta < 0 {
+                "⇧K again to move last window — closes session"
+            } else {
+                "⇧J again to move last window — closes session"
+            }
+        })
     }
 
     /// Whether an inline session/window rename is currently in progress.
@@ -1806,6 +1861,42 @@ mod tests {
         let cfg = Config::default();
         let st = PickerState::build(sessions, &cfg); // cursor defaults onto the session row
         assert_eq!(st.plan_window_move(-1), None);
+    }
+
+    #[test]
+    fn expand_session_marks_dirty_only_when_remembering() {
+        let sessions = vec![s("a", 1, 1)];
+        let cfg = Config::default();
+        let mut st = PickerState::build(sessions, &cfg);
+        st.expand_session("a");
+        assert!(st.is_expanded("a"));
+        assert!(!st.dirty); // remember_expanded_sessions defaults to false
+    }
+
+    #[test]
+    fn arm_and_take_confirmed_window_move_round_trips_on_matching_direction() {
+        let sessions = vec![s("a", 1, 1)];
+        let cfg = Config::default();
+        let mut st = PickerState::build(sessions, &cfg);
+        let mv = WindowMove::SwapWithin { session: "a".into(), a_index: 0, b_index: 1 };
+        st.arm_window_move(mv.clone(), -1);
+        assert!(st.pending_window_move_warning().is_some());
+        assert_eq!(st.take_confirmed_window_move(1), None, "wrong direction doesn't confirm");
+        assert!(st.pending_window_move_warning().is_some(), "still armed after a non-matching direction");
+        assert_eq!(st.take_confirmed_window_move(-1), Some(mv), "matching direction confirms and consumes it");
+        assert!(st.pending_window_move_warning().is_none());
+    }
+
+    #[test]
+    fn clear_pending_window_move_drops_the_arm() {
+        let sessions = vec![s("a", 1, 1)];
+        let cfg = Config::default();
+        let mut st = PickerState::build(sessions, &cfg);
+        let mv = WindowMove::SwapWithin { session: "a".into(), a_index: 0, b_index: 1 };
+        st.arm_window_move(mv, -1);
+        st.clear_pending_window_move();
+        assert!(st.pending_window_move_warning().is_none());
+        assert_eq!(st.take_confirmed_window_move(-1), None);
     }
 
     #[test]
