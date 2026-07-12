@@ -24,6 +24,10 @@ pub trait Tmux {
     fn select_window(&self, name: &str, index: u32) -> io::Result<()>;
     fn rename_session(&self, old: &str, new: &str) -> io::Result<()>;
     fn rename_window(&self, session: &str, index: u32, new: &str) -> io::Result<()>;
+    fn swap_window(&self, session: &str, a: u32, b: u32) -> io::Result<()>;
+    fn move_window(&self, src_session: &str, src_index: u32, dst_session: &str, dst_anchor_index: u32, before: bool) -> io::Result<()>;
+    fn new_placeholder_window(&self, session: &str) -> io::Result<()>;
+    fn detach_on_destroy_off(&self, session: &str) -> bool;
 }
 
 pub struct RealTmux {
@@ -139,6 +143,51 @@ impl Tmux for RealTmux {
             .status()
             .map(|_| ())
     }
+
+    fn swap_window(&self, session: &str, a: u32, b: u32) -> io::Result<()> {
+        let src = format!("{session}:{a}");
+        let dst = format!("{session}:{b}");
+        self.command()
+            .args(["swap-window", "-d", "-s", &src, "-t", &dst])
+            .status()
+            .map(|_| ())
+    }
+
+    fn move_window(&self, src_session: &str, src_index: u32, dst_session: &str, dst_anchor_index: u32, before: bool) -> io::Result<()> {
+        let src = format!("{src_session}:{src_index}");
+        let anchor = format!("{dst_session}:{dst_anchor_index}");
+        let flag = if before { "-b" } else { "-a" };
+        self.command()
+            .args(["move-window", flag, "-s", &src, "-t", &anchor])
+            .status()
+            .map(|_| ())
+    }
+
+    fn new_placeholder_window(&self, session: &str) -> io::Result<()> {
+        self.command()
+            .args(["new-window", "-d", "-t", session, "-n", "(empty)"])
+            .status()
+            .map(|_| ())
+    }
+
+    fn detach_on_destroy_off(&self, session: &str) -> bool {
+        let session_scoped = self
+            .command()
+            .args(["show-options", "-t", session, "detach-on-destroy"])
+            .output()
+            .ok();
+        if let Some(v) = session_scoped
+            .as_ref()
+            .and_then(|o| parse_detach_on_destroy(&String::from_utf8_lossy(&o.stdout)))
+        {
+            return v;
+        }
+        let global = self.command().args(["show-options", "-g", "detach-on-destroy"]).output().ok();
+        global
+            .as_ref()
+            .and_then(|o| parse_detach_on_destroy(&String::from_utf8_lossy(&o.stdout)))
+            .unwrap_or(false)
+    }
 }
 
 /// Extract the tmux server socket path from `$TMUX` (its first comma-separated
@@ -152,6 +201,21 @@ pub fn tmux_socket(tmux_env: Option<&str>) -> Option<String> {
     } else {
         Some(sock.to_string())
     }
+}
+
+/// Parses `show-options ... detach-on-destroy` output (e.g.
+/// `"detach-on-destroy off\n"`) into whether it's explicitly `off`. `None`
+/// means the query produced no output at all -- which is exactly what a
+/// session with no local override prints at session scope (verified against
+/// a live tmux 3.7b); callers fall back to the global query in that case.
+/// Pure (output passed in) so it's unit-testable.
+pub fn parse_detach_on_destroy(output: &str) -> Option<bool> {
+    let line = output.trim();
+    if line.is_empty() {
+        return None;
+    }
+    let value = line.rsplit(' ').next()?;
+    Some(value == "off")
 }
 
 pub fn apply_action(t: &dyn Tmux, action: &Action) -> io::Result<()> {
@@ -235,12 +299,22 @@ pub fn parse_windows(raw: &str) -> (Vec<Session>, Vec<(String, String)>) {
 pub(crate) struct FakeTmux {
     pub calls: std::cell::RefCell<Vec<String>>,
     gathered: std::cell::RefCell<Gathered>,
+    detach_on_destroy_off: std::cell::Cell<bool>,
 }
 
 #[cfg(test)]
 impl FakeTmux {
     pub fn with_gather(gathered: Gathered) -> Self {
-        FakeTmux { calls: std::cell::RefCell::new(Vec::new()), gathered: std::cell::RefCell::new(gathered) }
+        FakeTmux {
+            calls: std::cell::RefCell::new(Vec::new()),
+            gathered: std::cell::RefCell::new(gathered),
+            detach_on_destroy_off: std::cell::Cell::new(false),
+        }
+    }
+
+    pub fn with_detach_on_destroy_off(self, off: bool) -> Self {
+        self.detach_on_destroy_off.set(off);
+        self
     }
 }
 
@@ -264,6 +338,24 @@ impl Tmux for FakeTmux {
     fn rename_window(&self, session: &str, index: u32, new: &str) -> std::io::Result<()> {
         self.calls.borrow_mut().push(format!("rename-window:{session}:{index}:{new}"));
         Ok(())
+    }
+    fn swap_window(&self, session: &str, a: u32, b: u32) -> std::io::Result<()> {
+        self.calls.borrow_mut().push(format!("swap-window:{session}:{a}:{b}"));
+        Ok(())
+    }
+    fn move_window(&self, src_session: &str, src_index: u32, dst_session: &str, dst_anchor_index: u32, before: bool) -> std::io::Result<()> {
+        let dir = if before { "before" } else { "after" };
+        self.calls
+            .borrow_mut()
+            .push(format!("move-window:{src_session}:{src_index}:{dst_session}:{dst_anchor_index}:{dir}"));
+        Ok(())
+    }
+    fn new_placeholder_window(&self, session: &str) -> std::io::Result<()> {
+        self.calls.borrow_mut().push(format!("new-window:{session}"));
+        Ok(())
+    }
+    fn detach_on_destroy_off(&self, _session: &str) -> bool {
+        self.detach_on_destroy_off.get()
     }
 }
 
@@ -428,5 +520,50 @@ scratch\u{1f}50\u{1f}5\u{1f}0\u{1f}0\u{1f}shell\u{1f}1\u{1f}$8
         let g = t.gather();
         assert_eq!(g.current.as_deref(), Some("work"));
         assert_eq!(g.ids, vec![("work".to_string(), "$3".to_string())]);
+    }
+
+    #[test]
+    fn parse_detach_on_destroy_reads_off() {
+        assert_eq!(parse_detach_on_destroy("detach-on-destroy off\n"), Some(true));
+    }
+
+    #[test]
+    fn parse_detach_on_destroy_reads_on() {
+        assert_eq!(parse_detach_on_destroy("detach-on-destroy on\n"), Some(false));
+    }
+
+    #[test]
+    fn parse_detach_on_destroy_empty_output_is_none() {
+        // A session with no local override prints nothing at session scope
+        // (verified empirically against a live tmux 3.7b) -- callers must
+        // fall back to the global query, not assume "on".
+        assert_eq!(parse_detach_on_destroy(""), None);
+        assert_eq!(parse_detach_on_destroy("\n"), None);
+    }
+
+    #[test]
+    fn fake_tmux_records_swap_and_move_and_placeholder_calls() {
+        let t = FakeTmux::with_gather(Gathered::default());
+        t.swap_window("work", 2, 1).unwrap();
+        t.move_window("alpha", 1, "beta", 0, true).unwrap();
+        t.move_window("alpha", 1, "beta", 3, false).unwrap();
+        t.new_placeholder_window("alpha").unwrap();
+        assert_eq!(
+            *t.calls.borrow(),
+            vec![
+                "swap-window:work:2:1".to_string(),
+                "move-window:alpha:1:beta:0:before".to_string(),
+                "move-window:alpha:1:beta:3:after".to_string(),
+                "new-window:alpha".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn fake_tmux_detach_on_destroy_off_defaults_false_and_is_settable() {
+        let t = FakeTmux::with_gather(Gathered::default());
+        assert!(!t.detach_on_destroy_off("any"));
+        let t2 = FakeTmux::with_gather(Gathered::default()).with_detach_on_destroy_off(true);
+        assert!(t2.detach_on_destroy_off("any"));
     }
 }
