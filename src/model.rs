@@ -825,7 +825,9 @@ impl PickerState {
     /// Move the session under the cursor by `delta` rows, crossing group
     /// boundaries into the group above/below when at an edge -- the inbox
     /// group included, since it's just another entry in `self.groups` now.
-    /// Clamps silently at the very top and bottom of the whole list.
+    /// Wraps around at the very top and bottom of the whole list (top wraps
+    /// to the end of the last group, bottom wraps to the front of the first
+    /// group) rather than clamping.
     pub fn move_row(&mut self, delta: i32) {
         let name = match self.cursor_session_name() { Some(n) => n, None => return };
         let gi = match self.group_index_of(&name) { Some(g) => g, None => return };
@@ -854,32 +856,62 @@ impl PickerState {
         order
     }
 
+    /// Move the session at the top of its group up into the group above,
+    /// wrapping around to the *last* group when this is already the first
+    /// group -- there is no longer a clamp at the very top of the list.
     fn move_up(&mut self, gi: usize, name: &str) {
         let order = self.effective_order(gi);
         let pos = match order.iter().position(|n| n == name) { Some(p) => p, None => return };
         if let Some(prev) = self.previous_visible_position(&order, pos) {
             self.commit_swap(gi, order, pos, prev, name);
-        } else if gi > 0 {
-            self.groups[gi].members.retain(|m| m != name);
-            self.groups[gi - 1].members.push(name.to_string());
-            self.dirty = true;
-            self.focus_session(name);
+            return;
         }
-        // else: top of the whole list, clamp silently.
+        let dest_gi = (gi + self.groups.len() - 1) % self.groups.len();
+        self.cross_into_group(gi, dest_gi, name, true);
     }
 
+    /// Move the session at the bottom of its group down into the group
+    /// below, wrapping around to the *first* group when this is already the
+    /// last group -- there is no longer a clamp at the very bottom of the list.
     fn move_down(&mut self, gi: usize, name: &str) {
         let order = self.effective_order(gi);
         let pos = match order.iter().position(|n| n == name) { Some(p) => p, None => return };
         if let Some(next) = self.next_visible_position(&order, pos) {
             self.commit_swap(gi, order, pos, next, name);
-        } else if gi + 1 < self.groups.len() {
-            self.groups[gi].members.retain(|m| m != name);
-            self.groups[gi + 1].members.insert(0, name.to_string());
-            self.dirty = true;
-            self.focus_session(name);
+            return;
         }
-        // else: bottom of the whole list, clamp silently.
+        let dest_gi = (gi + 1) % self.groups.len();
+        self.cross_into_group(gi, dest_gi, name, false);
+    }
+
+    /// Move `name` out of `src_gi` and into `dest_gi`, landing at the end
+    /// (`append: true`) or the front (`append: false`) of `dest_gi`'s full
+    /// rendered content -- not just its already-persisted `members` prefix.
+    ///
+    /// This must freeze `dest_gi`'s *effective* order (persisted members
+    /// plus any never-touched inbox fallback overflow) before inserting,
+    /// not just push/insert onto the raw `members` list: `members` always
+    /// renders before fallback overflow in `ordered()`, so a naive
+    /// `members.push` would land `name` ahead of any untouched fallback
+    /// sessions instead of after them, when `dest_gi` is an inbox with
+    /// fallback content still unfrozen. The defensive `retain` after
+    /// computing `dest_order` is required, not optional: once `name` is
+    /// removed from `src_gi.members`, `group_index_of(name)` falls back to
+    /// the inbox, so if `dest_gi` is itself the inbox, `effective_order`
+    /// may already include `name` via that same fallback -- without the
+    /// retain, `name` would be double-inserted.
+    fn cross_into_group(&mut self, src_gi: usize, dest_gi: usize, name: &str, append: bool) {
+        self.groups[src_gi].members.retain(|m| m != name);
+        let mut dest_order = self.effective_order(dest_gi);
+        dest_order.retain(|n| n != name);
+        if append {
+            dest_order.push(name.to_string());
+        } else {
+            dest_order.insert(0, name.to_string());
+        }
+        self.groups[dest_gi].members = dest_order;
+        self.dirty = true;
+        self.focus_session(name);
     }
 
     fn previous_visible_position(&self, order: &[String], pos: usize) -> Option<usize> {
@@ -1903,22 +1935,27 @@ mod tests {
         assert!(state.dirty);
         assert_eq!(state.cursor_session_name().as_deref(), Some("b"));
 
-        // Moving up at the top is a clamped no-op.
+        // Moving up at the top now wraps to the bottom of the (single) group.
         state.dirty = false;
         state.move_row(-1);
+        let names: Vec<&str> = state.ordered().iter().map(|s| s.name.as_str()).collect();
+        assert_eq!(names, vec!["a", "c", "b"]);
         assert_eq!(state.cursor_session_name().as_deref(), Some("b"));
-        assert!(!state.dirty);
+        assert!(state.dirty);
     }
 
     #[test]
-    fn move_row_unpinned_at_residual_bottom_is_noop() {
+    fn move_row_unpinned_at_residual_bottom_wraps_to_front() {
         let sessions = vec![s("a", 30, 1), s("b", 20, 2)];
         let cfg = Config { groups: vec![], ..Default::default() };
         let mut state = PickerState::build(sessions, &cfg);
         state.focus_session("b");
         state.move_row(1);
-        assert!(!state.dirty);
-        assert!(state.groups[state.inbox_index().unwrap()].members.is_empty());
+        assert!(state.dirty);
+        assert_eq!(
+            state.groups[state.inbox_index().unwrap()].members,
+            vec!["b".to_string(), "a".to_string()]
+        );
     }
 
     #[test]
@@ -2745,12 +2782,22 @@ mod tests {
     }
 
     #[test]
-    fn move_up_at_very_top_clamps() {
+    fn move_up_at_very_top_wraps_to_last_group_end() {
         let mut st = state_with_two_groups();
-        st.focus_session("a"); // top of first group
+        st.focus_session("a"); // top of first group == top of the whole visible list
         st.move_row(-1);
-        assert_eq!(st.groups[0].members, vec!["a".to_string(), "b".to_string()]);
-        assert!(!st.dirty);
+        assert_eq!(st.groups[0].members, vec!["b".to_string()]);
+        let inbox = st.inbox_index().unwrap();
+        // inbox (the last group here) has untouched fallback members d, e;
+        // "a" must land after them, not before -- this is the case that
+        // needs the effective-order-aware cross_into_group helper below,
+        // not a naive `.members.push`.
+        assert_eq!(
+            st.groups[inbox].members,
+            vec!["d".to_string(), "e".to_string(), "a".to_string()]
+        );
+        assert_eq!(st.cursor_session_name().as_deref(), Some("a"));
+        assert!(st.dirty);
     }
 
     #[test]
@@ -2781,12 +2828,38 @@ mod tests {
     }
 
     #[test]
-    fn move_down_at_residual_bottom_clamps() {
+    fn move_down_at_residual_bottom_wraps_to_first_group_front() {
         let mut st = state_with_two_groups();
-        st.focus_session("e"); // residual bottom
+        st.focus_session("e"); // bottom of inbox == bottom of the whole visible list
         st.move_row(1);
-        assert_eq!(st.group_index_of("e"), st.inbox_index());
-        assert!(!st.dirty);
+        assert_eq!(
+            st.groups[0].members,
+            vec!["e".to_string(), "a".to_string(), "b".to_string()]
+        );
+        assert_eq!(st.cursor_session_name().as_deref(), Some("e"));
+        assert!(st.dirty);
+    }
+
+    #[test]
+    fn move_wraps_within_a_single_group_when_only_one_group_exists() {
+        let sessions = vec![s("a", 1, 1), s("b", 1, 2), s("c", 1, 3)];
+        let cfg = Config {
+            groups: vec![Group {
+                name: "ONLY".into(),
+                members: vec!["a".into(), "b".into(), "c".into()],
+                inbox: true,
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let mut st = PickerState::build(sessions, &cfg);
+        st.focus_session("a"); // top of the only group
+        st.move_row(-1);
+        assert_eq!(
+            st.groups[0].members,
+            vec!["b".to_string(), "c".to_string(), "a".to_string()]
+        );
+        assert_eq!(st.cursor_session_name().as_deref(), Some("a"));
     }
 
     #[test]
