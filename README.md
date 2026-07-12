@@ -28,7 +28,7 @@ bind s display-popup -E -B -w 84 -h 60% "exec rolomux"
 
 Reload tmux and press `prefix + s`.
 
-You can use other popup dimensions, but these work well to start.
+You can use other popup dimensions, but these work well to start. `-h` also accepts a fixed line count (e.g. `-h 30`) instead of a percentage.
 
 ## Quick start
 1. Press `prefix + s` to open rolomux. All of your sessions start out in a group called `INBOX`.
@@ -47,7 +47,7 @@ New sessions arrive in INBOX. Over time, you sort, group, and reorder them until
   New sessions collect in an inbox until you're ready to sort them.
   Groups and their ordering persist across tmux restarts, and they stick around until you delete them.
 - **Expandable trees.** Each session can be expanded to peek at the list of windows inside it or jump straight to a specific window.
-- **Fast.** With practically no overhead of its own, it opens about as fast as tmux can describe its sessions.
+- **Lightweight.** One tmux query per launch. No hooks or background processes keeping track of your sessions while you work.
 - **Fuzzy search built in.** Press `/` to filter sessions by name. If this is your preferred way of working, tweak the settings to always launch in search mode.
 - **Dim or hide the sessions you're not using.** Press `d` to mark a session dormant; it stays in place but renders in a dimmed state to indicate that it's on the back burner. Press `h` to hide dormant sessions entirely, and `h` again to show them. Dormant sessions are still fully usable, but help you understand your workspace at a glance.
 - **Tune the colors.** Press `,` to open Settings and tune the color of the application border, palette used for group headers, and more. Uses your terminal's ANSI colors to ensure it harmonizes with your existing terminal themes.
@@ -103,6 +103,8 @@ Once inside:
 As you create groups, they'll be assigned a color from your terminal theme (cyan, green, yellow, magenta, blue, red); new groups rotate through them, `c` flips a group's color, and empty groups show grayed out until you fill them.
 
 ### Search
+
+![rolomux fuzzy search](docs/images/search.png)
 
 Press `/` to enter search mode.
 Type any part of a session name; results are ranked best-match-first, with the top result auto-selected as you type.
