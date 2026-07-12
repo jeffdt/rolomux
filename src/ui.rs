@@ -1,6 +1,6 @@
 use crate::model::{
-    ColorPolicy, DefaultMode, Group, Mode, PickerState, Row, Session, SettingsRow, Window,
-    ALL_NAMED_COLORS,
+    ColorPolicy, DefaultMode, Group, Mode, PickerState, Row, Session, SessionMetric, SettingsRow,
+    Window, ALL_NAMED_COLORS,
 };
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
@@ -37,7 +37,7 @@ const POPUP_MARGIN: u16 = 2;
 const TITLE_CHROME_ROWS: u16 = 2;
 
 const FOOTER_HINT: &str =
-    "/ search · ⇧JK mv · g groups · , settings · d dim · h hide · q quit";
+    "/ search · R rename · JK mv · g groups · , settings · d dim · f focus · q quit";
 
 const CREATE_GROUP_HINT: &str =
     "No groups yet: press g then n to create one, then use ⇧J/⇧K to move sessions.";
@@ -86,6 +86,17 @@ fn activity_age(activity: i64) -> String {
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0);
     fmt_age(now.saturating_sub(activity).max(0))
+}
+
+/// Which `Session` timestamp field feeds the metadata age string, per the
+/// current `SessionMetric` setting. `None` for `Hidden`, meaning the row
+/// shows no age string (and no trailing separator) at all.
+fn session_metric_timestamp(sess: &Session, metric: SessionMetric) -> Option<i64> {
+    match metric {
+        SessionMetric::Recency => Some(sess.activity),
+        SessionMetric::Age => Some(sess.created),
+        SessionMetric::Hidden => None,
+    }
 }
 
 /// Shrink `area` by `margin` cells on every side. The margin is reduced toward
@@ -181,7 +192,12 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
                 if last_section != Some(section) {
                     let target = section;
                     while next_group < target {
-                        push_empty_group_header(&mut items, &state.groups[next_group], list_area.width);
+                        push_empty_group_header_unless_focused(
+                            &mut items,
+                            &state.groups[next_group],
+                            list_area.width,
+                            state.focus_mode(),
+                        );
                         next_group += 1;
                     }
                     let color = group_color(&state.groups[section], section, &state.active_palette);
@@ -208,6 +224,7 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
                 } else {
                     None
                 };
+                let rename_buf = if selected && state.renaming() { state.rename_edit_buffer() } else { None };
                 items.push(session_item(
                     sess,
                     state.is_expanded(&sess.name),
@@ -218,6 +235,8 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
                     attached_color,
                     None,
                     Some(current_gutter_color),
+                    state.session_metric,
+                    rename_buf,
                 ));
             }
             Row::Window(si, wi) => {
@@ -227,13 +246,19 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
                     selected_line = Some(items.len());
                 }
                 let last = *wi + 1 == sess.windows.len();
-                items.push(window_item(&sess.windows[*wi], last, selected, current_gutter_color));
+                let rename_buf = if selected && state.renaming() { state.rename_edit_buffer() } else { None };
+                items.push(window_item(&sess.windows[*wi], last, selected, current_gutter_color, rename_buf));
             }
         }
     }
     // Trailing empty groups (after the last session row, with no residual below).
     while next_group < state.groups.len() {
-        push_empty_group_header(&mut items, &state.groups[next_group], list_area.width);
+        push_empty_group_header_unless_focused(
+            &mut items,
+            &state.groups[next_group],
+            list_area.width,
+            state.focus_mode(),
+        );
         next_group += 1;
     }
 
@@ -282,10 +307,14 @@ fn draw_search(frame: &mut Frame, state: &PickerState, inner: Rect) {
         let attached_color = color_from_name(&state.attached_color);
         // Widest age string among tagged rows, so every tag in this render
         // starts at the same column regardless of its own row's age width.
+        // Degenerates to 0 when `session_metric` is Hidden (every row's
+        // resolved timestamp is `None`), which the pad math below already
+        // handles as a no-op.
         let age_width = results
             .iter()
             .filter(|s| state.group_index_of(&s.name).is_some())
-            .map(|s| activity_age(s.activity).chars().count())
+            .filter_map(|s| session_metric_timestamp(s, state.session_metric))
+            .map(|ts| activity_age(ts).chars().count())
             .max()
             .unwrap_or(0);
         for (i, sess) in results.iter().enumerate() {
@@ -294,11 +323,14 @@ fn draw_search(frame: &mut Frame, state: &PickerState, inner: Rect) {
                 selected_line = Some(items.len());
             }
             let group_tag = state.group_index_of(&sess.name).map(|gi| {
-                let age_pad = age_width.saturating_sub(activity_age(sess.activity).chars().count());
+                let this_age_width = session_metric_timestamp(sess, state.session_metric)
+                    .map(|ts| activity_age(ts).chars().count())
+                    .unwrap_or(0);
+                let age_pad = age_width.saturating_sub(this_age_width);
                 (state.groups[gi].name.clone(), group_color(&state.groups[gi], gi, &state.active_palette), age_pad)
             });
             // Flat, collapsed, no jump number (None), normal metadata.
-            items.push(session_item(sess, false, selected, None, meta, state.is_dormant(&sess.name), attached_color, group_tag, None));
+            items.push(session_item(sess, false, selected, None, meta, state.is_dormant(&sess.name), attached_color, group_tag, None, state.session_metric, None));
         }
     }
     let list = List::new(items)
@@ -374,7 +406,7 @@ const SETTINGS_FOOTER_HINT: &str =
 fn draw_settings(frame: &mut Frame, state: &PickerState, inner: Rect) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Min(0), Constraint::Length(2)])
+        .constraints([Constraint::Min(0), Constraint::Length(3)])
         .split(inner);
     let list_area = chunks[0];
     let footer_area = chunks[1];
@@ -412,6 +444,9 @@ fn draw_settings(frame: &mut Frame, state: &PickerState, inner: Rect) {
                     remember_expanded_label(state.remember_expanded_sessions),
                     selected,
                 )
+            }
+            SettingsRow::SessionMetric => {
+                settings_value_line("Session metadata", session_metric_label(state.session_metric), selected)
             }
             SettingsRow::AttachedColor => {
                 settings_color_line("Attached session color", &state.attached_color, state.attached_color_expanded(), selected)
@@ -481,8 +516,10 @@ fn draw_settings(frame: &mut Frame, state: &PickerState, inner: Rect) {
     frame.render_stateful_widget(list, list_area, &mut list_state);
 
     let rule = "─".repeat(footer_area.width as usize);
+    let current_description = rows[state.settings_cursor().min(rows.len().saturating_sub(1))].description();
     let footer = Paragraph::new(vec![
         Line::from(Span::styled(rule, Style::default().fg(DIM))),
+        Line::from(Span::styled(current_description, Style::default())),
         Line::from(Span::styled(SETTINGS_FOOTER_HINT, Style::default().fg(DIM))),
     ]);
     frame.render_widget(footer, footer_area);
@@ -565,6 +602,14 @@ fn dormant_numbering_label(number_dormant_sessions: bool) -> &'static str {
     if number_dormant_sessions { "Yes" } else { "No" }
 }
 
+fn session_metric_label(m: SessionMetric) -> &'static str {
+    match m {
+        SessionMetric::Recency => "Recency",
+        SessionMetric::Age => "Age",
+        SessionMetric::Hidden => "Hidden",
+    }
+}
+
 fn remember_expanded_label(remember_expanded_sessions: bool) -> &'static str {
     if remember_expanded_sessions { "Yes" } else { "No" }
 }
@@ -640,6 +685,21 @@ fn push_empty_group_header(items: &mut Vec<ListItem<'static>>, g: &Group, width:
     push_section_header(items, g, width, DIM);
 }
 
+/// Same as `push_empty_group_header`, but skipped entirely in focus mode. Every
+/// call site reaches this only for a group already known to have zero visible
+/// sessions (a group with any visible session always gets its real header via
+/// `push_section_header` instead), so gating on `focus_mode` alone is correct.
+fn push_empty_group_header_unless_focused(
+    items: &mut Vec<ListItem<'static>>,
+    g: &Group,
+    width: u16,
+    focus_mode: bool,
+) {
+    if !focus_mode {
+        push_empty_group_header(items, g, width);
+    }
+}
+
 const INBOX_GLYPH: &str = "⊛ ";
 
 fn group_name(g: &Group, upper: bool) -> String {
@@ -690,7 +750,7 @@ fn hidden_dormant_status(count: usize) -> String {
 
 fn footer_rule(width: u16, state: &PickerState) -> String {
     let width = width as usize;
-    if !state.hiding_dormant() {
+    if !state.focus_mode() {
         return "─".repeat(width);
     }
     let label = format!("─ {} ", hidden_dormant_status(state.hidden_dormant_count()));
@@ -702,8 +762,8 @@ fn footer_rule(width: u16, state: &PickerState) -> String {
 }
 
 fn command_footer_hint(state: &PickerState) -> String {
-    if state.hiding_dormant() {
-        FOOTER_HINT.replace("h hide", "h show")
+    if state.focus_mode() {
+        FOOTER_HINT.replace("f focus", "f show")
     } else {
         FOOTER_HINT.to_string()
     }
@@ -772,6 +832,8 @@ fn session_item(
     attached_color: Color,
     group_tag: Option<(String, Color, usize)>,
     gutter: Option<Color>,
+    metric: SessionMetric,
+    rename_buf: Option<&str>,
 ) -> ListItem<'static> {
     let glyph = if expanded { "▾" } else { "▸" };
     let num = match number { Some(n) => jump_label(n), None => "  ".to_string() };
@@ -782,12 +844,23 @@ fn session_item(
     } else {
         Style::default()
     };
+    if let Some(buf) = rename_buf {
+        let mut spans = Vec::new();
+        if let Some(color) = gutter {
+            spans.push(Span::styled("│", Style::default().fg(color)));
+        }
+        spans.push(Span::styled(num, secondary(selected)));
+        spans.push(Span::styled(format!("{glyph} "), secondary(selected)));
+        spans.push(Span::styled(buf.to_string(), Style::default().add_modifier(Modifier::BOLD)));
+        spans.push(Span::raw("▏"));
+        return ListItem::new(Line::from(spans));
+    }
     let gutter_width = if gutter.is_some() { 1 } else { 0 };
     let prefix_len = gutter_width + SESSION_PREFIX + sess.name.chars().count(); // gutter + num + "glyph " + name
     let pad = meta.col.saturating_sub(prefix_len);
     let count = window_count(sess.windows.len());
     let count_pad = meta.count_width.saturating_sub(count.chars().count());
-    let age = activity_age(sess.activity);
+    let age = session_metric_timestamp(sess, metric).map(activity_age);
     let mut spans = Vec::new();
     if let Some(color) = gutter {
         spans.push(Span::styled("│", Style::default().fg(color)));
@@ -795,10 +868,11 @@ fn session_item(
     spans.push(Span::styled(num, secondary(selected)));
     spans.push(Span::styled(format!("{glyph} "), secondary(selected)));
     spans.push(Span::styled(sess.name.clone(), name_style));
-    spans.push(Span::styled(
-        format!("{}{count}{} · {age}", " ".repeat(pad), " ".repeat(count_pad)),
-        secondary(selected),
-    ));
+    let trailing = match &age {
+        Some(age) => format!("{}{count}{} · {age}", " ".repeat(pad), " ".repeat(count_pad)),
+        None => format!("{}{count}{}", " ".repeat(pad), " ".repeat(count_pad)),
+    };
+    spans.push(Span::styled(trailing, secondary(selected)));
     // age_pad brings every tagged row's age up to the widest age string among
     // this render's tagged rows, so tags line up in a column even though ages
     // ("4h" vs "53m") naturally differ in width. Untagged rows (command mode,
@@ -811,15 +885,18 @@ fn session_item(
     ListItem::new(Line::from(spans))
 }
 
-fn window_item(win: &Window, last: bool, selected: bool, gutter_color: Color) -> ListItem<'static> {
-    // Two leading blank cells skip the session's number gutter (no window
-    // number is shown: numbers are reserved for things you can jump to, and
-    // windows aren't jumpable yet), so the connector lands directly under the
-    // parent session's expand glyph rather than under its number. The dot's
-    // two cells then continue past the connector, leaving the window name
-    // indented one step to the right of the session name above it.
+fn window_item(win: &Window, last: bool, selected: bool, gutter_color: Color, rename_buf: Option<&str>) -> ListItem<'static> {
     let connector = if last { "  └─" } else { "  ├─" };
     let dot = if win.active { "●" } else { " " };
+    if let Some(buf) = rename_buf {
+        return ListItem::new(Line::from(vec![
+            Span::styled("│", Style::default().fg(gutter_color)),
+            Span::styled(connector.to_string(), secondary(selected)),
+            Span::styled(format!("{dot} "), Style::default().fg(DOT)),
+            Span::styled(buf.to_string(), Style::default().add_modifier(Modifier::BOLD)),
+            Span::raw("▏"),
+        ]));
+    }
     ListItem::new(Line::from(vec![
         Span::styled("│", Style::default().fg(gutter_color)),
         Span::styled(connector.to_string(), secondary(selected)),
@@ -844,7 +921,8 @@ pub enum Input {
     MoveDown,
     EnterSearch,
     ToggleDormant,
-    ToggleDormantVisibility,
+    ToggleFocusMode,
+    Rename,
     Quit,
     None,
 }
@@ -945,11 +1023,12 @@ pub fn map_key(key: KeyEvent) -> Input {
     match key.code {
         KeyCode::Char('K') | KeyCode::Up if shift => Input::MoveUp,
         KeyCode::Char('J') | KeyCode::Down if shift => Input::MoveDown,
+        KeyCode::Char('R') if shift => Input::Rename,
         KeyCode::Char('j') | KeyCode::Down => Input::Down,
         KeyCode::Char('k') | KeyCode::Up => Input::Up,
         KeyCode::Char('l') | KeyCode::Right => Input::Expand,
         KeyCode::Left => Input::Collapse,
-        KeyCode::Char('h') => Input::ToggleDormantVisibility,
+        KeyCode::Char('f') => Input::ToggleFocusMode,
         KeyCode::Char('z') => Input::ToggleAll,
         KeyCode::Enter => Input::Select,
         KeyCode::Char('g') => Input::EnterGroups,
@@ -1265,7 +1344,8 @@ mod tests {
         assert_eq!(map_key(key(KeyCode::Char('l'))), Input::Expand);
         assert_eq!(map_key(key(KeyCode::Right)), Input::Expand);
         assert_eq!(map_key(key(KeyCode::Left)), Input::Collapse);
-        assert_eq!(map_key(key(KeyCode::Char('h'))), Input::ToggleDormantVisibility);
+        assert_eq!(map_key(key(KeyCode::Char('h'))), Input::None, "h is retired; f replaces it");
+        assert_eq!(map_key(key(KeyCode::Char('f'))), Input::ToggleFocusMode);
         assert_eq!(map_key(key(KeyCode::Enter)), Input::Select);
         assert_eq!(map_key(key(KeyCode::Char('g'))), Input::EnterGroups);
         assert_eq!(map_key(key(KeyCode::Char('p'))), Input::None);
@@ -1292,7 +1372,17 @@ mod tests {
     }
 
     #[test]
-    fn command_footer_keeps_h_hint_in_place_when_dormant_sessions_are_hidden() {
+    fn map_key_shift_r_is_rename() {
+        assert_eq!(map_key(shift(KeyCode::Char('R'))), Input::Rename);
+    }
+
+    #[test]
+    fn map_key_lowercase_r_is_unmapped() {
+        assert_eq!(map_key(key(KeyCode::Char('r'))), Input::None);
+    }
+
+    #[test]
+    fn command_footer_keeps_f_hint_in_place_when_focus_mode_is_on() {
         let sessions = vec![
             Session { name: "alpha".into(), activity: 30, created: 1, attached: false,
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
@@ -1303,12 +1393,12 @@ mod tests {
         let mut state = PickerState::build(sessions, &cfg);
         let shown_hint = command_footer_hint(&state);
 
-        state.toggle_dormant_visibility();
+        state.toggle_focus_mode();
         let hidden_hint = command_footer_hint(&state);
 
-        assert_eq!(shown_hint.find("h "), hidden_hint.find("h "));
-        assert!(shown_hint.contains("h hide"));
-        assert!(hidden_hint.contains("h show"));
+        assert_eq!(shown_hint.find("f "), hidden_hint.find("f "));
+        assert!(shown_hint.contains("f focus"));
+        assert!(hidden_hint.contains("f show"));
     }
 
     #[test]
@@ -1321,13 +1411,13 @@ mod tests {
         ];
         let cfg = Config { groups: vec![], dormant: vec!["beta".into()], ..Default::default() };
         let mut state = PickerState::build(sessions, &cfg);
-        state.toggle_dormant_visibility();
+        state.toggle_focus_mode();
 
         let text = render_to_string(&state);
         assert!(text.contains("alpha"), "active session remains visible");
         assert!(!text.contains("beta"), "dormant session is hidden");
         assert!(text.contains("1 dormant session hidden"), "hidden count reminder is visible");
-        assert!(text.contains("h show"), "footer shows how to restore dormant sessions");
+        assert!(text.contains("f show"), "footer shows how to restore dormant sessions");
     }
 
     #[test]
@@ -1342,7 +1432,7 @@ mod tests {
         ];
         let cfg = Config { groups: vec![], dormant: vec!["beta".into(), "bravo".into()], ..Default::default() };
         let mut state = PickerState::build(sessions, &cfg);
-        state.toggle_dormant_visibility();
+        state.toggle_focus_mode();
         state.enter_search();
         state.search_push('b');
 
@@ -1537,6 +1627,94 @@ mod tests {
     }
 
     #[test]
+    fn focus_mode_hides_group_header_when_all_members_are_dormant() {
+        let sessions = vec![
+            Session { name: "claude".into(), activity: 30, created: 1, attached: false,
+                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+            Session { name: "old-deploy".into(), activity: 10, created: 2, attached: false,
+                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+        ];
+        let cfg = Config {
+            dormant: vec!["old-deploy".into()],
+            groups: vec![
+                Group { name: "config".into(), members: vec!["claude".into()], color: String::new(), ..Default::default() },
+                Group { name: "deploys".into(), members: vec!["old-deploy".into()], color: String::new(), ..Default::default() },
+            ],
+            ..Default::default()
+        };
+        let mut state = PickerState::build(sessions, &cfg);
+        state.toggle_focus_mode();
+
+        let text = render_to_string(&state);
+        assert!(text.contains("CONFIG"), "group with a visible session still shows");
+        assert!(!text.contains("DEPLOYS"), "group whose only member is now dormant is hidden in focus mode");
+    }
+
+    #[test]
+    fn focus_mode_hides_truly_empty_group_header() {
+        let sessions = vec![
+            Session { name: "claude".into(), activity: 30, created: 1, attached: false,
+                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+        ];
+        let cfg = Config {
+            dormant: vec![],
+            groups: vec![
+                Group { name: "config".into(), members: vec!["claude".into()], color: String::new(), ..Default::default() },
+                Group { name: "tools".into(), members: vec![], color: String::new(), ..Default::default() },
+            ],
+            ..Default::default()
+        };
+        let mut state = PickerState::build(sessions, &cfg);
+
+        let off_text = render_to_string(&state);
+        assert!(off_text.contains("TOOLS"), "focus mode off: empty group still shows dimmed, as before");
+
+        state.toggle_focus_mode();
+        let on_text = render_to_string(&state);
+        assert!(!on_text.contains("TOOLS"), "focus mode on: genuinely empty group is hidden too");
+    }
+
+    #[test]
+    fn focus_mode_hides_inbox_header_when_it_has_no_visible_sessions() {
+        let sessions = vec![
+            Session { name: "claude".into(), activity: 30, created: 1, attached: false,
+                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+            Session { name: "loose".into(), activity: 10, created: 2, attached: false,
+                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+        ];
+        let cfg = Config {
+            dormant: vec!["loose".into()],
+            groups: vec![
+                Group { name: "config".into(), members: vec!["claude".into()], color: String::new(), ..Default::default() },
+                Group { name: "INBOX".into(), members: vec![], inbox: true, ..Default::default() },
+            ],
+            ..Default::default()
+        };
+        let mut state = PickerState::build(sessions, &cfg);
+        state.toggle_focus_mode();
+
+        let text = render_to_string(&state);
+        assert!(text.contains("CONFIG"));
+        assert!(!text.contains("INBOX"), "inbox with zero visible sessions is hidden in focus mode too");
+    }
+
+    #[test]
+    fn draw_command_shows_inline_rename_field() {
+        let sessions = vec![
+            Session { name: "alpha".into(), activity: 30, created: 1, attached: false,
+                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+        ];
+        let cfg = Config { groups: vec![], ..Default::default() };
+        let mut st = PickerState::build(sessions, &cfg);
+        st.start_rename();
+        st.rename_edit_clear();
+        for c in "renamed".chars() { st.rename_edit_push(c); }
+        let text = render_to_string(&st);
+        assert!(text.contains("renamed"), "inline rename buffer visible");
+        assert!(!text.contains("alpha"), "old name no longer shown while editing");
+    }
+
+    #[test]
     fn draw_shows_footer_hints() {
         let sessions = vec![
             Session { name: "main".into(), activity: 100, created: 1, attached: false,
@@ -1544,12 +1722,30 @@ mod tests {
         ];
         let cfg = Config { groups: vec![], ..Default::default() };
         let state = PickerState::build(sessions, &cfg);
-        let text = render_to_string(&state);
+        // tmux popup is 84 columns wide; test needs 84 to avoid footer truncation
+        let text = render_to_string_sized(&state, 84, 20);
         assert!(text.contains("search"), "footer hint: search present");
         assert!(text.contains("groups"), "footer hint: groups present");
         assert!(text.contains("settings"), "footer hint: settings present");
         assert!(text.contains("quit"), "footer hint: quit present");
+        assert!(text.contains("rename"), "footer hint: rename present");
         assert!(!text.contains("1-9"), "footer no longer spends space on number shortcuts");
+    }
+
+    #[test]
+    fn draw_footer_hint_fits_within_real_popup_width_untruncated() {
+        let sessions = vec![
+            Session { name: "main".into(), activity: 100, created: 1, attached: false,
+                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+        ];
+        let cfg = Config { groups: vec![], ..Default::default() };
+        let state = PickerState::build(sessions, &cfg);
+        // 84 columns matches the real tmux popup width this app is bound at (AGENTS.md).
+        let text = render_to_string_sized(&state, 84, 20);
+        assert!(
+            text.contains(FOOTER_HINT),
+            "footer hint must render untruncated at the real 84-column popup width"
+        );
     }
 
     #[test]
@@ -1988,6 +2184,80 @@ mod tests {
     }
 
     #[test]
+    fn session_row_shows_recency_by_default_and_age_when_switched() {
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
+        let sessions = vec![Session {
+            name: "alpha".into(),
+            activity: now - 30, // "30s"
+            created: now - 7200, // "2h"
+            attached: false,
+            windows: vec![Window { index: 0, name: "w".into(), active: true }],
+        }];
+        let cfg = Config::default();
+        let mut state = PickerState::build(sessions, &cfg);
+
+        let text = render_to_string(&state);
+        assert!(text.contains("· 30s"), "Recency (default) shows time since activity: {text:?}");
+        assert!(!text.contains("· 2h"));
+
+        state.session_metric = SessionMetric::Age;
+        let text = render_to_string(&state);
+        assert!(text.contains("· 2h"), "Age shows time since created: {text:?}");
+        assert!(!text.contains("· 30s"));
+    }
+
+    #[test]
+    fn session_row_hides_age_and_separator_when_metric_is_hidden() {
+        let sessions = vec![Session {
+            name: "alpha".into(),
+            activity: 1,
+            created: 1,
+            attached: false,
+            windows: vec![
+                Window { index: 0, name: "w".into(), active: true },
+                Window { index: 1, name: "w2".into(), active: false },
+            ],
+        }];
+        let cfg = Config::default();
+        let mut state = PickerState::build(sessions, &cfg);
+        state.session_metric = SessionMetric::Hidden;
+        let text = render_to_string(&state);
+        let row = text.lines().find(|l| l.contains("alpha")).expect("session row rendered");
+        assert!(row.contains("2 windows"), "window count still shows: {row:?}");
+        assert!(!row.contains(" · "), "no middot separator when the age is hidden: {row:?}");
+    }
+
+    #[test]
+    fn draw_search_still_aligns_tags_when_metric_is_hidden() {
+        // Regression guard: age_width degenerates to 0 when Hidden, so the
+        // age_pad computation must not panic or misalign group tags.
+        let sessions = vec![
+            Session { name: "short-age".into(), activity: 1, created: 1, attached: false,
+                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+            Session { name: "long-age".into(), activity: 2, created: 2, attached: false,
+                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+        ];
+        let cfg = Config {
+            groups: vec![Group {
+                name: "dev".into(),
+                members: vec!["short-age".into(), "long-age".into()],
+                color: String::new(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let mut state = PickerState::build(sessions, &cfg);
+        state.session_metric = SessionMetric::Hidden;
+        state.enter_search();
+        state.search_push('a');
+        state.search_push('g');
+        state.search_push('e');
+
+        let text = render_to_string(&state);
+        assert!(text.contains("DEV"), "group tag still renders when metric is Hidden: {text:?}");
+    }
+
+    #[test]
     fn group_keys_map_to_ops() {
         assert_eq!(map_group_key(key(KeyCode::Char('j'))), GroupInput::Down);
         assert_eq!(map_group_key(key(KeyCode::Char('k'))), GroupInput::Up);
@@ -2223,8 +2493,64 @@ mod tests {
     }
 
     #[test]
-    fn draw_settings_shows_rows_and_footer() {
+    fn draw_settings_shows_description_of_selected_row() {
         let text = render_to_string(&settings_view());
+        // Cursor starts on the first row, DefaultMode.
+        assert!(text.contains("Whether the picker opens in Command mode or straight into Search."));
+    }
+
+    #[test]
+    fn draw_settings_description_updates_as_cursor_moves() {
+        let mut st = settings_view();
+        st.settings_move_cursor(1); // DormantNumbering
+        let text = render_to_string(&st);
+        assert!(text.contains("Whether visible dormant sessions get jump numbers (1-20)."));
+    }
+
+    #[test]
+    fn draw_settings_description_line_sits_above_the_key_hint_line() {
+        let text = render_to_string(&settings_view());
+        let lines: Vec<&str> = text.lines().collect();
+        let description_idx = lines
+            .iter()
+            .position(|l| l.contains("Whether the picker opens in Command mode or straight into Search."))
+            .expect("description line rendered");
+        let hint_idx = lines
+            .iter()
+            .position(|l| l.contains(SETTINGS_FOOTER_HINT))
+            .expect("key-hint line rendered");
+        assert!(description_idx < hint_idx, "description should render above the key-hint line");
+    }
+
+    #[test]
+    fn draw_settings_description_renders_at_full_contrast_not_dim() {
+        let state = settings_view();
+        let backend = TestBackend::new(80, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| draw(f, &state)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+        let mut found_description = false;
+        for y in 0..buf.area.height {
+            let line: String = (0..buf.area.width).map(|x| buf[(x, y)].symbol()).collect();
+            if let Some(i) = line.find("Whether the picker opens") {
+                found_description = true;
+                assert_ne!(
+                    buf[(i as u16, y)].style().fg,
+                    Some(Color::DarkGray),
+                    "description line should render at full contrast, not dimmed"
+                );
+            }
+        }
+        assert!(found_description, "description line rendered");
+    }
+
+    #[test]
+    fn draw_settings_shows_rows_and_footer() {
+        // Taller than the usual 80x20 for two stacking reasons: the added
+        // Session metadata row pushes later rows down (mirrors the palette
+        // tests), and the footer grew from 2 to 3 rows (rule, key-hint,
+        // description), consuming one more row of the list area.
+        let text = render_to_string_sized(&settings_view(), 80, 25);
         assert!(text.contains("Default mode"));
         assert!(text.contains("Command"));
         assert!(text.contains("Number dormant sessions"));
@@ -2260,6 +2586,33 @@ mod tests {
     }
 
     #[test]
+    fn draw_settings_shows_session_metric_row() {
+        let text = render_to_string(&settings_view());
+        assert!(text.contains("Session metadata"));
+        assert!(text.contains("Recency"), "defaults to Recency");
+    }
+
+    #[test]
+    fn draw_settings_session_metric_cycles_through_labels() {
+        let mut st = settings_view();
+        st.settings_move_cursor(3); // SessionMetric
+        st.settings_step_right();
+        let text = render_to_string(&st);
+        let row = text
+            .lines()
+            .find(|line| line.contains("Session metadata"))
+            .expect("Session metadata row is rendered");
+        assert!(row.contains("Age"), "row should show Age after one step: {row:?}");
+        st.settings_step_right();
+        let text = render_to_string(&st);
+        let row = text
+            .lines()
+            .find(|line| line.contains("Session metadata"))
+            .expect("Session metadata row is rendered");
+        assert!(row.contains("Hidden"), "row should show Hidden after two steps: {row:?}");
+    }
+
+    #[test]
     fn draw_settings_shows_attached_and_border_color_rows() {
         let text = render_to_string(&settings_view());
         assert!(text.contains("Attached session color"));
@@ -2271,7 +2624,7 @@ mod tests {
     #[test]
     fn draw_settings_expanded_attached_color_shows_radio_glyphs() {
         let mut st = settings_view();
-        st.settings_move_cursor(3); // AttachedColor
+        st.settings_move_cursor(4); // AttachedColor
         st.settings_step_right(); // expand
         let text = render_to_string(&st);
         assert!(text.contains("●"), "the currently selected color is marked filled");
@@ -2287,7 +2640,7 @@ mod tests {
     #[test]
     fn draw_settings_expanded_border_color_shows_radio_glyphs() {
         let mut st = settings_view();
-        st.settings_move_cursor(4); // BorderColor
+        st.settings_move_cursor(5); // BorderColor
         st.settings_step_right();
         let text = render_to_string(&st);
         assert!(text.contains("●"));
@@ -2297,7 +2650,7 @@ mod tests {
     #[test]
     fn draw_settings_expanded_palette_shows_swatches_and_checkboxes() {
         let mut st = settings_view();
-        st.settings_move_cursor(6); // Palette
+        st.settings_move_cursor(7); // Palette
         st.settings_step_right(); // expand
         // Taller than the usual 80x20: section headers now push the palette
         // rows further down than the default viewport reveals.
@@ -2311,7 +2664,7 @@ mod tests {
     #[test]
     fn draw_settings_shows_static_color_value_when_policy_is_static() {
         let mut st = settings_view();
-        st.settings_move_cursor(5); // ColorPolicy row
+        st.settings_move_cursor(6); // ColorPolicy row
         st.settings_step_right(); // Rotate -> Random
         st.settings_step_right(); // Random -> Static
         st.static_color = "magenta".to_string();
@@ -2322,7 +2675,9 @@ mod tests {
 
     #[test]
     fn draw_settings_does_not_show_a_color_value_for_rotate_or_random() {
-        let text = render_to_string(&settings_view()); // default policy is Rotate
+        // Taller than the default 80x20: the Session metadata row and the
+        // 3-row footer both push "New group color" further down the list.
+        let text = render_to_string_sized(&settings_view(), 80, 22); // default policy is Rotate
         // "Rotate" itself is on screen, but no color name should follow it
         // since Rotate has no single fixed color to show. The only two
         // swatches on screen are the always-present Attached/Border color
@@ -2372,7 +2727,7 @@ mod tests {
     #[test]
     fn draw_settings_gutter_bar_continues_through_expanded_color_options() {
         let mut st = settings_view();
-        st.settings_move_cursor(3); // AttachedColor
+        st.settings_move_cursor(4); // AttachedColor
         st.settings_step_right(); // expand
         let text = render_to_string(&st);
         let row = text
@@ -2387,7 +2742,7 @@ mod tests {
     #[test]
     fn draw_settings_gutter_bar_continues_through_expanded_palette_rows() {
         let mut st = settings_view();
-        st.settings_move_cursor(6); // Palette
+        st.settings_move_cursor(7); // Palette
         st.settings_step_right(); // expand
         // Taller than the usual 80x20: section headers now push the palette
         // rows further down than the default viewport reveals.
@@ -2403,7 +2758,9 @@ mod tests {
 
     #[test]
     fn draw_settings_color_policy_row_continues_the_gutter_bar() {
-        let text = render_to_string(&settings_view());
+        // Taller than the default 80x20: the Session metadata row and the
+        // 3-row footer both push "New group color" further down the list.
+        let text = render_to_string_sized(&settings_view(), 80, 22);
         let row = text
             .lines()
             .find(|line| line.contains("New group color"))

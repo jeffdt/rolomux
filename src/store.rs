@@ -1,5 +1,6 @@
-use crate::model::{ColorPolicy, DefaultMode, Group, HEADER_COLORS, ensure_single_inbox};
+use crate::model::{ColorPolicy, DefaultMode, Group, HEADER_COLORS, SessionMetric, ensure_single_inbox};
 use serde::Deserialize;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io;
 use std::path::{Path, PathBuf};
 
@@ -15,13 +16,16 @@ use std::path::{Path, PathBuf};
 // v2 -> v3: the residual `manual_order` list is folded into `groups` as a
 // real, flagged `inbox` group (issue #23). `manual_order` becomes
 // migration-input-only, exactly as `pinned` was for v0 -> v1.
-pub const CONFIG_VERSION: u32 = 3;
+//
+// v3 -> v4: `hide_dormant` renamed to `focus_mode` (issue #100), same
+// boolean, no semantic change. `hide_dormant` becomes migration-input-only.
+pub const CONFIG_VERSION: u32 = 4;
 
 #[derive(Debug, Clone)]
 pub struct Config {
     pub groups: Vec<Group>,
     pub dormant: Vec<String>,
-    pub hide_dormant: bool,
+    pub focus_mode: bool,
     pub default_mode: DefaultMode,
     pub number_dormant_sessions: bool,
     pub new_group_color_policy: ColorPolicy,
@@ -31,6 +35,13 @@ pub struct Config {
     pub border_color: String,
     pub remember_expanded_sessions: bool,
     pub expanded: Vec<String>,
+    pub session_metric: SessionMetric,
+    /// Last-known tmux `session_id` (e.g. `"$3"`) for every name currently
+    /// tracked in a group's `members`, in `dormant`, or in `expanded`. Used
+    /// by `reconcile` to recover tracking across a plain tmux rename
+    /// (issue #38) — untracked sessions are never recorded here, since
+    /// there's nothing to recover for them.
+    pub session_ids: HashMap<String, String>,
 }
 
 /// The active palette a fresh `Config` starts with, and the fallback when a
@@ -44,7 +55,7 @@ impl Default for Config {
         Config {
             groups: Vec::new(),
             dormant: Vec::new(),
-            hide_dormant: false,
+            focus_mode: false,
             default_mode: DefaultMode::default(),
             number_dormant_sessions: true,
             new_group_color_policy: ColorPolicy::default(),
@@ -54,6 +65,8 @@ impl Default for Config {
             border_color: "cyan".to_string(),
             remember_expanded_sessions: false,
             expanded: Vec::new(),
+            session_metric: SessionMetric::default(),
+            session_ids: HashMap::new(),
         }
     }
 }
@@ -87,6 +100,8 @@ struct RawSettings {
     border_color: Option<String>,
     #[serde(default)]
     remember_expanded_sessions: Option<bool>,
+    #[serde(default)]
+    session_metric: Option<String>,
 }
 
 #[derive(serde::Serialize)]
@@ -99,6 +114,7 @@ struct OutSettings {
     attached_color: String,
     border_color: String,
     remember_expanded_sessions: bool,
+    session_metric: String,
 }
 
 #[derive(Deserialize, Default)]
@@ -118,12 +134,17 @@ struct RawConfig {
     // still loads cleanly, and the value is dropped on next save.
     #[serde(default)]
     dormant: Vec<String>,
+    // migration input only, superseded by `focus_mode` at version 4
     #[serde(default)]
     hide_dormant: bool,
+    #[serde(default)]
+    focus_mode: bool,
     #[serde(default)]
     settings: RawSettings,
     #[serde(default)]
     expanded: Vec<String>,
+    #[serde(default)]
+    session_ids: HashMap<String, String>,
 }
 
 #[derive(serde::Serialize)]
@@ -142,9 +163,11 @@ struct OutConfig {
     groups: Vec<OutGroup>,
     dormant: Vec<String>,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
-    hide_dormant: bool,
+    focus_mode: bool,
     settings: OutSettings,
     expanded: Vec<String>,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    session_ids: BTreeMap<String, String>,
 }
 
 impl Config {
@@ -201,10 +224,17 @@ impl Config {
             .active_palette
             .filter(|p| !p.is_empty())
             .unwrap_or_else(default_active_palette);
+        let session_metric = raw
+            .settings
+            .session_metric
+            .as_deref()
+            .map(SessionMetric::from_config_str)
+            .unwrap_or_default();
+        let focus_mode = if raw.config_version < 4 { raw.hide_dormant } else { raw.focus_mode };
         Config {
             groups,
             dormant: raw.dormant,
-            hide_dormant: raw.hide_dormant,
+            focus_mode,
             default_mode,
             number_dormant_sessions: raw.settings.number_dormant_sessions.unwrap_or(true),
             new_group_color_policy,
@@ -214,6 +244,8 @@ impl Config {
             border_color,
             remember_expanded_sessions: raw.settings.remember_expanded_sessions.unwrap_or(false),
             expanded: raw.expanded,
+            session_metric,
+            session_ids: raw.session_ids,
         }
     }
 
@@ -225,6 +257,7 @@ impl Config {
         dormant.sort();
         let mut expanded = self.expanded.clone();
         expanded.sort();
+        let session_ids: BTreeMap<String, String> = self.session_ids.clone().into_iter().collect();
         let out = OutConfig {
             config_version: CONFIG_VERSION,
             groups: self
@@ -239,7 +272,7 @@ impl Config {
                 })
                 .collect(),
             dormant,
-            hide_dormant: self.hide_dormant,
+            focus_mode: self.focus_mode,
             settings: OutSettings {
                 default_mode: self.default_mode.as_config_str().to_string(),
                 number_dormant_sessions: self.number_dormant_sessions,
@@ -249,28 +282,100 @@ impl Config {
                 attached_color: self.attached_color.clone(),
                 border_color: self.border_color.clone(),
                 remember_expanded_sessions: self.remember_expanded_sessions,
+                session_metric: self.session_metric.as_config_str().to_string(),
             },
             expanded,
+            session_ids,
         };
         let body = toml::to_string(&out).map_err(io::Error::other)?;
         std::fs::write(path, body)
     }
 
-    pub fn reconcile(&mut self, live_names: &[String]) -> bool {
-        let is_live = |name: &String| live_names.iter().any(|n| n == name);
+    fn tracked_names(&self) -> HashSet<String> {
+        let mut names: HashSet<String> = HashSet::new();
+        for g in &self.groups {
+            names.extend(g.members.iter().cloned());
+        }
+        names.extend(self.dormant.iter().cloned());
+        names.extend(self.expanded.iter().cloned());
+        names
+    }
+
+    pub fn reconcile(&mut self, live: &[(String, String)]) -> bool {
+        let live_by_name: HashMap<&str, &str> =
+            live.iter().map(|(n, i)| (n.as_str(), i.as_str())).collect();
+        let live_by_id: HashMap<&str, &str> =
+            live.iter().map(|(n, i)| (i.as_str(), n.as_str())).collect();
+
+        // A tracked name that's gone dark: if its last-known id now belongs to
+        // a different live name, that's a plain-tmux rename, not a dead
+        // session -- carry the tracking forward under the new name.
+        let mut renames: HashMap<String, String> = HashMap::new();
+        for name in self.tracked_names() {
+            if live_by_name.contains_key(name.as_str()) {
+                continue;
+            }
+            if let Some(id) = self.session_ids.get(&name) {
+                if let Some(&new_name) = live_by_id.get(id.as_str()) {
+                    if new_name != name {
+                        renames.insert(name, new_name.to_string());
+                    }
+                }
+            }
+        }
+
         let before: usize = self.groups.iter().map(|g| g.members.len()).sum::<usize>()
             + self.dormant.len()
             + self.expanded.len();
+
+        for g in &mut self.groups {
+            for m in &mut g.members {
+                if let Some(new_name) = renames.get(m) {
+                    *m = new_name.clone();
+                }
+            }
+        }
+        for name in &mut self.dormant {
+            if let Some(new_name) = renames.get(name) {
+                *name = new_name.clone();
+            }
+        }
+        for name in &mut self.expanded {
+            if let Some(new_name) = renames.get(name) {
+                *name = new_name.clone();
+            }
+        }
+
+        let is_live = |name: &String| live_by_name.contains_key(name.as_str());
         for g in &mut self.groups {
             g.members.retain(&is_live);
+            dedup_preserving_order(&mut g.members);
         }
         self.dormant.retain(&is_live);
+        dedup_preserving_order(&mut self.dormant);
         self.expanded.retain(&is_live);
+        dedup_preserving_order(&mut self.expanded);
+
         let after: usize = self.groups.iter().map(|g| g.members.len()).sum::<usize>()
             + self.dormant.len()
             + self.expanded.len();
-        before != after
+
+        let mut new_ids: HashMap<String, String> = HashMap::new();
+        for name in self.tracked_names() {
+            if let Some(&id) = live_by_name.get(name.as_str()) {
+                new_ids.insert(name, id.to_string());
+            }
+        }
+        let ids_changed = new_ids != self.session_ids;
+        self.session_ids = new_ids;
+
+        before != after || !renames.is_empty() || ids_changed
     }
+}
+
+fn dedup_preserving_order(v: &mut Vec<String>) {
+    let mut seen = HashSet::new();
+    v.retain(|x| seen.insert(x.clone()));
 }
 
 pub fn config_path() -> PathBuf {
@@ -293,7 +398,7 @@ mod tests {
         assert_eq!(cfg.groups.len(), 1);
         assert!(cfg.groups[0].inbox);
         assert!(cfg.dormant.is_empty());
-        assert!(!cfg.hide_dormant);
+        assert!(!cfg.focus_mode);
         assert!(cfg.number_dormant_sessions);
     }
 
@@ -315,16 +420,79 @@ mod tests {
     }
 
     #[test]
-    fn round_trips_hide_dormant_preference() {
-        let dir = std::env::temp_dir().join(format!("rolomux-hide-dormant-{}", std::process::id()));
+    fn session_ids_round_trips_through_toml() {
+        let dir = std::env::temp_dir().join(format!("rolomux-sessionids-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("config.toml");
-        let cfg = Config { hide_dormant: true, ..Default::default() };
+        let cfg = Config {
+            session_ids: HashMap::from([("work".to_string(), "$3".to_string())]),
+            ..Default::default()
+        };
+        cfg.save_to(&path).unwrap();
+        let reloaded = Config::load_from(&path);
+        assert_eq!(reloaded.session_ids.get("work"), Some(&"$3".to_string()));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn legacy_config_without_session_ids_defaults_to_empty_map() {
+        let dir = std::env::temp_dir().join(format!("rolomux-nosessionids-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.toml");
+        std::fs::write(&path, "config_version = 3\n").unwrap();
+        let cfg = Config::load_from(&path);
+        assert!(cfg.session_ids.is_empty());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn empty_session_ids_are_omitted_from_saved_toml() {
+        let dir = std::env::temp_dir().join(format!("rolomux-emptysessionids-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.toml");
+        Config::default().save_to(&path).unwrap();
+        let written = std::fs::read_to_string(&path).unwrap();
+        assert!(!written.contains("session_ids"), "empty map should be skipped: {written}");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn round_trips_focus_mode_preference() {
+        let dir = std::env::temp_dir().join(format!("rolomux-focus-mode-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.toml");
+        let cfg = Config { focus_mode: true, ..Default::default() };
         cfg.save_to(&path).unwrap();
         let written = std::fs::read_to_string(&path).unwrap();
-        assert!(written.contains("hide_dormant = true"));
+        assert!(written.contains("focus_mode = true"));
         let reloaded = Config::load_from(&path);
-        assert!(reloaded.hide_dormant);
+        assert!(reloaded.focus_mode);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn hide_dormant_migrates_to_focus_mode_preserving_value() {
+        let dir = std::env::temp_dir().join(format!("rolomux-mig-v3-focus-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.toml");
+        std::fs::write(&path, "config_version = 3\nhide_dormant = true\n").unwrap();
+        let cfg = Config::load_from(&path);
+        assert!(cfg.focus_mode, "legacy hide_dormant value carries into focus_mode");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn current_version_config_ignores_stray_legacy_hide_dormant_key() {
+        let dir = std::env::temp_dir().join(format!("rolomux-nomig-focus-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.toml");
+        std::fs::write(
+            &path,
+            format!("config_version = {CONFIG_VERSION}\nhide_dormant = true\nfocus_mode = false\n"),
+        )
+        .unwrap();
+        let cfg = Config::load_from(&path);
+        assert!(!cfg.focus_mode, "current-version file reads focus_mode, not the stale legacy key");
         std::fs::remove_dir_all(&dir).ok();
     }
 
@@ -335,7 +503,7 @@ mod tests {
             dormant: vec!["a".into(), "gone".into()],
             ..Default::default()
         };
-        let changed = cfg.reconcile(&["a".to_string()]);
+        let changed = cfg.reconcile(&live_ids(&["a"]));
         assert!(changed);
         assert_eq!(cfg.dormant, vec!["a".to_string()]);
     }
@@ -393,7 +561,7 @@ mod tests {
             ],
             ..Default::default()
         };
-        let live = vec!["a".to_string(), "b".to_string()];
+        let live = live_ids(&["a", "b"]);
         let changed = cfg.reconcile(&live);
         assert!(changed);
         assert_eq!(cfg.groups[0].members, vec!["a".to_string(), "b".to_string()]);
@@ -518,7 +686,7 @@ mod tests {
             dormant: vec![], groups: vec![Group { name: "G".into(), members: vec!["a".into(), "gone".into()], color: String::new(), ..Default::default() }],
             ..Default::default()
         };
-        let live = vec!["a".to_string()];
+        let live = live_ids(&["a"]);
         assert!(cfg.reconcile(&live));
         assert_eq!(cfg.groups[0].members, vec!["a".to_string()]);
         // Even if all members die, the group survives.
@@ -756,9 +924,101 @@ inbox = true
             expanded: vec!["a".into(), "gone".into()],
             ..Default::default()
         };
-        let changed = cfg.reconcile(&["a".to_string()]);
+        let changed = cfg.reconcile(&live_ids(&["a"]));
         assert!(changed);
         assert_eq!(cfg.expanded, vec!["a".to_string()]);
+    }
+
+    fn live_ids(names: &[&str]) -> Vec<(String, String)> {
+        names.iter().map(|n| (n.to_string(), format!("id-{n}"))).collect()
+    }
+
+    #[test]
+    fn reconcile_detects_rename_via_session_id_and_preserves_group_membership() {
+        let mut cfg = Config {
+            groups: vec![Group { name: "WORK".into(), members: vec!["old-name".into()], ..Default::default() }],
+            session_ids: HashMap::from([("old-name".to_string(), "$3".to_string())]),
+            ..Default::default()
+        };
+        let changed = cfg.reconcile(&[("new-name".to_string(), "$3".to_string())]);
+        assert!(changed);
+        assert_eq!(cfg.groups[0].members, vec!["new-name".to_string()]);
+        assert_eq!(cfg.session_ids.get("new-name"), Some(&"$3".to_string()));
+        assert!(!cfg.session_ids.contains_key("old-name"));
+    }
+
+    #[test]
+    fn reconcile_detects_rename_via_session_id_and_preserves_dormant_status() {
+        let mut cfg = Config {
+            dormant: vec!["old-name".into()],
+            session_ids: HashMap::from([("old-name".to_string(), "$5".to_string())]),
+            ..Default::default()
+        };
+        let changed = cfg.reconcile(&[("new-name".to_string(), "$5".to_string())]);
+        assert!(changed);
+        assert_eq!(cfg.dormant, vec!["new-name".to_string()]);
+    }
+
+    #[test]
+    fn reconcile_detects_rename_via_session_id_and_preserves_expanded_status() {
+        let mut cfg = Config {
+            expanded: vec!["old-name".into()],
+            session_ids: HashMap::from([("old-name".to_string(), "$7".to_string())]),
+            ..Default::default()
+        };
+        let changed = cfg.reconcile(&[("new-name".to_string(), "$7".to_string())]);
+        assert!(changed);
+        assert_eq!(cfg.expanded, vec!["new-name".to_string()]);
+    }
+
+    #[test]
+    fn reconcile_still_drops_dead_session_with_no_matching_live_id() {
+        let mut cfg = Config {
+            groups: vec![Group { name: "WORK".into(), members: vec!["gone".into()], ..Default::default() }],
+            session_ids: HashMap::from([("gone".to_string(), "$9".to_string())]),
+            ..Default::default()
+        };
+        // "other" is live but its id doesn't match "gone"'s last-known id, so
+        // this is a dead session, not a detected rename.
+        let changed = cfg.reconcile(&live_ids(&["other"]));
+        assert!(changed);
+        assert!(cfg.groups[0].members.is_empty());
+        assert!(cfg.session_ids.is_empty());
+    }
+
+    #[test]
+    fn reconcile_prunes_session_ids_for_names_no_longer_tracked() {
+        let mut cfg = Config {
+            groups: vec![Group { name: "WORK".into(), members: vec!["a".into()], ..Default::default() }],
+            session_ids: HashMap::from([
+                ("a".to_string(), "$1".to_string()),
+                ("stale".to_string(), "$2".to_string()),
+            ]),
+            ..Default::default()
+        };
+        assert!(cfg.reconcile(&live_ids(&["a"])));
+        assert_eq!(cfg.session_ids.len(), 1);
+        assert_eq!(cfg.session_ids.get("a"), Some(&"id-a".to_string()));
+        assert!(!cfg.session_ids.contains_key("stale"));
+    }
+
+    #[test]
+    fn reconcile_deduplicates_when_rename_target_collides_with_existing_tracked_entry() {
+        let mut cfg = Config {
+            groups: vec![Group {
+                name: "WORK".into(),
+                members: vec!["foo".into(), "oldbar".into()],
+                ..Default::default()
+            }],
+            session_ids: HashMap::from([
+                ("foo".to_string(), "$1".to_string()),
+                ("oldbar".to_string(), "$2".to_string()),
+            ]),
+            ..Default::default()
+        };
+        // "$2" died; "foo"/"$1" was renamed to "oldbar" via plain tmux.
+        cfg.reconcile(&[("oldbar".to_string(), "$1".to_string())]);
+        assert_eq!(cfg.groups[0].members, vec!["oldbar".to_string()]);
     }
 
     #[test]
@@ -771,6 +1031,35 @@ inbox = true
         let cfg = Config::load_from(&path);
         assert!(!cfg.remember_expanded_sessions);
         assert!(cfg.expanded.is_empty());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn default_config_has_session_metric_recency() {
+        let cfg = Config::default();
+        assert_eq!(cfg.session_metric, SessionMetric::Recency);
+    }
+
+    #[test]
+    fn round_trips_session_metric() {
+        let dir = std::env::temp_dir().join(format!("rolomux-session-metric-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.toml");
+        let cfg = Config { session_metric: SessionMetric::Age, ..Default::default() };
+        cfg.save_to(&path).unwrap();
+        let reloaded = Config::load_from(&path);
+        assert_eq!(reloaded.session_metric, SessionMetric::Age);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn legacy_config_without_session_metric_defaults_to_recency() {
+        let dir = std::env::temp_dir().join(format!("rolomux-nometric-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.toml");
+        std::fs::write(&path, "config_version = 3\n").unwrap();
+        let cfg = Config::load_from(&path);
+        assert_eq!(cfg.session_metric, SessionMetric::Recency);
         std::fs::remove_dir_all(&dir).ok();
     }
 }

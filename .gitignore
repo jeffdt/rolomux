@@ -2,8 +2,6 @@
 /specs
 /plans
 /.superpowers
-/mockup.sh
-/select-styles.sh
-/select-dot.sh
-/select-v2.sh
-/.claude
+/.claude/*
+!/.claude/skills
+/examples/mockup.rs

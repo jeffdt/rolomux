@@ -38,6 +38,43 @@ impl DefaultMode {
     }
 }
 
+/// Governs which timestamp the session-row metadata column reflects. A
+/// 3-state cycle (unlike `DefaultMode`'s 2-state toggle), so `h`, `l`, and
+/// `Enter`/`Space` on the Session Metadata settings row all call `next()`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SessionMetric {
+    #[default]
+    Recency,
+    Age,
+    Hidden,
+}
+
+impl SessionMetric {
+    pub fn from_config_str(s: &str) -> SessionMetric {
+        match s {
+            "age" => SessionMetric::Age,
+            "hidden" => SessionMetric::Hidden,
+            _ => SessionMetric::Recency,
+        }
+    }
+
+    pub fn as_config_str(self) -> &'static str {
+        match self {
+            SessionMetric::Recency => "recency",
+            SessionMetric::Age => "age",
+            SessionMetric::Hidden => "hidden",
+        }
+    }
+
+    pub fn next(self) -> SessionMetric {
+        match self {
+            SessionMetric::Recency => SessionMetric::Age,
+            SessionMetric::Age => SessionMetric::Hidden,
+            SessionMetric::Hidden => SessionMetric::Recency,
+        }
+    }
+}
+
 /// Governs the header color assigned when a new group is created
 /// (`PickerState::group_new`). Never retroactively recolors existing groups.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -202,11 +239,24 @@ pub enum Row {
     Window(usize, usize),
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RenameTarget {
+    Session(String),
+    Window(String, u32),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PendingRename {
+    pub target: RenameTarget,
+    pub new_name: String,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SettingsRow {
     DefaultMode,
     DormantNumbering,
     RememberExpanded,
+    SessionMetric,
     AttachedColor,
     /// Index into `ALL_NAMED_COLORS`.
     AttachedColorOption(usize),
@@ -219,6 +269,41 @@ pub enum SettingsRow {
     PaletteColor(usize),
 }
 
+impl SettingsRow {
+    /// A short, single-line explanation of what this setting does, shown
+    /// on the Settings footer's description line. Child/option rows
+    /// (individual color choices) reuse their parent setting's text since
+    /// the option itself (a named color, a checkbox) is self-explanatory.
+    pub fn description(&self) -> &'static str {
+        match self {
+            SettingsRow::DefaultMode => {
+                "Whether the picker opens in Command mode or straight into Search."
+            }
+            SettingsRow::DormantNumbering => {
+                "Whether visible dormant sessions get jump numbers (1-20)."
+            }
+            SettingsRow::RememberExpanded => {
+                "When on, expand/collapse state persists across popups."
+            }
+            SettingsRow::SessionMetric => {
+                "Whether the row's trailing timestamp shows Recency, Age, or is Hidden."
+            }
+            SettingsRow::AttachedColor | SettingsRow::AttachedColorOption(_) => {
+                "Highlight color for the session your tmux client is attached to."
+            }
+            SettingsRow::BorderColor | SettingsRow::BorderColorOption(_) => {
+                "rolomux's own border frame color."
+            }
+            SettingsRow::ColorPolicy => {
+                "How a new group picks its header color: Rotate, Random, or Static."
+            }
+            SettingsRow::Palette | SettingsRow::PaletteColor(_) => {
+                "Which of the 16 terminal colors are in rotation for new group headers."
+            }
+        }
+    }
+}
+
 use crate::store::Config;
 use std::collections::HashSet;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -228,7 +313,7 @@ pub struct PickerState {
     pub groups: Vec<Group>,
     expanded: HashSet<String>,
     dormant: HashSet<String>,
-    hide_dormant: bool,
+    focus_mode: bool,
     pub cursor: usize,
     pub dirty: bool,
     pub mode: Mode,
@@ -238,9 +323,12 @@ pub struct PickerState {
     pub group_cursor: usize,
     /// In-flight rename buffer; `Some` while a rename is in progress.
     pub group_edit: Option<String>,
+    /// In-flight session/window rename buffer; `Some` while a rename is in progress.
+    rename_edit: Option<String>,
     pub default_mode: DefaultMode,
     pub number_dormant_sessions: bool,
     pub remember_expanded_sessions: bool,
+    pub session_metric: SessionMetric,
     pub new_group_color_policy: ColorPolicy,
     pub static_color: String,
     pub active_palette: Vec<String>,
@@ -278,7 +366,7 @@ impl PickerState {
                 HashSet::new()
             },
             dormant: config.dormant.iter().cloned().collect(),
-            hide_dormant: config.hide_dormant,
+            focus_mode: config.focus_mode,
             cursor: 0,
             dirty: false,
             mode: config.default_mode.as_mode(),
@@ -286,9 +374,11 @@ impl PickerState {
             search_cursor: 0,
             group_cursor: 0,
             group_edit: None,
+            rename_edit: None,
             default_mode: config.default_mode,
             number_dormant_sessions: config.number_dormant_sessions,
             remember_expanded_sessions: config.remember_expanded_sessions,
+            session_metric: config.session_metric,
             new_group_color_policy: config.new_group_color_policy,
             static_color: config.static_color.clone(),
             active_palette: config.active_palette.clone(),
@@ -300,6 +390,17 @@ impl PickerState {
             border_color_expanded: false,
         };
         state.apply_initial_focus(focus, current);
+        state
+    }
+
+    /// Like `build`, but seeds the transient expand set from `expanded`
+    /// instead of from `config.expanded`/`remember_expanded_sessions`. Used
+    /// to rebuild the picker after a mid-run session/window rename, so a
+    /// session expanded this run (even with "remember expanded" off)
+    /// survives the rebuild under its possibly-new name.
+    pub fn build_with_expanded(sessions: Vec<Session>, config: &Config, expanded: Vec<String>) -> PickerState {
+        let mut state = Self::build_with_focus(sessions, config, INITIAL_FOCUS, None);
+        state.expanded = expanded.into_iter().collect();
         state
     }
 
@@ -409,7 +510,7 @@ impl PickerState {
                 }
             }
         }
-        if self.hide_dormant {
+        if self.focus_mode {
             out.retain(|s| !self.dormant.contains(&s.name));
         }
         out
@@ -492,14 +593,14 @@ impl PickerState {
     }
 
     /// Whether `name` is marked dormant. When dormant sessions are shown, they
-    /// are dimmed but otherwise fully normal; `hide_dormant` is the only filter
+    /// are dimmed but otherwise fully normal; `focus_mode` is the only filter
     /// that removes them from the picker.
     pub fn is_dormant(&self, name: &str) -> bool {
         self.dormant.contains(name)
     }
 
-    pub fn hiding_dormant(&self) -> bool {
-        self.hide_dormant
+    pub fn focus_mode(&self) -> bool {
+        self.focus_mode
     }
 
     pub fn dormant_count(&self) -> usize {
@@ -507,20 +608,21 @@ impl PickerState {
     }
 
     pub fn hidden_dormant_count(&self) -> usize {
-        if self.hide_dormant { self.dormant_count() } else { 0 }
+        if self.focus_mode { self.dormant_count() } else { 0 }
     }
 
     fn session_visible(&self, name: &str) -> bool {
-        !self.hide_dormant || !self.is_dormant(name)
+        !self.focus_mode || !self.is_dormant(name)
     }
 
-    /// Toggle whether dormant sessions are hidden from the picker. The filter
-    /// is persisted as a preference so it survives closing and reopening the
-    /// popup, same as the dormant set itself.
-    pub fn toggle_dormant_visibility(&mut self) {
+    /// Toggle whether focus mode (hiding dormant sessions, and any group left
+    /// with nothing visible) is on. The filter is persisted as a preference so
+    /// it survives closing and reopening the popup, same as the dormant set
+    /// itself.
+    pub fn toggle_focus_mode(&mut self) {
         let command_focus = self.cursor_session_name();
         let search_focus = self.search_cursor_name();
-        self.hide_dormant = !self.hide_dormant;
+        self.focus_mode = !self.focus_mode;
         self.dirty = true;
         if let Some(name) = command_focus.as_deref().filter(|name| self.session_visible(name)) {
             self.focus_session(name);
@@ -591,7 +693,7 @@ impl PickerState {
     pub fn apply_to_config(&self, config: &mut Config) {
         config.groups = self.groups.clone();
         config.dormant = self.dormant_list();
-        config.hide_dormant = self.hiding_dormant();
+        config.focus_mode = self.focus_mode();
         config.default_mode = self.default_mode;
         config.number_dormant_sessions = self.number_dormant_sessions;
         config.new_group_color_policy = self.new_group_color_policy;
@@ -600,6 +702,7 @@ impl PickerState {
         config.attached_color = self.attached_color.clone();
         config.border_color = self.border_color.clone();
         config.remember_expanded_sessions = self.remember_expanded_sessions;
+        config.session_metric = self.session_metric;
         config.expanded = self.expanded_list();
     }
 
@@ -614,6 +717,109 @@ impl PickerState {
                 }
             }
         }
+    }
+
+    /// Focus a specific window row by session name and stable tmux window
+    /// index (unlike a window's name, its index survives a rename). Requires
+    /// the session to already be expanded, which holds after a window rename
+    /// since only a visible window row can be renamed in the first place.
+    pub fn focus_window(&mut self, session: &str, index: u32) {
+        let rows = self.visible_rows();
+        let ordered = self.ordered();
+        for (i, r) in rows.iter().enumerate() {
+            if let Row::Window(si, wi) = r {
+                if ordered[*si].name == session && ordered[*si].windows[*wi].index == index {
+                    self.cursor = i;
+                    return;
+                }
+            }
+        }
+    }
+
+    /// Whether an inline session/window rename is currently in progress.
+    pub fn renaming(&self) -> bool {
+        self.rename_edit.is_some()
+    }
+
+    /// The in-flight rename buffer, if a rename is in progress.
+    pub fn rename_edit_buffer(&self) -> Option<&str> {
+        self.rename_edit.as_deref()
+    }
+
+    /// Begin renaming whatever row the cursor is on, seeding the buffer
+    /// with its current name. A no-op if the cursor addresses no row.
+    pub fn start_rename(&mut self) {
+        let rows = self.visible_rows();
+        let ordered = self.ordered();
+        if let Some(row) = rows.get(self.cursor) {
+            let current_name = match row {
+                Row::Session(si) => ordered[*si].name.clone(),
+                Row::Window(si, wi) => ordered[*si].windows[*wi].name.clone(),
+            };
+            self.rename_edit = Some(current_name);
+        }
+    }
+
+    /// Push a character onto the in-flight rename buffer.
+    pub fn rename_edit_push(&mut self, c: char) {
+        if let Some(buf) = self.rename_edit.as_mut() { buf.push(c); }
+    }
+
+    /// Remove the last character from the in-flight rename buffer.
+    pub fn rename_edit_backspace(&mut self) {
+        if let Some(buf) = self.rename_edit.as_mut() { buf.pop(); }
+    }
+
+    /// Delete the trailing word from the in-flight rename buffer (Ctrl-W convention).
+    pub fn rename_edit_delete_word(&mut self) {
+        if let Some(buf) = self.rename_edit.as_mut() {
+            let trimmed = buf.trim_end_matches(char::is_whitespace);
+            let cut = trimmed.trim_end_matches(|c: char| !c.is_whitespace());
+            buf.truncate(cut.len());
+        }
+    }
+
+    /// Clear the entire in-flight rename buffer (Ctrl-U convention).
+    pub fn rename_edit_clear(&mut self) {
+        if let Some(buf) = self.rename_edit.as_mut() { buf.clear(); }
+    }
+
+    /// Cancel the in-flight rename, discarding the buffer.
+    pub fn cancel_rename(&mut self) {
+        self.rename_edit = None;
+    }
+
+    /// Consume the in-flight rename buffer and, if it names a real change
+    /// (non-empty after trimming, and different from the current name),
+    /// return what to rename and to what. Returns `None` (having still
+    /// cleared the buffer) for an empty or unchanged commit -- both are
+    /// treated as a no-op, mirroring group rename's empty-name guard.
+    pub fn take_rename_commit(&mut self) -> Option<PendingRename> {
+        let buf = self.rename_edit.take()?;
+        let new_name = buf.trim().to_string();
+        if new_name.is_empty() {
+            return None;
+        }
+        let rows = self.visible_rows();
+        let ordered = self.ordered();
+        let row = *rows.get(self.cursor)?;
+        let target = match row {
+            Row::Session(si) => {
+                let current = &ordered[si].name;
+                if *current == new_name {
+                    return None;
+                }
+                RenameTarget::Session(current.clone())
+            }
+            Row::Window(si, wi) => {
+                let win = &ordered[si].windows[wi];
+                if win.name == new_name {
+                    return None;
+                }
+                RenameTarget::Window(ordered[si].name.clone(), win.index)
+            }
+        };
+        Some(PendingRename { target, new_name })
     }
 
     /// Move the session under the cursor by `delta` rows, crossing group
@@ -762,6 +968,7 @@ impl PickerState {
             SettingsRow::DefaultMode,
             SettingsRow::DormantNumbering,
             SettingsRow::RememberExpanded,
+            SettingsRow::SessionMetric,
             SettingsRow::AttachedColor,
         ];
         if self.attached_color_expanded {
@@ -865,6 +1072,11 @@ impl PickerState {
         self.dirty = true;
     }
 
+    fn cycle_session_metric(&mut self) {
+        self.session_metric = self.session_metric.next();
+        self.dirty = true;
+    }
+
     /// `h` on the current settings row: step Default Mode / Color Policy
     /// backward, collapse an expanded section, or (from inside an expanded
     /// section's child row) cancel -- collapse without changing the value --
@@ -877,6 +1089,7 @@ impl PickerState {
             }
             SettingsRow::DormantNumbering => self.toggle_dormant_numbering(),
             SettingsRow::RememberExpanded => self.toggle_remember_expanded_sessions(),
+            SettingsRow::SessionMetric => self.cycle_session_metric(),
             SettingsRow::AttachedColor => self.attached_color_expanded = false,
             SettingsRow::AttachedColorOption(_) => {
                 self.attached_color_expanded = false;
@@ -912,6 +1125,7 @@ impl PickerState {
             }
             SettingsRow::DormantNumbering => self.toggle_dormant_numbering(),
             SettingsRow::RememberExpanded => self.toggle_remember_expanded_sessions(),
+            SettingsRow::SessionMetric => self.cycle_session_metric(),
             SettingsRow::AttachedColor => self.expand_attached_color(),
             SettingsRow::AttachedColorOption(_) => {}
             SettingsRow::BorderColor => self.expand_border_color(),
@@ -935,6 +1149,7 @@ impl PickerState {
             SettingsRow::DefaultMode
             | SettingsRow::DormantNumbering
             | SettingsRow::RememberExpanded
+            | SettingsRow::SessionMetric
             | SettingsRow::ColorPolicy => self.settings_step_right(),
             SettingsRow::AttachedColor => self.expand_attached_color(),
             SettingsRow::AttachedColorOption(idx) => self.select_attached_color(idx),
@@ -1367,6 +1582,25 @@ mod tests {
     }
 
     #[test]
+    fn session_metric_parses_with_recency_fallback() {
+        assert_eq!(SessionMetric::from_config_str("age"), SessionMetric::Age);
+        assert_eq!(SessionMetric::from_config_str("hidden"), SessionMetric::Hidden);
+        assert_eq!(SessionMetric::from_config_str("recency"), SessionMetric::Recency);
+        assert_eq!(SessionMetric::from_config_str("garbage"), SessionMetric::Recency);
+        assert_eq!(SessionMetric::default(), SessionMetric::Recency);
+    }
+
+    #[test]
+    fn session_metric_next_cycles_through_all_three_and_wraps() {
+        assert_eq!(SessionMetric::Recency.next(), SessionMetric::Age);
+        assert_eq!(SessionMetric::Age.next(), SessionMetric::Hidden);
+        assert_eq!(SessionMetric::Hidden.next(), SessionMetric::Recency);
+        assert_eq!(SessionMetric::Recency.as_config_str(), "recency");
+        assert_eq!(SessionMetric::Age.as_config_str(), "age");
+        assert_eq!(SessionMetric::Hidden.as_config_str(), "hidden");
+    }
+
+    #[test]
     fn color_policy_parses_with_rotate_fallback() {
         assert_eq!(ColorPolicy::from_config_str("random"), ColorPolicy::Random);
         assert_eq!(ColorPolicy::from_config_str("static"), ColorPolicy::Static);
@@ -1595,7 +1829,7 @@ mod tests {
         let sessions = vec![s("alpha", 10, 1), s("beta", 20, 2), s("gamma", 30, 3)];
         let cfg = Config {
             dormant: vec!["beta".into()],
-            hide_dormant: true,
+            focus_mode: true,
             number_dormant_sessions: true,
             ..Default::default()
         };
@@ -1922,16 +2156,16 @@ mod tests {
     }
 
     #[test]
-    fn hide_dormant_loads_from_config() {
+    fn focus_mode_loads_from_config() {
         let sessions = vec![s("a", 30, 1), s("b", 20, 2)];
         let cfg = Config {
             groups: vec![],
             dormant: vec!["a".into()],
-            hide_dormant: true,
+            focus_mode: true,
             ..Default::default()
         };
         let state = PickerState::build(sessions, &cfg);
-        assert!(state.hiding_dormant());
+        assert!(state.focus_mode());
         assert_eq!(state.hidden_dormant_count(), 1);
         let visible: Vec<&str> = state.ordered().iter().map(|s| s.name.as_str()).collect();
         assert_eq!(visible, vec!["b"]);
@@ -2035,7 +2269,7 @@ mod tests {
     }
 
     #[test]
-    fn toggle_dormant_visibility_filters_command_and_search_and_dirties() {
+    fn toggle_focus_mode_filters_command_and_search_and_dirties() {
         let sessions = vec![s("alpha", 1, 1), s("beta", 1, 2), s("gamma", 1, 3)];
         let cfg = Config { groups: vec![], dormant: vec!["beta".into()], ..Default::default() };
         let mut state = PickerState::build(sessions, &cfg);
@@ -2044,10 +2278,10 @@ mod tests {
         let shown: Vec<&str> = state.ordered().iter().map(|s| s.name.as_str()).collect();
         assert_eq!(shown, vec!["alpha", "beta", "gamma"]);
 
-        state.toggle_dormant_visibility();
-        assert!(state.hiding_dormant());
+        state.toggle_focus_mode();
+        assert!(state.focus_mode());
         assert_eq!(state.hidden_dormant_count(), 1);
-        assert!(state.dirty, "hiding dormant sessions persists the preference");
+        assert!(state.dirty, "entering focus mode persists the preference");
         let visible: Vec<&str> = state.ordered().iter().map(|s| s.name.as_str()).collect();
         assert_eq!(visible, vec!["alpha", "gamma"]);
 
@@ -2058,21 +2292,21 @@ mod tests {
         let search_visible: Vec<&str> = state.search_results().iter().map(|s| s.name.as_str()).collect();
         assert_eq!(search_visible, vec!["alpha", "gamma"]);
 
-        state.toggle_dormant_visibility();
-        assert!(!state.hiding_dormant());
+        state.toggle_focus_mode();
+        assert!(!state.focus_mode());
         let restored: Vec<&str> = state.ordered().iter().map(|s| s.name.as_str()).collect();
         assert_eq!(restored, vec!["alpha", "beta", "gamma"]);
     }
 
     #[test]
-    fn hiding_dormant_clamps_cursor_when_selected_session_disappears() {
+    fn focus_mode_clamps_cursor_when_selected_session_disappears() {
         let sessions = vec![s("alpha", 1, 1), s("beta", 1, 2)];
         let cfg = Config { groups: vec![], dormant: vec!["beta".into()], ..Default::default() };
         let mut state = PickerState::build(sessions, &cfg);
         state.focus_session("beta");
         assert_eq!(state.cursor_session_name().as_deref(), Some("beta"));
 
-        state.toggle_dormant_visibility();
+        state.toggle_focus_mode();
 
         assert_eq!(state.cursor_session_name().as_deref(), Some("alpha"));
         assert_eq!(state.visible_rows().len(), 1);
@@ -2083,7 +2317,7 @@ mod tests {
         let sessions = vec![s("alpha", 1, 1), s("beta", 1, 2)];
         let cfg = Config { groups: vec![], ..Default::default() };
         let mut state = PickerState::build(sessions, &cfg);
-        state.toggle_dormant_visibility();
+        state.toggle_focus_mode();
         assert_eq!(state.cursor_session_name().as_deref(), Some("alpha"));
 
         state.toggle_dormant();
@@ -2108,7 +2342,7 @@ mod tests {
             ..Default::default()
         };
         let mut state = PickerState::build(sessions, &cfg);
-        state.toggle_dormant_visibility();
+        state.toggle_focus_mode();
         state.focus_session("alpha");
 
         state.move_row(1);
@@ -2173,6 +2407,109 @@ mod tests {
         st.group_edit_clear();
         st.group_cancel_rename();
         assert_eq!(st.groups[1].name, "MISC"); // unchanged on cancel
+    }
+
+    #[test]
+    fn start_rename_seeds_buffer_with_session_name_on_session_row() {
+        let sessions = vec![s("alpha", 1, 1)];
+        let cfg = Config::default();
+        let mut st = PickerState::build(sessions, &cfg);
+        st.start_rename();
+        assert!(st.renaming());
+        assert_eq!(st.rename_edit_buffer(), Some("alpha"));
+    }
+
+    #[test]
+    fn start_rename_seeds_buffer_with_window_name_on_window_row() {
+        let sessions = vec![s("alpha", 1, 1)];
+        let cfg = Config::default();
+        let mut st = PickerState::build(sessions, &cfg);
+        st.expand();
+        st.move_cursor(1); // onto the window row
+        st.start_rename();
+        assert_eq!(st.rename_edit_buffer(), Some("w"));
+    }
+
+    #[test]
+    fn rename_edit_push_backspace_and_clear() {
+        let sessions = vec![s("alpha", 1, 1)];
+        let cfg = Config::default();
+        let mut st = PickerState::build(sessions, &cfg);
+        st.start_rename();
+        st.rename_edit_clear();
+        for c in "beta".chars() { st.rename_edit_push(c); }
+        assert_eq!(st.rename_edit_buffer(), Some("beta"));
+        st.rename_edit_backspace();
+        assert_eq!(st.rename_edit_buffer(), Some("bet"));
+    }
+
+    #[test]
+    fn rename_edit_delete_word_removes_trailing_word() {
+        let sessions = vec![s("alpha", 1, 1)];
+        let cfg = Config::default();
+        let mut st = PickerState::build(sessions, &cfg);
+        st.start_rename();
+        st.rename_edit_clear();
+        for c in "foo bar".chars() { st.rename_edit_push(c); }
+        st.rename_edit_delete_word();
+        assert_eq!(st.rename_edit_buffer(), Some("foo "));
+    }
+
+    #[test]
+    fn cancel_rename_discards_buffer_without_changing_anything() {
+        let sessions = vec![s("alpha", 1, 1)];
+        let cfg = Config::default();
+        let mut st = PickerState::build(sessions, &cfg);
+        st.start_rename();
+        st.rename_edit_push('x');
+        st.cancel_rename();
+        assert!(!st.renaming());
+        assert_eq!(st.rename_edit_buffer(), None);
+    }
+
+    #[test]
+    fn take_rename_commit_returns_session_target_on_changed_name() {
+        let sessions = vec![s("alpha", 1, 1)];
+        let cfg = Config::default();
+        let mut st = PickerState::build(sessions, &cfg);
+        st.start_rename();
+        st.rename_edit_clear();
+        for c in "beta".chars() { st.rename_edit_push(c); }
+        let pending = st.take_rename_commit().expect("changed name commits");
+        assert_eq!(pending.target, RenameTarget::Session("alpha".to_string()));
+        assert_eq!(pending.new_name, "beta");
+        assert!(!st.renaming(), "buffer cleared after commit");
+    }
+
+    #[test]
+    fn take_rename_commit_returns_window_target_on_changed_name() {
+        let sessions = vec![s("alpha", 1, 1)];
+        let cfg = Config::default();
+        let mut st = PickerState::build(sessions, &cfg);
+        st.expand();
+        st.move_cursor(1);
+        st.start_rename();
+        st.rename_edit_clear();
+        for c in "logs".chars() { st.rename_edit_push(c); }
+        let pending = st.take_rename_commit().expect("changed name commits");
+        assert_eq!(pending.target, RenameTarget::Window("alpha".to_string(), 0));
+        assert_eq!(pending.new_name, "logs");
+    }
+
+    #[test]
+    fn take_rename_commit_none_on_empty_or_unchanged_name() {
+        let sessions = vec![s("alpha", 1, 1)];
+        let cfg = Config::default();
+
+        let mut st = PickerState::build(sessions.clone(), &cfg);
+        st.start_rename();
+        st.rename_edit_clear();
+        assert!(st.take_rename_commit().is_none(), "empty commit is a no-op");
+        assert!(!st.renaming(), "buffer still cleared");
+
+        let mut st = PickerState::build(sessions, &cfg);
+        st.start_rename(); // buffer seeded with "alpha", unchanged
+        assert!(st.take_rename_commit().is_none(), "unchanged name is a no-op");
     }
 
     #[test]
@@ -2486,7 +2823,7 @@ mod tests {
     }
 
     #[test]
-    fn settings_visible_rows_collapsed_shows_seven_rows_in_order() {
+    fn settings_visible_rows_collapsed_shows_eight_rows_in_order() {
         let st = settings_state();
         assert_eq!(
             st.settings_visible_rows(),
@@ -2494,6 +2831,7 @@ mod tests {
                 SettingsRow::DefaultMode,
                 SettingsRow::DormantNumbering,
                 SettingsRow::RememberExpanded,
+                SettingsRow::SessionMetric,
                 SettingsRow::AttachedColor,
                 SettingsRow::BorderColor,
                 SettingsRow::ColorPolicy,
@@ -2517,6 +2855,22 @@ mod tests {
     }
 
     #[test]
+    fn settings_cycles_session_metric_through_all_three_states() {
+        let mut st = settings_state();
+        st.settings_move_cursor(3); // SessionMetric
+        assert_eq!(st.session_metric, SessionMetric::Recency);
+        st.settings_step_right();
+        assert_eq!(st.session_metric, SessionMetric::Age);
+        st.settings_step_right();
+        assert_eq!(st.session_metric, SessionMetric::Hidden);
+        st.settings_step_left(); // h also advances a 3-state cycle, same as l
+        assert_eq!(st.session_metric, SessionMetric::Recency, "wraps back via next()");
+        st.settings_activate();
+        assert_eq!(st.session_metric, SessionMetric::Age);
+        assert!(st.dirty);
+    }
+
+    #[test]
     fn attached_and_border_color_default_to_cyan() {
         let st = settings_state();
         assert_eq!(st.attached_color, "cyan");
@@ -2526,72 +2880,72 @@ mod tests {
     #[test]
     fn attached_color_expands_and_collapses_via_step_right_and_left() {
         let mut st = settings_state();
-        st.settings_move_cursor(3); // row 3: AttachedColor
-        assert_eq!(st.settings_visible_rows().len(), 7);
+        st.settings_move_cursor(4); // row 4: AttachedColor
+        assert_eq!(st.settings_visible_rows().len(), 8);
         st.settings_step_right();
-        assert_eq!(st.settings_visible_rows().len(), 7 + 16, "expanded into 16 options");
+        assert_eq!(st.settings_visible_rows().len(), 8 + 16, "expanded into 16 options");
         assert_eq!(
             st.settings_visible_rows()[st.settings_cursor()],
             SettingsRow::AttachedColorOption(6),
             "cursor lands on the currently selected color (cyan, index 6), not row 0"
         );
         st.settings_step_left();
-        assert_eq!(st.settings_visible_rows().len(), 7, "collapsed back");
-        assert_eq!(st.settings_cursor(), 3, "cursor returned to the AttachedColor row");
+        assert_eq!(st.settings_visible_rows().len(), 8, "collapsed back");
+        assert_eq!(st.settings_cursor(), 4, "cursor returned to the AttachedColor row");
     }
 
     #[test]
     fn border_color_expands_and_collapses_via_step_right_and_left() {
         let mut st = settings_state();
-        st.settings_move_cursor(4); // row 4: BorderColor
+        st.settings_move_cursor(5); // row 5: BorderColor
         st.settings_step_right();
-        assert_eq!(st.settings_visible_rows().len(), 7 + 16);
+        assert_eq!(st.settings_visible_rows().len(), 8 + 16);
         assert_eq!(
             st.settings_visible_rows()[st.settings_cursor()],
             SettingsRow::BorderColorOption(6),
             "cursor lands on the currently selected color (cyan, index 6)"
         );
         st.settings_step_left();
-        assert_eq!(st.settings_visible_rows().len(), 7);
-        assert_eq!(st.settings_cursor(), 4, "cursor returned to the BorderColor row");
+        assert_eq!(st.settings_visible_rows().len(), 8);
+        assert_eq!(st.settings_cursor(), 5, "cursor returned to the BorderColor row");
     }
 
     #[test]
     fn activate_on_an_attached_color_option_commits_and_collapses() {
         let mut st = settings_state();
-        st.settings_move_cursor(3); // AttachedColor
+        st.settings_move_cursor(4); // AttachedColor
         st.settings_step_right(); // expand, cursor lands on index 6 (cyan)
         st.settings_move_cursor(-1); // step to index 5 ("magenta")
         assert_eq!(st.settings_visible_rows()[st.settings_cursor()], SettingsRow::AttachedColorOption(5));
         st.settings_activate();
         assert_eq!(st.attached_color, "magenta");
         assert!(st.dirty);
-        assert_eq!(st.settings_visible_rows().len(), 7, "collapsed after committing");
-        assert_eq!(st.settings_cursor(), 3, "cursor returned to the AttachedColor row");
+        assert_eq!(st.settings_visible_rows().len(), 8, "collapsed after committing");
+        assert_eq!(st.settings_cursor(), 4, "cursor returned to the AttachedColor row");
     }
 
     #[test]
     fn activate_on_a_border_color_option_commits_and_collapses() {
         let mut st = settings_state();
-        st.settings_move_cursor(4); // BorderColor
+        st.settings_move_cursor(5); // BorderColor
         st.settings_step_right();
         st.settings_move_cursor(-5); // index 6 -> index 1 ("red")
         assert_eq!(st.settings_visible_rows()[st.settings_cursor()], SettingsRow::BorderColorOption(1));
         st.settings_activate();
         assert_eq!(st.border_color, "red");
         assert!(st.dirty);
-        assert_eq!(st.settings_cursor(), 4, "cursor returned to the BorderColor row");
+        assert_eq!(st.settings_cursor(), 5, "cursor returned to the BorderColor row");
     }
 
     #[test]
     fn h_on_an_attached_color_option_collapses_without_changing_the_value() {
         let mut st = settings_state();
-        st.settings_move_cursor(3);
+        st.settings_move_cursor(4);
         st.settings_step_right();
         st.settings_move_cursor(-1); // onto "magenta"
         st.settings_step_left(); // cancel, not activate
         assert_eq!(st.attached_color, "cyan", "unchanged: h cancels rather than commits");
-        assert_eq!(st.settings_cursor(), 3);
+        assert_eq!(st.settings_cursor(), 4);
     }
 
     #[test]
@@ -2600,17 +2954,17 @@ mod tests {
         // own index is no longer fixed at 2 once AttachedColor/BorderColor can
         // also expand above it.
         let mut st = settings_state();
-        st.settings_move_cursor(3);
+        st.settings_move_cursor(4);
         st.settings_step_right(); // expand AttachedColor: 16 rows now sit between it and BorderColor/ColorPolicy/Palette
         st.settings_move_cursor(-1);
         st.settings_step_left(); // collapse AttachedColor again, back to the 6-row layout
-        assert_eq!(st.settings_visible_rows().len(), 7);
-        st.settings_move_cursor(6); // Palette, still at index 6
+        assert_eq!(st.settings_visible_rows().len(), 8);
+        st.settings_move_cursor(7); // Palette, still at index 7
         assert_eq!(st.settings_visible_rows()[st.settings_cursor()], SettingsRow::Palette);
         st.settings_step_right(); // expand Palette
         st.settings_move_cursor(1); // first PaletteColor child
         st.settings_step_left(); // collapse
-        assert_eq!(st.settings_cursor(), 6, "Palette collapse still lands on index 6");
+        assert_eq!(st.settings_cursor(), 7, "Palette collapse still lands on index 7");
     }
 
     #[test]
@@ -2618,13 +2972,13 @@ mod tests {
         let mut st = settings_state();
         assert_eq!(st.settings_cursor(), 0);
         st.settings_move_cursor(-1);
-        assert_eq!(st.settings_cursor(), 6, "moving up from the top wraps to bottom");
+        assert_eq!(st.settings_cursor(), 7, "moving up from the top wraps to bottom");
         st.settings_move_cursor(1);
         assert_eq!(st.settings_cursor(), 0, "moving down from the bottom wraps to top");
         st.settings_move_cursor(1);
         assert_eq!(st.settings_cursor(), 1);
         st.settings_move_cursor(99);
-        assert_eq!(st.settings_cursor(), 6, "large jumps still land on the edge");
+        assert_eq!(st.settings_cursor(), 7, "large jumps still land on the edge");
     }
 
     #[test]
@@ -2664,7 +3018,7 @@ mod tests {
     #[test]
     fn step_cycles_color_policy_forward_and_backward() {
         let mut st = settings_state();
-        st.settings_move_cursor(5); // row 5: ColorPolicy
+        st.settings_move_cursor(6); // row 6: ColorPolicy
         assert_eq!(st.new_group_color_policy, ColorPolicy::Rotate);
         st.settings_step_right();
         assert_eq!(st.new_group_color_policy, ColorPolicy::Random);
@@ -2679,32 +3033,32 @@ mod tests {
     #[test]
     fn palette_expands_and_collapses_via_step_right_and_left() {
         let mut st = settings_state();
-        st.settings_move_cursor(6); // row 6: Palette
+        st.settings_move_cursor(7); // row 7: Palette
         assert!(!st.palette_expanded());
         st.settings_step_right();
         assert!(st.palette_expanded());
-        assert_eq!(st.settings_visible_rows().len(), 7 + 16);
+        assert_eq!(st.settings_visible_rows().len(), 8 + 16);
         st.settings_step_left();
         assert!(!st.palette_expanded());
-        assert_eq!(st.settings_visible_rows().len(), 7);
+        assert_eq!(st.settings_visible_rows().len(), 8);
     }
 
     #[test]
     fn step_left_on_a_palette_color_row_collapses_and_refocuses_the_parent() {
         let mut st = settings_state();
-        st.settings_move_cursor(6);
+        st.settings_move_cursor(7);
         st.settings_step_right(); // expand
         st.settings_move_cursor(1); // onto the first PaletteColor child
         assert_eq!(st.settings_visible_rows()[st.settings_cursor()], SettingsRow::PaletteColor(0));
         st.settings_step_left();
         assert!(!st.palette_expanded());
-        assert_eq!(st.settings_cursor(), 6, "cursor returns to the Palette row");
+        assert_eq!(st.settings_cursor(), 7, "cursor returns to the Palette row");
     }
 
     #[test]
     fn activate_toggles_a_palette_color_off() {
         let mut st = settings_state();
-        st.settings_move_cursor(6);
+        st.settings_move_cursor(7);
         st.settings_step_right(); // expand
         let cyan_idx = st.settings_palette_rows().iter().position(|(n, _)| n == "cyan").unwrap();
         st.settings_move_cursor(1 + cyan_idx as i32); // descend onto the "cyan" child row
@@ -2718,7 +3072,7 @@ mod tests {
     fn activate_cannot_deactivate_the_last_active_color() {
         let mut st = settings_state();
         st.active_palette = vec!["cyan".to_string()];
-        st.settings_move_cursor(6);
+        st.settings_move_cursor(7);
         st.settings_step_right();
         let cyan_idx = st.settings_palette_rows().iter().position(|(n, _)| n == "cyan").unwrap();
         st.settings_move_cursor(1 + cyan_idx as i32); // the only active color
@@ -2729,7 +3083,7 @@ mod tests {
     #[test]
     fn activate_reactivates_an_inactive_color_at_its_canonical_position() {
         let mut st = settings_state(); // active: cyan, green, yellow, magenta, blue, red
-        st.settings_move_cursor(6);
+        st.settings_move_cursor(7);
         st.settings_step_right();
         let black_idx = st.settings_palette_rows().iter().position(|(n, _)| n == "black").unwrap();
         st.settings_move_cursor(1 + black_idx as i32); // descend onto the "black" child row
@@ -2749,7 +3103,7 @@ mod tests {
     #[test]
     fn toggling_a_color_never_reorders_the_checklist() {
         let mut st = settings_state();
-        st.settings_move_cursor(6);
+        st.settings_move_cursor(7);
         st.settings_step_right(); // expand
         let before: Vec<String> =
             st.settings_palette_rows().into_iter().map(|(n, _)| n).collect();
@@ -2769,7 +3123,7 @@ mod tests {
     #[test]
     fn c_key_only_cycles_static_color_when_policy_is_static() {
         let mut st = settings_state();
-        st.settings_move_cursor(5); // ColorPolicy row, policy still Rotate
+        st.settings_move_cursor(6); // ColorPolicy row, policy still Rotate
         st.settings_cycle_color();
         assert_eq!(st.static_color, "cyan", "no-op: policy is not Static");
 
@@ -2787,9 +3141,9 @@ mod tests {
     #[test]
     fn c_key_is_a_noop_off_a_color_row() {
         let mut st = settings_state();
-        st.settings_move_cursor(5);
+        st.settings_move_cursor(6);
         st.settings_step_right(); st.settings_step_right(); // -> Static
-        st.settings_move_cursor(-5); // back to DefaultMode row
+        st.settings_move_cursor(-6); // back to DefaultMode row
         st.settings_cycle_color();
         assert_eq!(st.static_color, "cyan", "cursor must be on a color row");
     }
@@ -2797,7 +3151,7 @@ mod tests {
     #[test]
     fn static_color_persists_across_policy_switches() {
         let mut st = settings_state();
-        st.settings_move_cursor(5);
+        st.settings_move_cursor(6);
         st.settings_step_right(); st.settings_step_right(); // -> Static
         st.settings_cycle_color(); // cyan -> gray
         assert_eq!(st.static_color, "gray");
@@ -2810,21 +3164,21 @@ mod tests {
     #[test]
     fn c_key_quick_cycles_attached_color_without_expanding() {
         let mut st = settings_state();
-        st.settings_move_cursor(3); // AttachedColor, collapsed
+        st.settings_move_cursor(4); // AttachedColor, collapsed
         st.settings_cycle_color();
         assert_eq!(st.attached_color, "gray", "cyan -> gray, next in ALL_NAMED_COLORS");
         assert!(st.dirty);
-        assert_eq!(st.settings_visible_rows().len(), 7, "stays collapsed");
+        assert_eq!(st.settings_visible_rows().len(), 8, "stays collapsed");
     }
 
     #[test]
     fn c_key_quick_cycles_border_color_without_expanding() {
         let mut st = settings_state();
-        st.settings_move_cursor(4); // BorderColor, collapsed
+        st.settings_move_cursor(5); // BorderColor, collapsed
         st.settings_cycle_color();
         assert_eq!(st.border_color, "gray");
         assert!(st.dirty);
-        assert_eq!(st.settings_visible_rows().len(), 7, "stays collapsed");
+        assert_eq!(st.settings_visible_rows().len(), 8, "stays collapsed");
     }
 
     #[test]
@@ -2838,11 +3192,12 @@ mod tests {
         st.border_color = "yellow".to_string();
         st.default_mode = DefaultMode::Search;
         st.number_dormant_sessions = false;
-        st.hide_dormant = true;
+        st.focus_mode = true;
         st.new_group_color_policy = ColorPolicy::Static;
         st.static_color = "white".to_string();
         st.active_palette = vec!["red".to_string(), "white".to_string()];
         st.remember_expanded_sessions = true;
+        st.session_metric = SessionMetric::Age;
 
         st.apply_to_config(&mut cfg);
         cfg.save_to(&path).unwrap();
@@ -2852,11 +3207,12 @@ mod tests {
         assert_eq!(reloaded.border_color, "yellow");
         assert_eq!(reloaded.default_mode, DefaultMode::Search);
         assert!(!reloaded.number_dormant_sessions);
-        assert!(reloaded.hide_dormant);
+        assert!(reloaded.focus_mode);
         assert_eq!(reloaded.new_group_color_policy, ColorPolicy::Static);
         assert_eq!(reloaded.static_color, "white");
         assert_eq!(reloaded.active_palette, vec!["red".to_string(), "white".to_string()]);
         assert!(reloaded.remember_expanded_sessions);
+        assert_eq!(reloaded.session_metric, SessionMetric::Age);
         std::fs::remove_dir_all(&dir).ok();
     }
 
@@ -2951,5 +3307,51 @@ mod tests {
         ensure_single_inbox(&mut groups);
         assert!(groups[0].inbox);
         assert!(!groups[1].inbox);
+    }
+
+    #[test]
+    fn settings_row_description_describes_default_mode() {
+        assert_eq!(
+            SettingsRow::DefaultMode.description(),
+            "Whether the picker opens in Command mode or straight into Search."
+        );
+    }
+
+    #[test]
+    fn settings_row_description_child_rows_reuse_parent_text() {
+        assert_eq!(
+            SettingsRow::AttachedColorOption(0).description(),
+            SettingsRow::AttachedColor.description()
+        );
+        assert_eq!(
+            SettingsRow::BorderColorOption(0).description(),
+            SettingsRow::BorderColor.description()
+        );
+        assert_eq!(
+            SettingsRow::PaletteColor(0).description(),
+            SettingsRow::Palette.description()
+        );
+    }
+
+    #[test]
+    fn build_with_expanded_seeds_expand_set_regardless_of_remember_setting() {
+        let sessions = vec![s("alpha", 1, 1), s("beta", 1, 2)];
+        let cfg = Config { remember_expanded_sessions: false, ..Default::default() };
+        let st = PickerState::build_with_expanded(sessions, &cfg, vec!["alpha".to_string()]);
+        assert!(st.is_expanded("alpha"));
+        assert!(!st.is_expanded("beta"));
+    }
+
+    #[test]
+    fn build_with_expanded_ignores_config_expanded_field() {
+        let sessions = vec![s("alpha", 1, 1)];
+        let cfg = Config {
+            remember_expanded_sessions: true,
+            expanded: vec!["alpha".to_string()],
+            ..Default::default()
+        };
+        // Even though config.expanded lists "alpha", the explicit (empty) override wins.
+        let st = PickerState::build_with_expanded(sessions, &cfg, vec![]);
+        assert!(!st.is_expanded("alpha"));
     }
 }

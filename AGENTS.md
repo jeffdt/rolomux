@@ -113,8 +113,9 @@ User config persists to `$XDG_CONFIG_HOME/rolomux/config.toml` (else
 ordered `members` list, and an optional `color` from the named palette in
 `HEADER_COLORS`; empty/absent means the positional default, and `c` in group
 mode flips it; exactly one group is marked `inbox = true`), a top-level `dormant`
-list, a top-level `hide_dormant` bool that persists the current hide/show
-filter across popups, and `[settings]` preferences including
+list, a top-level `focus_mode` bool that persists the current focus filter
+(hiding dormant sessions and any group left with nothing visible) across
+popups, and `[settings]` preferences including
 `number_dormant_sessions` for whether visible dormant sessions receive jump
 numbers. Legacy top-level `pinned` and `manual_order` lists are still read and
 migrate to groups. Users normally never edit it by hand; the picker writes it
@@ -268,11 +269,11 @@ and updating `scripts/release.sh`'s asset handling.
   window."
 - **Mock up visual/rendering changes before writing the spec.** When a design
   discussion touches how something renders (colors, layout, new glyphs/columns),
-  don't rely on a text description alone — render an ANSI mockup (a small script
-  with `printf`/`echo -e` escape codes, not the real binary) in a new tmux window
-  via `mux spawn` (same pattern as the live-preview step below), so Jeff can look
-  at it before design gets locked in. Skip this for changes with no visual
-  surface (model/logic-only work).
+  don't rely on a text description alone — render an ANSI mockup (never the
+  real binary) so Jeff can look at it before design gets locked in. See the
+  `mockup` skill for the standardized construction method, dimensions, color
+  constraints, window naming, and cleanup rules. Skip this for changes with no
+  visual surface (model/logic-only work).
 - Specs live in `specs/`, plans in `plans/`, the build ledger in
   `.superpowers/`; all three are git-ignored scratch, not part of the package.
 - **Review gate is the plan, not the spec.** When brainstorming a feature

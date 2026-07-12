@@ -49,7 +49,7 @@ New sessions arrive in INBOX. Over time, you sort, group, and reorder them until
 - **Expandable trees.** Each session can be expanded to peek at the list of windows inside it or jump straight to a specific window.
 - **Lightweight.** One tmux query per launch. No hooks or background processes keeping track of your sessions while you work.
 - **Fuzzy search built in.** Press `/` to filter sessions by name. If this is your preferred way of working, tweak the settings to always launch in search mode.
-- **Dim or hide the sessions you're not using.** Press `d` to mark a session dormant; it stays in place but renders in a dimmed state to indicate that it's on the back burner. Press `h` to hide dormant sessions entirely, and `h` again to show them. Dormant sessions are still fully usable, but help you understand your workspace at a glance.
+- **Dim sessions, then focus past them.** Press `d` to mark a session dormant; it stays in place but renders in a dimmed state to indicate that it's on the back burner. Press `f` to enter focus mode, hiding dormant sessions and any group left with nothing visible in it; press `f` again to show everything. Dormant sessions are still fully usable when shown, and focus mode helps you understand your workspace at a glance.
 - **Tune the colors.** Press `,` to open Settings and tune the color of the application border, palette used for group headers, and more. Uses your terminal's ANSI colors to ensure it harmonizes with your existing terminal themes.
 
 **Note:** rolomux depends on (and promotes) good tmux hygiene.
@@ -72,10 +72,11 @@ bind C new-session \; command-prompt -I "" "rename-session '%%'" \; command-prom
 | `←` | Collapse a session's window tree |
 | `z` | Expand or collapse window trees for all sessions |
 | `⇧J` / `⇧K` | Move the selected session up or down within its group, or into the neighboring group (also `⇧↓` / `⇧↑`) |
+| `R` | Rename the selected session or window |
 | `g` | Open group-management mode |
 | `,` | Open settings |
 | `d` | Toggle dormant (dim) on the selected session |
-| `h` | Hide or show dormant sessions |
+| `f` | Toggle focus mode (hide dormant sessions and empty groups) |
 | `/` | Enter search mode (type to filter, `↵` switch, `Esc` back) |
 | `q` / `Esc` | Quit |
 
@@ -113,27 +114,29 @@ Move within results with `↑`/`↓` (or `Ctrl-n`/`Ctrl-p`, `Ctrl-j`/`Ctrl-k`), 
 `Backspace` deletes the last character, `Ctrl-W` (or `Option/Alt` + `Backspace`) deletes the last word, and `Ctrl-U` clears the query.
 
 While searching, section headers and jump numbers (sessions 1-20) are hidden; the list is flat and collapsed.
-If dormant sessions are hidden, search results exclude them and the footer shows how many are currently hidden.
+If focus mode is on, search results exclude dormant sessions, and the footer shows how many are currently hidden.
 
-### Dormant sessions
+### Focus mode
 
 Press `d` to mark the selected session dormant; it renders dimmed in place as a "not in active rotation" cue.
 When dormant sessions are shown, they keep their group membership and position. By default they also keep jump numbers; in Settings, change **Number dormant sessions** to **No** if you want visible dormant sessions to be omitted from jump numbering.
-Press `h` to hide dormant sessions entirely; press `h` again to show them.
+Press `f` to enter focus mode, hiding dormant sessions entirely; press `f` again to show everything.
 Hidden dormant sessions are excluded from the normal picker and from search results, and both modes show a reminder such as `8 dormant sessions hidden` while the filter is active.
+Focus mode also hides any group left with nothing visible in it, whether it's genuinely empty or every member just went dormant, so a hard focus session doesn't leave empty shelves cluttering the screen. A group reappears the moment something in it becomes visible again.
 Press `d` again on a dormant session to undim it.
-The dormant set and the hide/show filter both persist across popups, so reopening rolomux keeps your last dormant visibility choice.
+The dormant set and the focus-mode choice both persist across popups, so reopening rolomux keeps your last focus preference.
 Think of it as one more optional tool in your kit to help you tend your sessions, if you find it helpful.
 
 ### Settings
 
-Press `,` to open Settings, a full-screen view of picker-wide preferences, grouped into two sections:
+Press `,` to open Settings, a full-screen view of picker-wide preferences, grouped into two sections. A description of the currently selected setting is always shown at the bottom.
 
 **Behavior**
 
 - **Default mode.** Whether the picker opens in Command mode or straight into Search.
 - **Number dormant sessions.** Whether visible dormant sessions are included in jump numbering (sessions 1-20).
 - **Remember expanded sessions.** Off by default (every popup starts fully collapsed). When on, expanding or collapsing a session's window tree (`l`/`h`/`z`) persists across popups, so the sessions you're actively jumping between stay expanded.
+- **Session metadata.** Whether the row's trailing timestamp shows time since last activity (**Recency**, default), time since the session was created (**Age**), or is omitted entirely (**Hidden**).
 
 **Appearance**
 
@@ -154,10 +157,14 @@ Press `,` to open Settings, a full-screen view of picker-wide preferences, group
 
 Groups, session order, dormant sessions, and settings persist to `~/.config/rolomux/config.toml`:
 
+rolomux also remembers each tracked session's tmux session id in a
+`session_ids` table, so a plain `tmux rename-session` (or `prefix ,`) keeps
+that session's group, dormant, and expanded state instead of losing it.
+
 ```toml
-config_version = 3
+config_version = 4
 dormant = ["zen-mod"]
-hide_dormant = true
+focus_mode = true
 
 [[groups]]
 name = "CONFIG"
@@ -176,6 +183,7 @@ inbox = true
 [settings]
 default_mode = "command"           # or "search"
 number_dormant_sessions = true      # false skips visible dormant sessions in jump numbering
+session_metric = "recency"         # or "age", "hidden"
 new_group_color_policy = "rotate"  # or "random", "static"
 attached_color = "cyan"
 border_color = "cyan"

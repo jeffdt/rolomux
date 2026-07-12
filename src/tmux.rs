@@ -6,15 +6,24 @@ pub const FMT: &str = "#{session_name}\x1f#{session_activity}\x1f#{session_creat
 
 /// Result of a single gather: the sessions plus the name of the session the
 /// popup was launched from (when it can be resolved from `$TMUX`).
+#[derive(Debug, Clone, Default)]
 pub struct Gathered {
     pub sessions: Vec<Session>,
     pub current: Option<String>,
+    /// `(session_name, tmux #{session_id})` for every live session, e.g.
+    /// `("work", "$3")`. Used by `Config::reconcile` to recover group,
+    /// dormant, and expanded state across a plain tmux rename (issue #38):
+    /// the id is stable across a rename within a running tmux server even
+    /// though the name isn't.
+    pub ids: Vec<(String, String)>,
 }
 
 pub trait Tmux {
     fn gather(&self) -> Gathered;
     fn switch_session(&self, name: &str) -> io::Result<()>;
     fn select_window(&self, name: &str, index: u32) -> io::Result<()>;
+    fn rename_session(&self, old: &str, new: &str) -> io::Result<()>;
+    fn rename_window(&self, session: &str, index: u32, new: &str) -> io::Result<()>;
 }
 
 pub struct RealTmux {
@@ -59,7 +68,7 @@ impl Tmux for RealTmux {
                 let lossy = String::from_utf8_lossy(&o.stdout);
                 let raw = normalize_separators(&lossy);
                 let raw = raw.as_ref();
-                let sessions = parse_windows(raw);
+                let (sessions, ids) = parse_windows(raw);
                 let current = current_session(raw, std::env::var("TMUX").ok().as_deref());
                 crate::debug::log(|| {
                     format!(
@@ -81,7 +90,7 @@ impl Tmux for RealTmux {
                         format!("gather: parsed zero sessions from non-empty stdout, raw preview: {preview:?}")
                     });
                 }
-                Gathered { sessions, current }
+                Gathered { sessions, current, ids }
             }
             Ok(o) => {
                 crate::debug::log(|| {
@@ -92,11 +101,11 @@ impl Tmux for RealTmux {
                         String::from_utf8_lossy(&o.stderr).trim(),
                     )
                 });
-                Gathered { sessions: Vec::new(), current: None }
+                Gathered { sessions: Vec::new(), current: None, ids: Vec::new() }
             }
             Err(e) => {
                 crate::debug::log(|| format!("gather: failed to spawn tmux: {e} (is tmux on PATH for this process?)"));
-                Gathered { sessions: Vec::new(), current: None }
+                Gathered { sessions: Vec::new(), current: None, ids: Vec::new() }
             }
         }
     }
@@ -112,6 +121,21 @@ impl Tmux for RealTmux {
         let target = format!("{name}:{index}");
         self.command()
             .args(["select-window", "-t", &target])
+            .status()
+            .map(|_| ())
+    }
+
+    fn rename_session(&self, old: &str, new: &str) -> io::Result<()> {
+        self.command()
+            .args(["rename-session", "-t", old, new])
+            .status()
+            .map(|_| ())
+    }
+
+    fn rename_window(&self, session: &str, index: u32, new: &str) -> io::Result<()> {
+        let target = format!("{session}:{index}");
+        self.command()
+            .args(["rename-window", "-t", &target, new])
             .status()
             .map(|_| ())
     }
@@ -173,8 +197,9 @@ pub fn normalize_separators(raw: &str) -> std::borrow::Cow<'_, str> {
     }
 }
 
-pub fn parse_windows(raw: &str) -> Vec<Session> {
+pub fn parse_windows(raw: &str) -> (Vec<Session>, Vec<(String, String)>) {
     let mut sessions: Vec<Session> = Vec::new();
+    let mut ids: Vec<(String, String)> = Vec::new();
     for line in raw.lines() {
         if line.is_empty() {
             continue;
@@ -192,6 +217,7 @@ pub fn parse_windows(raw: &str) -> Vec<Session> {
         if let Some(s) = sessions.iter_mut().find(|s| s.name == name) {
             s.windows.push(window);
         } else {
+            ids.push((name.clone(), f[7].to_string()));
             sessions.push(Session {
                 name,
                 activity: f[1].parse().unwrap_or(0),
@@ -201,14 +227,50 @@ pub fn parse_windows(raw: &str) -> Vec<Session> {
             });
         }
     }
-    sessions
+    (sessions, ids)
+}
+
+#[cfg(test)]
+#[derive(Default)]
+pub(crate) struct FakeTmux {
+    pub calls: std::cell::RefCell<Vec<String>>,
+    gathered: std::cell::RefCell<Gathered>,
+}
+
+#[cfg(test)]
+impl FakeTmux {
+    pub fn with_gather(gathered: Gathered) -> Self {
+        FakeTmux { calls: std::cell::RefCell::new(Vec::new()), gathered: std::cell::RefCell::new(gathered) }
+    }
+}
+
+#[cfg(test)]
+impl Tmux for FakeTmux {
+    fn gather(&self) -> Gathered {
+        self.gathered.borrow().clone()
+    }
+    fn switch_session(&self, name: &str) -> std::io::Result<()> {
+        self.calls.borrow_mut().push(format!("switch:{name}"));
+        Ok(())
+    }
+    fn select_window(&self, name: &str, index: u32) -> std::io::Result<()> {
+        self.calls.borrow_mut().push(format!("select:{name}:{index}"));
+        Ok(())
+    }
+    fn rename_session(&self, old: &str, new: &str) -> std::io::Result<()> {
+        self.calls.borrow_mut().push(format!("rename-session:{old}:{new}"));
+        Ok(())
+    }
+    fn rename_window(&self, session: &str, index: u32, new: &str) -> std::io::Result<()> {
+        self.calls.borrow_mut().push(format!("rename-window:{session}:{index}:{new}"));
+        Ok(())
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::model::Action;
-    use std::cell::RefCell;
 
     #[test]
     fn parses_two_sessions_grouping_windows_in_order() {
@@ -219,7 +281,7 @@ work\u{1f}100\u{1f}10\u{1f}1\u{1f}0\u{1f}editor\u{1f}1\u{1f}$3
 work\u{1f}100\u{1f}10\u{1f}1\u{1f}1\u{1f}my logs\u{1f}0\u{1f}$3
 scratch\u{1f}50\u{1f}5\u{1f}0\u{1f}0\u{1f}shell\u{1f}1\u{1f}$8
 ";
-        let sessions = parse_windows(raw);
+        let (sessions, _ids) = parse_windows(raw);
         assert_eq!(
             sessions,
             vec![
@@ -244,6 +306,21 @@ scratch\u{1f}50\u{1f}5\u{1f}0\u{1f}0\u{1f}shell\u{1f}1\u{1f}$8
         );
     }
 
+    #[test]
+    fn parse_windows_captures_one_session_id_pair_per_session() {
+        let raw = "\
+work\u{1f}100\u{1f}10\u{1f}1\u{1f}0\u{1f}editor\u{1f}1\u{1f}$3
+work\u{1f}100\u{1f}10\u{1f}1\u{1f}1\u{1f}my logs\u{1f}0\u{1f}$3
+scratch\u{1f}50\u{1f}5\u{1f}0\u{1f}0\u{1f}shell\u{1f}1\u{1f}$8
+";
+        let (sessions, ids) = parse_windows(raw);
+        assert_eq!(sessions.len(), 2, "two sessions, ids collapse per-session not per-window");
+        assert_eq!(
+            ids,
+            vec![("work".to_string(), "$3".to_string()), ("scratch".to_string(), "$8".to_string())]
+        );
+    }
+
     const SAMPLE: &str = "\
 work\u{1f}100\u{1f}10\u{1f}1\u{1f}0\u{1f}editor\u{1f}1\u{1f}$3
 scratch\u{1f}50\u{1f}5\u{1f}0\u{1f}0\u{1f}shell\u{1f}1\u{1f}$8
@@ -261,7 +338,7 @@ scratch\u{1f}50\u{1f}5\u{1f}0\u{1f}0\u{1f}shell\u{1f}1\u{1f}$8
         assert!(normalized.contains('\u{1f}'), "escape converted to real separator");
         assert!(!normalized.contains("\\037"), "no literal escape remains");
 
-        let sessions = parse_windows(&normalized);
+        let (sessions, _ids) = parse_windows(&normalized);
         assert_eq!(sessions.len(), 1, "the two window lines fold into one session");
         assert_eq!(sessions[0].name, "0");
         assert!(sessions[0].attached);
@@ -275,7 +352,8 @@ scratch\u{1f}50\u{1f}5\u{1f}0\u{1f}0\u{1f}shell\u{1f}1\u{1f}$8
         // tmux versions that emit the raw 0x1F byte are borrowed, not copied.
         let raw = "work\u{1f}100\u{1f}10\u{1f}1\u{1f}0\u{1f}editor\u{1f}1\u{1f}$3";
         assert!(matches!(normalize_separators(raw), std::borrow::Cow::Borrowed(_)));
-        assert_eq!(parse_windows(&normalize_separators(raw)).len(), 1);
+        let (sessions, _ids) = parse_windows(&normalize_separators(raw));
+        assert_eq!(sessions.len(), 1);
     }
 
     #[test]
@@ -312,24 +390,6 @@ scratch\u{1f}50\u{1f}5\u{1f}0\u{1f}0\u{1f}shell\u{1f}1\u{1f}$8
         assert_eq!(current_session(SAMPLE, Some("sock,123")), None);
     }
 
-    #[derive(Default)]
-    struct FakeTmux {
-        calls: RefCell<Vec<String>>,
-    }
-    impl Tmux for FakeTmux {
-        fn gather(&self) -> Gathered {
-            Gathered { sessions: Vec::new(), current: None }
-        }
-        fn switch_session(&self, name: &str) -> std::io::Result<()> {
-            self.calls.borrow_mut().push(format!("switch:{name}"));
-            Ok(())
-        }
-        fn select_window(&self, name: &str, index: u32) -> std::io::Result<()> {
-            self.calls.borrow_mut().push(format!("select:{name}:{index}"));
-            Ok(())
-        }
-    }
-
     #[test]
     fn apply_switch_session_calls_switch_only() {
         let t = FakeTmux::default();
@@ -342,5 +402,31 @@ scratch\u{1f}50\u{1f}5\u{1f}0\u{1f}0\u{1f}shell\u{1f}1\u{1f}$8
         let t = FakeTmux::default();
         apply_action(&t, &Action::SwitchWindow("work".into(), 2)).unwrap();
         assert_eq!(*t.calls.borrow(), vec!["switch:work", "select:work:2"]);
+    }
+
+    #[test]
+    fn fake_tmux_records_rename_session_call() {
+        let t = FakeTmux::default();
+        t.rename_session("old", "new").unwrap();
+        assert_eq!(*t.calls.borrow(), vec!["rename-session:old:new"]);
+    }
+
+    #[test]
+    fn fake_tmux_records_rename_window_call() {
+        let t = FakeTmux::default();
+        t.rename_window("work", 2, "logs").unwrap();
+        assert_eq!(*t.calls.borrow(), vec!["rename-window:work:2:logs"]);
+    }
+
+    #[test]
+    fn fake_tmux_with_gather_returns_configured_snapshot() {
+        let t = FakeTmux::with_gather(Gathered {
+            sessions: vec![],
+            current: Some("work".to_string()),
+            ids: vec![("work".to_string(), "$3".to_string())],
+        });
+        let g = t.gather();
+        assert_eq!(g.current.as_deref(), Some("work"));
+        assert_eq!(g.ids, vec![("work".to_string(), "$3".to_string())]);
     }
 }
