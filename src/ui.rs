@@ -201,10 +201,10 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
                         next_group += 1;
                     }
                     let color = group_color(&state.groups[section], section, &state.active_palette);
-                    push_section_header(&mut items, &state.groups[section], list_area.width, color);
                     if show_create_group_hint && state.groups[section].inbox {
                         push_create_group_hint(&mut items);
                     }
+                    push_section_header(&mut items, &state.groups[section], list_area.width, color);
                     current_gutter_color = color;
                     next_group = section + 1;
                     last_section = Some(section);
@@ -733,7 +733,7 @@ fn header_item(g: &Group, width: u16, color: Color) -> ListItem<'static> {
     let rule_len = (width as usize).saturating_sub(group_label_width(g, true) + 2);
     let mut spans = group_label_spans(g, true, color);
     spans.push(Span::raw(" "));
-    spans.push(Span::styled("─".repeat(rule_len), Style::default().fg(DIM)));
+    spans.push(Span::styled("─".repeat(rule_len), Style::default().fg(color)));
     ListItem::new(Line::from(spans))
 }
 

@@ -6,12 +6,11 @@
 ![Platform](https://img.shields.io/badge/platform-macOS%20(Apple%20Silicon)-lightgrey)
 ![Vibe coded](https://img.shields.io/badge/vibe%20coded-100%25-ff69b4)
 
-A slick tmux session picker that sorts your sessions into color-coded groups to bring some zen to tmux.
+A slick tmux session picker that sorts your sessions into color-coded groups to bring you terminal zen.
 
-Set up the groups that match how you work: a CONFIG group for the tools you're tweaking, a DEV group for what you're building, throwaway groups for whatever projects you're working on right now.
-Anything you haven't sorted yet just sinks to the bottom, out of the way but never lost.
+A tidy workshop is easier to work in. Give every session a home, keep active projects front and center, and leave the rest waiting quietly.
 
-It's a productivity tool first, so it's designed to feel intuitive the moment you launch it, but it bends to fit your workflow.
+It's useful from the moment you launch it but easily shapes to your workflow.
 
 ![rolomux session picker](docs/images/screenshot.png)
 
@@ -29,21 +28,28 @@ bind s display-popup -E -B -w 84 -h 60% "exec rolomux"
 
 Reload tmux and press `prefix + s`.
 
-You can use other dimensions, but these work well for me. `-h` also accepts a fixed line count (e.g. `-h 30`) instead of a percentage.
+You can use other popup dimensions, but these work well to start. `-h` also accepts a fixed line count (e.g. `-h 30`) instead of a percentage.
+
+## Quick start
+1. Press `prefix + s` to open rolomux. All of your sessions start out in a group called `INBOX`.
+2. Move a few sessions around with `⇧J` and `⇧K`.
+3. Press `g` to open Group Management.
+4. Press `n` to create a new group. Call it `PROJECTS`, then press `Esc` to return to the picker.
+5. Move a session into `PROJECTS` with `⇧J` and `⇧K`.
+6. Try creating a few more groups, reordering the groups themselves, and changing their colors.
+
+New sessions arrive in INBOX. Over time, you sort, group, and reorder them until your workspace feels the way you want it to.
 
 ## How it works
 
-- **Create your groups.** Press `g` to jump into group management mode, where you can create, rename and color code your groups. If you have not created any groups yet, the picker prompts you with the `g` then `n` flow.
+- **Create your groups.** Press `g` to jump into group management mode, where you can create, rename and color code your groups.
 - **Sort your sessions.** Move your sessions between groups with `⇧J`/`⇧K`. Once sorted, they stay there, in that order.
-  New sessions drop in at the bottom of a designated catchall group, waiting to be sorted (think of it like a triage queue).
-  Groups and their ordering persist across tmux restarts.
-  Groups will stick around (even when empty) until you delete them.
-- **Expandable tree.** Each session can be expanded to peek at the list of windows inside it.
-- **Color-coded gutter.** Every session (and its windows, once expanded) shows a thin colored bar matching its group's header color, so it's visually obvious which group a row belongs to even when you've scrolled past the header.
-- **On demand, no daemon.** tmux launches it via `tmux popup -E`; it makes one tmux query, renders, and exits.
-  Its own overhead is a couple of milliseconds, so it opens about as fast as tmux can answer.
-- **Fuzzy search built in.** Press `/` to filter sessions by name; matching is in-process with no extra runtime dependency. If this is your preferred way of working, tweak the settings to always launch in search mode.
-- **Dim sessions, then focus past them.** Press `d` to mark a session dormant; it stays in place but renders in a dimmed state to indicate that it's on the back burner. Press `f` to enter focus mode, hiding dormant sessions and any group left with nothing visible in it; press `f` again to show everything. The focus choice persists across popups. Dormant sessions are still fully usable when shown, and Settings lets you choose whether they keep or skip jump numbers.
+  New sessions collect in an inbox until you're ready to sort them.
+  Groups and their ordering persist across tmux restarts, and they stick around until you delete them.
+- **Expandable trees.** Each session can be expanded to peek at the list of windows inside it or jump straight to a specific window.
+- **Lightweight.** One tmux query per launch. No hooks or background processes keeping track of your sessions while you work.
+- **Fuzzy search built in.** Press `/` to filter sessions by name. If this is your preferred way of working, tweak the settings to always launch in search mode.
+- **Dim sessions, then focus past them.** Press `d` to mark a session dormant; it stays in place but renders in a dimmed state to indicate that it's on the back burner. Press `f` to enter focus mode, hiding dormant sessions and any group left with nothing visible in it; press `f` again to show everything. Dormant sessions are still fully usable when shown, and focus mode helps you understand your workspace at a glance.
 - **Tune the colors.** Press `,` to open Settings and tune the color of the application border, palette used for group headers, and more. Uses your terminal's ANSI colors to ensure it harmonizes with your existing terminal themes.
 
 **Note:** rolomux depends on (and promotes) good tmux hygiene.
@@ -98,6 +104,8 @@ Once inside:
 As you create groups, they'll be assigned a color from your terminal theme (cyan, green, yellow, magenta, blue, red); new groups rotate through them, `c` flips a group's color, and empty groups show grayed out until you fill them.
 
 ### Search
+
+![rolomux fuzzy search](docs/images/search.png)
 
 Press `/` to enter search mode.
 Type any part of a session name; results are ranked best-match-first, with the top result auto-selected as you type.
