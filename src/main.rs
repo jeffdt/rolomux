@@ -211,6 +211,7 @@ fn commit_window_move(
     state: &mut PickerState,
 ) {
     let expanded_snapshot = state.expanded_list();
+    let attached = tmux.attached_window();
 
     if state.dirty {
         state.apply_to_config(config);
@@ -226,6 +227,24 @@ fn commit_window_move(
                 let _ = tmux.new_placeholder_window(src_session);
             }
             let _ = tmux.move_window(src_session, *window_index, dst_session, *dst_anchor_index, *before);
+        }
+    }
+
+    // Neither swap-window nor move-window reliably leave the invoking
+    // client's actual view alone -- swap-window's -s operand becomes the
+    // session's current window regardless of -d, and this class of side
+    // effect isn't worth chasing flag-by-flag (verified empirically: a
+    // completely uninvolved third window can lose "current" status just
+    // from two *other* windows being swapped). So instead of preventing
+    // it, unconditionally restore whatever window the client was actually
+    // on before this mutation, located by its stable id. This covers both
+    // "an uninvolved window lost focus" (relocates to the same spot) and
+    // "the client's own window was the one that moved" (relocates to its
+    // new session, so the client follows it there).
+    if let Some((_, window_id)) = &attached {
+        if let Some((session, index)) = tmux.locate_window(window_id) {
+            let _ = tmux.select_window(&session, index);
+            let _ = tmux.switch_session(&session);
         }
     }
 
@@ -530,6 +549,110 @@ mod tests {
 
         assert_eq!(*tmux.calls.borrow(), vec!["swap-window:work:1:0".to_string()]);
         assert_eq!(state.selected_action(), Some(crate::model::Action::SwitchWindow("work".into(), 0)));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn commit_window_move_restores_the_clients_actual_attached_window_after_an_unrelated_swap() {
+        let dir = std::env::temp_dir().join(format!("rolomux-window-move-restore-{}", std::process::id()));
+        let path = dir.join("config.toml");
+        let mut config = Config::default();
+
+        let windows_before = vec![
+            Window { index: 0, name: "a".into(), active: false },
+            Window { index: 1, name: "b".into(), active: false },
+            Window { index: 2, name: "c".into(), active: true }, // the client's real window, uninvolved
+        ];
+        let sessions = vec![Session { name: "work".into(), activity: 1, created: 1, attached: true, windows: windows_before }];
+        let mut state = PickerState::build(sessions, &config);
+        state.expand();
+        state.move_cursor(1); // lands on "a" (wi = 0)
+
+        // swap-window's -s operand ("a") steals "current" regardless of -d
+        // -- verified empirically -- so "c" shows as no longer active in
+        // this post-move gather even though it was never touched.
+        let windows_after = vec![
+            Window { index: 0, name: "b".into(), active: false },
+            Window { index: 1, name: "a".into(), active: false },
+            Window { index: 2, name: "c".into(), active: false },
+        ];
+        let tmux = FakeTmux::with_gather(Gathered {
+            sessions: vec![Session { name: "work".into(), activity: 1, created: 1, attached: true, windows: windows_after }],
+            current: None,
+            ids: vec![("work".to_string(), "$1".to_string())],
+        })
+        .with_attached_window("work", "@9")
+        .with_located_window("@9", "work", 2); // "c" is still at index 2, untouched by the swap
+
+        handle_move(1, &mut state, &tmux, &mut config, &path); // move "a" down, swaps with "b"
+
+        assert_eq!(
+            *tmux.calls.borrow(),
+            vec![
+                "swap-window:work:0:1".to_string(),
+                "select:work:2".to_string(),
+                "switch:work".to_string(),
+            ]
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn commit_window_move_follows_the_client_when_it_was_on_the_window_that_moved() {
+        let dir = std::env::temp_dir().join(format!("rolomux-window-move-follow-{}", std::process::id()));
+        let path = dir.join("config.toml");
+        let mut config = Config {
+            groups: vec![Group { name: "ONLY".into(), members: vec!["alpha".into(), "beta".into()], inbox: true, ..Default::default() }],
+            ..Default::default()
+        };
+
+        let sessions = vec![
+            Session {
+                name: "alpha".into(), activity: 1, created: 1, attached: true,
+                windows: vec![
+                    Window { index: 0, name: "a1".into(), active: true },
+                    Window { index: 1, name: "a2".into(), active: false },
+                ],
+            },
+            Session {
+                name: "beta".into(), activity: 2, created: 2, attached: false,
+                windows: vec![Window { index: 0, name: "b1".into(), active: true }],
+            },
+        ];
+        let mut state = PickerState::build(sessions, &config);
+        state.focus_session("alpha");
+        state.expand();
+        state.move_cursor(2); // lands on "a2" (wi = 1, last window)
+
+        let tmux = FakeTmux::with_gather(Gathered {
+            sessions: vec![
+                Session { name: "alpha".into(), activity: 1, created: 1, attached: false, windows: vec![Window { index: 0, name: "a1".into(), active: true }] },
+                Session {
+                    name: "beta".into(), activity: 2, created: 2, attached: true,
+                    windows: vec![
+                        Window { index: 0, name: "a2".into(), active: true },
+                        Window { index: 1, name: "b1".into(), active: false },
+                    ],
+                },
+            ],
+            current: None,
+            ids: vec![("alpha".to_string(), "$1".to_string()), ("beta".to_string(), "$2".to_string())],
+        })
+        .with_attached_window("alpha", "@42") // the client was on "a2" before the move
+        .with_located_window("@42", "beta", 0); // "a2" now lives in beta at index 0
+
+        handle_move(1, &mut state, &tmux, &mut config, &path); // move "a2" down, crossing into beta
+
+        assert_eq!(
+            *tmux.calls.borrow(),
+            vec![
+                "move-window:alpha:1:beta:0:before".to_string(),
+                "select:beta:0".to_string(),
+                "switch:beta".to_string(),
+            ]
+        );
 
         let _ = std::fs::remove_dir_all(&dir);
     }
