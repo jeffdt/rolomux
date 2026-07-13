@@ -157,8 +157,15 @@ impl Tmux for RealTmux {
         let src = format!("{src_session}:{src_index}");
         let anchor = format!("{dst_session}:{dst_anchor_index}");
         let flag = if before { "-b" } else { "-a" };
+        // `-d`: without it, the incoming window steals "current" status in
+        // the destination session -- if an attached client happens to be
+        // looking at that session, its view visibly jumps to the newly
+        // arrived window even though it wasn't the one being moved.
+        // Verified empirically against a live tmux 3.7b (swap-window
+        // already carried `-d` for the analogous reason; move-window had
+        // been missed).
         self.command()
-            .args(["move-window", flag, "-s", &src, "-t", &anchor])
+            .args(["move-window", "-d", flag, "-s", &src, "-t", &anchor])
             .status()
             .map(|_| ())
     }
