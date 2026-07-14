@@ -762,6 +762,9 @@ fn footer_rule(width: u16, state: &PickerState) -> String {
 }
 
 fn command_footer_hint(state: &PickerState) -> String {
+    if let Some(warning) = state.pending_window_move_warning() {
+        return warning.to_string();
+    }
     if state.focus_mode() {
         FOOTER_HINT.replace("f focus", "f show")
     } else {
@@ -1061,7 +1064,7 @@ mod tests {
         KeyEvent::new(code, KeyModifiers::CONTROL)
     }
 
-    use crate::model::{Group, PickerState, Session, Window};
+    use crate::model::{Group, PickerState, Session, Window, WindowMove};
     use crate::store::Config;
     use ratatui::backend::TestBackend;
     use ratatui::Terminal;
@@ -1207,6 +1210,23 @@ mod tests {
         let text = render_to_string(&state);
         assert!(text.contains("No groups yet"), "first-run group hint is visible");
         assert!(text.contains("g then n"), "hint tells the user how to create a group");
+    }
+
+    #[test]
+    fn draw_shows_pending_window_move_warning_in_footer() {
+        let sessions = vec![Session {
+            name: "work".into(), activity: 1, created: 1, attached: false,
+            windows: vec![Window { index: 0, name: "only".into(), active: true }],
+        }];
+        let cfg = Config::default();
+        let mut st = PickerState::build(sessions, &cfg);
+        st.arm_window_move(
+            WindowMove::SwapWithin { session: "work".into(), a_index: 0, b_index: 1 },
+            -1,
+        );
+
+        let text = render_to_string(&st);
+        assert!(text.contains("closes session"), "armed warning should replace the normal footer hint");
     }
 
     #[test]

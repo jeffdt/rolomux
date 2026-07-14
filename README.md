@@ -71,7 +71,7 @@ bind C new-session \; command-prompt -I "" "rename-session '%%'" \; command-prom
 | `l` / `→` | Expand a session's window tree |
 | `←` | Collapse a session's window tree |
 | `z` | Expand or collapse window trees for all sessions |
-| `⇧J` / `⇧K` | Move the selected session up or down within its group, or into the neighboring group (also `⇧↓` / `⇧↑`) |
+| `⇧J` / `⇧K` | Move the selected session or window up/down (also `⇧↓` / `⇧↑`): a session row reorders within its group or crosses into the neighboring group; a window row reorders within its session or crosses into the neighboring session. Both wrap around at the top/bottom of the list. |
 | `R` | Rename the selected session or window |
 | `g` | Open group-management mode |
 | `,` | Open settings |
@@ -84,7 +84,7 @@ bind C new-session \; command-prompt -I "" "rename-session '%%'" \; command-prom
 Your terminal must send Option as Meta: in Ghostty set `macos-option-as-alt = true` (iTerm2: "Left Option key → Esc+"; Terminal.app: "Use Option as Meta key").
 On Linux it is automatic.
 
-When a session is at the top of its group, `⇧K` jumps it up to the group above it; when it's at the bottom, `⇧J` drops it into the group below it.
+When a session is at the top of its group, `⇧K` jumps it up to the group above it; when it's at the bottom, `⇧J` drops it into the group below it. The same idea applies one level down: expand a session and put the cursor on a window, and `⇧J`/`⇧K` reorders that window within its session, crossing into the neighboring session's last/first slot at the edge. Moving a session's very last window would destroy that session, so rolomux only ever does that automatically when it's provably safe (no attached client, or one that tmux will gracefully switch elsewhere via `detach-on-destroy off`); otherwise it asks you to press the same key again to confirm, or -- if confirming would eject someone's attached client -- quietly leaves a placeholder window behind instead of destroying the session at all.
 
 ### Groups
 
