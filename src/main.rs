@@ -301,6 +301,7 @@ fn event_loop(
                         }
                     } else {
                         let input = map_key(key);
+                        let had_pending_window_move = state.pending_window_move_warning().is_some();
                         if !matches!(input, Input::MoveUp | Input::MoveDown) {
                             state.clear_pending_window_move();
                         }
@@ -324,7 +325,18 @@ fn event_loop(
                                     return Ok(Some(action));
                                 }
                             }
-                            Input::Quit => return Ok(None),
+                            // A pending window-move confirm absorbs Quit as
+                            // a cancel-back-to-command-mode instead of
+                            // closing the picker -- matches the existing
+                            // Esc/q "back out one level" convention already
+                            // used by Search/Groups/Settings mode, rather
+                            // than surprising the user by quitting the
+                            // whole picker out from under them.
+                            Input::Quit => {
+                                if !had_pending_window_move {
+                                    return Ok(None);
+                                }
+                            }
                             Input::None => {}
                         }
                     }
