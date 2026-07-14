@@ -13,6 +13,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 const ACCENT: Color = Color::Cyan;
 const DIM: Color = Color::DarkGray;
 const DOT: Color = Color::Green;
+const WARNING: Color = Color::Red;
 const SEL_BG: Color = Color::DarkGray;
 /// Default column where a session's metadata begins, used when every visible
 /// name is short. It is also the floor for the shared metadata column.
@@ -269,10 +270,17 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
     list_state.select(selected_line);
     frame.render_stateful_widget(list, list_area, &mut list_state);
 
-    // Render the divider and hint row inside the footer area.
+    // Render the divider and hint row inside the footer area. A pending
+    // window-move confirm is destructive if missed, so it renders in
+    // WARNING (red) rather than the normal dim hint color.
+    let hint_style = if state.pending_window_move_warning().is_some() {
+        Style::default().fg(WARNING).add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(DIM)
+    };
     let footer = Paragraph::new(vec![
         Line::from(Span::styled(footer_rule(footer_area.width, state), Style::default().fg(DIM))),
-        Line::from(Span::styled(command_footer_hint(state), Style::default().fg(DIM))),
+        Line::from(Span::styled(command_footer_hint(state), hint_style)),
     ]);
     frame.render_widget(footer, footer_area);
 }
@@ -1227,6 +1235,34 @@ mod tests {
 
         let text = render_to_string(&st);
         assert!(text.contains("closes session"), "armed warning should replace the normal footer hint");
+    }
+
+    #[test]
+    fn draw_shows_pending_window_move_warning_in_red_not_dim() {
+        let sessions = vec![Session {
+            name: "work".into(), activity: 1, created: 1, attached: false,
+            windows: vec![Window { index: 0, name: "only".into(), active: true }],
+        }];
+        let cfg = Config::default();
+        let mut st = PickerState::build(sessions, &cfg);
+        st.arm_window_move(
+            WindowMove::SwapWithin { session: "work".into(), a_index: 0, b_index: 1 },
+            -1,
+        );
+
+        let backend = TestBackend::new(80, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| draw(f, &st)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+
+        let mut warning_red = false;
+        for y in 0..buf.area.height {
+            let line: String = (0..buf.area.width).map(|x| buf[(x, y)].symbol()).collect();
+            if let Some(x) = line.find("closes session") {
+                warning_red = buf[(x as u16, y)].style().fg == Some(WARNING);
+            }
+        }
+        assert!(warning_red, "armed warning should render in WARNING (red), not the dim footer color");
     }
 
     #[test]
