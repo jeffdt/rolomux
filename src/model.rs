@@ -808,9 +808,9 @@ impl PickerState {
     pub fn pending_window_move_warning(&self) -> Option<&'static str> {
         self.pending_window_move.as_ref().map(|p| {
             if p.delta < 0 {
-                "⇧K again to move last window — closes session"
+                "⇧K again to move last window — closes session · Esc cancels"
             } else {
-                "⇧J again to move last window — closes session"
+                "⇧J again to move last window — closes session · Esc cancels"
             }
         })
     }
