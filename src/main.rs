@@ -61,7 +61,7 @@ fn main() -> io::Result<()> {
 
     let path = store::config_path();
     let mut config = store::Config::load_from(&path);
-    if config.reconcile(&gathered.ids) {
+    if config.reconcile(&gathered.session_ids()) {
         let _ = config.save_to(&path);
     }
 
@@ -139,7 +139,7 @@ fn commit_rename(
     }
 
     let gathered = tmux.gather();
-    if config.reconcile(&gathered.ids) {
+    if config.reconcile(&gathered.session_ids()) {
         let _ = config.save_to(path);
     }
 
@@ -249,7 +249,7 @@ fn commit_window_move(
     }
 
     let gathered = tmux.gather();
-    if config.reconcile(&gathered.ids) {
+    if config.reconcile(&gathered.session_ids()) {
         let _ = config.save_to(path);
     }
 
@@ -406,13 +406,17 @@ mod tests {
     use std::collections::HashMap;
 
     fn sess(name: &str) -> Session {
-        Session {
+        Session { id: String::new(),
             name: name.into(),
             activity: 1,
             created: 1,
             attached: false,
             windows: vec![Window { index: 0, name: "w".into(), active: true }],
         }
+    }
+
+    fn sess_id(name: &str, id: &str) -> Session {
+        Session { id: id.into(), ..sess(name) }
     }
 
     #[test]
@@ -434,9 +438,8 @@ mod tests {
         let pending = state.take_rename_commit().expect("changed name commits");
 
         let tmux = FakeTmux::with_gather(Gathered {
-            sessions: vec![sess("new-name")],
+            sessions: vec![sess_id("new-name", "$3")],
             current: None,
-            ids: vec![("new-name".to_string(), "$3".to_string())],
         });
 
         commit_rename(pending, &tmux, &mut config, &path, &mut state);
@@ -473,9 +476,8 @@ mod tests {
         let pending = state.take_rename_commit().expect("changed name commits");
 
         let tmux = FakeTmux::with_gather(Gathered {
-            sessions: vec![sess("new-name"), sess("kept")],
+            sessions: vec![sess_id("new-name", "$3"), sess_id("kept", "$9")],
             current: None,
-            ids: vec![("new-name".to_string(), "$3".to_string()), ("kept".to_string(), "$9".to_string())],
         });
 
         commit_rename(pending, &tmux, &mut config, &path, &mut state);
@@ -499,7 +501,7 @@ mod tests {
             Window { index: 0, name: "editor".into(), active: true },
             Window { index: 1, name: "old-window".into(), active: false },
         ];
-        let sessions = vec![Session { name: "host".into(), activity: 1, created: 1, attached: false, windows: windows_before }];
+        let sessions = vec![Session { id: String::new(), name: "host".into(), activity: 1, created: 1, attached: false, windows: windows_before }];
         let mut state = PickerState::build(sessions, &config);
         state.expand();
         state.move_cursor(2); // rows are [session, window 0 "editor", window 1 "old-window"]
@@ -513,9 +515,8 @@ mod tests {
             Window { index: 1, name: "new-window".into(), active: false },
         ];
         let tmux = FakeTmux::with_gather(Gathered {
-            sessions: vec![Session { name: "host".into(), activity: 1, created: 1, attached: false, windows: windows_after }],
+            sessions: vec![Session { id: String::new(), name: "host".into(), activity: 1, created: 1, attached: false, windows: windows_after }],
             current: None,
-            ids: vec![("host".to_string(), "$3".to_string())],
         });
 
         commit_rename(pending, &tmux, &mut config, &path, &mut state);
@@ -540,7 +541,7 @@ mod tests {
             Window { index: 0, name: "a".into(), active: true },
             Window { index: 1, name: "b".into(), active: false },
         ];
-        let sessions = vec![Session { name: "work".into(), activity: 1, created: 1, attached: false, windows: windows_before }];
+        let sessions = vec![Session { id: String::new(), name: "work".into(), activity: 1, created: 1, attached: false, windows: windows_before }];
         let mut state = PickerState::build(sessions, &config);
         state.expand();
         state.move_cursor(2); // rows: [session, window 0 "a", window 1 "b"]; lands on "b"
@@ -552,9 +553,8 @@ mod tests {
             Window { index: 1, name: "a".into(), active: true },
         ];
         let tmux = FakeTmux::with_gather(Gathered {
-            sessions: vec![Session { name: "work".into(), activity: 1, created: 1, attached: false, windows: windows_after }],
+            sessions: vec![Session { id: String::new(), name: "work".into(), activity: 1, created: 1, attached: false, windows: windows_after }],
             current: None,
-            ids: vec![("work".to_string(), "$1".to_string())],
         });
 
         handle_move(-1, &mut state, &tmux, &mut config, &path);
@@ -576,7 +576,7 @@ mod tests {
             Window { index: 1, name: "b".into(), active: false },
             Window { index: 2, name: "c".into(), active: true }, // the client's real window, uninvolved
         ];
-        let sessions = vec![Session { name: "work".into(), activity: 1, created: 1, attached: true, windows: windows_before }];
+        let sessions = vec![Session { id: String::new(), name: "work".into(), activity: 1, created: 1, attached: true, windows: windows_before }];
         let mut state = PickerState::build(sessions, &config);
         state.expand();
         state.move_cursor(1); // lands on "a" (wi = 0)
@@ -590,9 +590,8 @@ mod tests {
             Window { index: 2, name: "c".into(), active: false },
         ];
         let tmux = FakeTmux::with_gather(Gathered {
-            sessions: vec![Session { name: "work".into(), activity: 1, created: 1, attached: true, windows: windows_after }],
+            sessions: vec![Session { id: String::new(), name: "work".into(), activity: 1, created: 1, attached: true, windows: windows_after }],
             current: None,
-            ids: vec![("work".to_string(), "$1".to_string())],
         })
         .with_attached_window("work", "@9")
         .with_located_window("@9", "work", 2); // "c" is still at index 2, untouched by the swap
@@ -621,14 +620,14 @@ mod tests {
         };
 
         let sessions = vec![
-            Session {
+            Session { id: String::new(),
                 name: "alpha".into(), activity: 1, created: 1, attached: true,
                 windows: vec![
                     Window { index: 0, name: "a1".into(), active: true },
                     Window { index: 1, name: "a2".into(), active: false },
                 ],
             },
-            Session {
+            Session { id: String::new(),
                 name: "beta".into(), activity: 2, created: 2, attached: false,
                 windows: vec![Window { index: 0, name: "b1".into(), active: true }],
             },
@@ -640,8 +639,8 @@ mod tests {
 
         let tmux = FakeTmux::with_gather(Gathered {
             sessions: vec![
-                Session { name: "alpha".into(), activity: 1, created: 1, attached: false, windows: vec![Window { index: 0, name: "a1".into(), active: true }] },
-                Session {
+                Session { id: String::new(), name: "alpha".into(), activity: 1, created: 1, attached: false, windows: vec![Window { index: 0, name: "a1".into(), active: true }] },
+                Session { id: String::new(),
                     name: "beta".into(), activity: 2, created: 2, attached: true,
                     windows: vec![
                         Window { index: 0, name: "a2".into(), active: true },
@@ -650,7 +649,6 @@ mod tests {
                 },
             ],
             current: None,
-            ids: vec![("alpha".to_string(), "$1".to_string()), ("beta".to_string(), "$2".to_string())],
         })
         .with_attached_window("alpha", "@42") // the client was on "a2" before the move
         .with_located_window("@42", "beta", 0); // "a2" now lives in beta at index 0
@@ -679,14 +677,14 @@ mod tests {
         };
 
         let sessions = vec![
-            Session {
+            Session { id: String::new(),
                 name: "alpha".into(), activity: 1, created: 1, attached: false,
                 windows: vec![
                     Window { index: 0, name: "a1".into(), active: true },
                     Window { index: 1, name: "a2".into(), active: false },
                 ],
             },
-            Session {
+            Session { id: String::new(),
                 name: "beta".into(), activity: 2, created: 2, attached: false,
                 windows: vec![Window { index: 0, name: "b1".into(), active: true }],
             },
@@ -700,8 +698,8 @@ mod tests {
         // index (0) and shifts the anchor to 1 -- verified empirically.
         let tmux = FakeTmux::with_gather(Gathered {
             sessions: vec![
-                Session { name: "alpha".into(), activity: 1, created: 1, attached: false, windows: vec![Window { index: 0, name: "a1".into(), active: true }] },
-                Session {
+                Session { id: String::new(), name: "alpha".into(), activity: 1, created: 1, attached: false, windows: vec![Window { index: 0, name: "a1".into(), active: true }] },
+                Session { id: String::new(),
                     name: "beta".into(), activity: 2, created: 2, attached: false,
                     windows: vec![
                         Window { index: 0, name: "a2".into(), active: false },
@@ -710,7 +708,6 @@ mod tests {
                 },
             ],
             current: None,
-            ids: vec![("alpha".to_string(), "$1".to_string()), ("beta".to_string(), "$2".to_string())],
         });
 
         handle_move(1, &mut state, &tmux, &mut config, &path);
@@ -732,8 +729,8 @@ mod tests {
         };
 
         let sessions = vec![
-            Session { name: "alpha".into(), activity: 1, created: 1, attached: false, windows: vec![Window { index: 0, name: "a1".into(), active: true }] },
-            Session { name: "beta".into(), activity: 2, created: 2, attached: false, windows: vec![Window { index: 0, name: "b1".into(), active: true }] },
+            Session { id: String::new(), name: "alpha".into(), activity: 1, created: 1, attached: false, windows: vec![Window { index: 0, name: "a1".into(), active: true }] },
+            Session { id: String::new(), name: "beta".into(), activity: 2, created: 2, attached: false, windows: vec![Window { index: 0, name: "b1".into(), active: true }] },
         ];
         let mut state = PickerState::build(sessions, &config);
         state.focus_session("alpha");
@@ -741,7 +738,7 @@ mod tests {
         state.move_cursor(1); // the only window in alpha
 
         let tmux = FakeTmux::with_gather(Gathered {
-            sessions: vec![Session {
+            sessions: vec![Session { id: String::new(),
                 name: "beta".into(), activity: 2, created: 2, attached: false,
                 windows: vec![
                     Window { index: 0, name: "b1".into(), active: true },
@@ -749,7 +746,6 @@ mod tests {
                 ],
             }],
             current: None,
-            ids: vec![("beta".to_string(), "$2".to_string())],
         });
 
         handle_move(-1, &mut state, &tmux, &mut config, &path);
@@ -773,8 +769,8 @@ mod tests {
         };
 
         let sessions = vec![
-            Session { name: "alpha".into(), activity: 1, created: 1, attached: true, windows: vec![Window { index: 0, name: "a1".into(), active: true }] },
-            Session { name: "beta".into(), activity: 2, created: 2, attached: false, windows: vec![Window { index: 0, name: "b1".into(), active: true }] },
+            Session { id: String::new(), name: "alpha".into(), activity: 1, created: 1, attached: true, windows: vec![Window { index: 0, name: "a1".into(), active: true }] },
+            Session { id: String::new(), name: "beta".into(), activity: 2, created: 2, attached: false, windows: vec![Window { index: 0, name: "b1".into(), active: true }] },
         ];
         let mut state = PickerState::build(sessions, &config);
         state.focus_session("alpha");
@@ -783,8 +779,8 @@ mod tests {
 
         let tmux = FakeTmux::with_gather(Gathered {
             sessions: vec![
-                Session { name: "alpha".into(), activity: 1, created: 1, attached: true, windows: vec![Window { index: 0, name: "(empty)".into(), active: true }] },
-                Session {
+                Session { id: String::new(), name: "alpha".into(), activity: 1, created: 1, attached: true, windows: vec![Window { index: 0, name: "(empty)".into(), active: true }] },
+                Session { id: String::new(),
                     name: "beta".into(), activity: 2, created: 2, attached: false,
                     windows: vec![
                         Window { index: 0, name: "b1".into(), active: true },
@@ -793,7 +789,6 @@ mod tests {
                 },
             ],
             current: None,
-            ids: vec![("alpha".to_string(), "$1".to_string()), ("beta".to_string(), "$2".to_string())],
         });
         // FakeTmux's detach_on_destroy_off defaults to false ("on" / risky).
 

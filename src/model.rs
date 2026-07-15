@@ -175,6 +175,12 @@ pub struct Session {
     pub created: i64,
     pub attached: bool,
     pub windows: Vec<Window>,
+    /// The tmux `#{session_id}` (e.g. `"$3"`), stable across a plain tmux
+    /// rename within a running server even though `name` isn't -- used by
+    /// `Config::reconcile` to recover group, dormant, and expanded state
+    /// across such a rename (issue #38). Empty when unknown (e.g. a
+    /// synthetic `Session` built outside a real tmux gather).
+    pub id: String,
 }
 
 /// The default active color palette, seeded into a fresh `Config` when no
@@ -1699,7 +1705,7 @@ mod tests {
     use crate::store::Config;
 
     fn s(name: &str, activity: i64, created: i64) -> Session {
-        Session {
+        Session { id: String::new(),
             name: name.into(),
             activity,
             created,
@@ -1713,7 +1719,7 @@ mod tests {
     }
 
     fn session_with_windows(name: &str, created: i64, windows: Vec<Window>) -> Session {
-        Session { name: name.into(), activity: created, created, attached: false, windows }
+        Session { id: String::new(), name: name.into(), activity: created, created, attached: false, windows }
     }
 
     #[test]

@@ -783,9 +783,11 @@ fn search_footer_hint(_state: &PickerState) -> String {
 }
 
 /// Style a `"key desc · key desc"` hint line so each segment's leading key
-/// token renders brighter (bold, plain default fg) than its DarkGray
-/// description, giving shortcut areas contrast against the rest of the dim
-/// chrome (issue #86). Shared by all four footer-hint render sites.
+/// token renders in Gray, a step brighter than its DarkGray description,
+/// giving shortcut areas contrast against the rest of the dim chrome (issue
+/// #86). Gray without Bold reads as a gentle nudge rather than a shout: an
+/// earlier version used Bold with the plain default fg and was too bright.
+/// Shared by all four footer-hint render sites.
 fn styled_hint(text: &str) -> Line<'static> {
     let mut spans = Vec::new();
     for (i, segment) in text.split(" · ").enumerate() {
@@ -794,7 +796,7 @@ fn styled_hint(text: &str) -> Line<'static> {
         }
         match segment.split_once(' ') {
             Some((key, desc)) => {
-                spans.push(Span::styled(key.to_string(), Style::default().add_modifier(Modifier::BOLD)));
+                spans.push(Span::styled(key.to_string(), Style::default().fg(Color::Gray)));
                 spans.push(Span::styled(format!(" {desc}"), Style::default().fg(DIM)));
             }
             None => spans.push(Span::styled(segment.to_string(), Style::default().fg(DIM))),
@@ -1129,9 +1131,9 @@ mod tests {
     #[test]
     fn draw_shows_headers_and_session_names() {
         let sessions = vec![
-            Session { name: "pr-review".into(), activity: 30, created: 1, attached: false,
+            Session { id: String::new(), name: "pr-review".into(), activity: 30, created: 1, attached: false,
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
-            Session { name: "scratch".into(), activity: 20, created: 2, attached: false,
+            Session { id: String::new(), name: "scratch".into(), activity: 20, created: 2, attached: false,
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
         ];
         let cfg = Config {
@@ -1150,8 +1152,8 @@ mod tests {
     #[test]
     fn main_list_header_shows_glyph_for_the_inbox_group_only() {
         let sessions = vec![
-            Session { name: "a".into(), activity: 1, created: 1, attached: false, windows: vec![] },
-            Session { name: "b".into(), activity: 1, created: 2, attached: false, windows: vec![] },
+            Session { id: String::new(), name: "a".into(), activity: 1, created: 1, attached: false, windows: vec![] },
+            Session { id: String::new(), name: "b".into(), activity: 1, created: 2, attached: false, windows: vec![] },
         ];
         let cfg = Config {
             groups: vec![
@@ -1170,7 +1172,7 @@ mod tests {
     #[test]
     fn group_mode_shows_glyph_on_the_inbox_row_and_no_separate_anchor_line() {
         let sessions = vec![
-            Session { name: "a".into(), activity: 1, created: 1, attached: false, windows: vec![] },
+            Session { id: String::new(), name: "a".into(), activity: 1, created: 1, attached: false, windows: vec![] },
         ];
         let cfg = Config {
             groups: vec![Group { name: "WORK".into(), members: vec!["a".into()], ..Default::default() }],
@@ -1186,7 +1188,7 @@ mod tests {
     #[test]
     fn selected_inbox_glyph_is_not_bold_but_name_is() {
         let sessions = vec![
-            Session { name: "a".into(), activity: 1, created: 1, attached: false, windows: vec![] },
+            Session { id: String::new(), name: "a".into(), activity: 1, created: 1, attached: false, windows: vec![] },
         ];
         let cfg = Config::default();
         let mut state = PickerState::build(sessions, &cfg);
@@ -1231,7 +1233,7 @@ mod tests {
     #[test]
     fn draw_shows_create_group_hint_when_only_inbox_exists() {
         let sessions = vec![
-            Session { name: "alpha".into(), activity: 1, created: 1, attached: false, windows: vec![] },
+            Session { id: String::new(), name: "alpha".into(), activity: 1, created: 1, attached: false, windows: vec![] },
         ];
         let state = PickerState::build(sessions, &Config::default());
         let text = render_to_string(&state);
@@ -1241,7 +1243,7 @@ mod tests {
 
     #[test]
     fn draw_shows_pending_window_move_warning_in_footer() {
-        let sessions = vec![Session {
+        let sessions = vec![Session { id: String::new(),
             name: "work".into(), activity: 1, created: 1, attached: false,
             windows: vec![Window { index: 0, name: "only".into(), active: true }],
         }];
@@ -1258,7 +1260,7 @@ mod tests {
 
     #[test]
     fn draw_shows_pending_window_move_warning_in_red_not_dim() {
-        let sessions = vec![Session {
+        let sessions = vec![Session { id: String::new(),
             name: "work".into(), activity: 1, created: 1, attached: false,
             windows: vec![Window { index: 0, name: "only".into(), active: true }],
         }];
@@ -1287,7 +1289,7 @@ mod tests {
     #[test]
     fn draw_hides_create_group_hint_once_a_user_group_exists() {
         let sessions = vec![
-            Session { name: "alpha".into(), activity: 1, created: 1, attached: false, windows: vec![] },
+            Session { id: String::new(), name: "alpha".into(), activity: 1, created: 1, attached: false, windows: vec![] },
         ];
         let cfg = Config {
             groups: vec![Group { name: "WORK".into(), members: vec!["alpha".into()], ..Default::default() }],
@@ -1300,7 +1302,7 @@ mod tests {
 
     #[test]
     fn border_and_title_use_the_configured_border_color() {
-        let sessions = vec![Session { name: "a".into(), activity: 1, created: 1, attached: false,
+        let sessions = vec![Session { id: String::new(), name: "a".into(), activity: 1, created: 1, attached: false,
                                        windows: vec![] }];
         let cfg = Config { border_color: "magenta".to_string(), ..Default::default() };
         let state = PickerState::build(sessions, &cfg);
@@ -1323,7 +1325,7 @@ mod tests {
 
     #[test]
     fn no_dim_rule_renders_between_title_and_first_group_header() {
-        let sessions = vec![Session { name: "a".into(), activity: 1, created: 1, attached: false,
+        let sessions = vec![Session { id: String::new(), name: "a".into(), activity: 1, created: 1, attached: false,
                                        windows: vec![] }];
         let cfg = Config { groups: vec![], ..Default::default() };
         let state = PickerState::build(sessions, &cfg);
@@ -1344,7 +1346,7 @@ mod tests {
 
     #[test]
     fn attached_session_name_uses_the_configured_attached_color() {
-        let sessions = vec![Session { name: "current".into(), activity: 1, created: 1, attached: true,
+        let sessions = vec![Session { id: String::new(), name: "current".into(), activity: 1, created: 1, attached: true,
                                        windows: vec![] }];
         let cfg = Config { attached_color: "lightgreen".to_string(), ..Default::default() };
         let state = PickerState::build(sessions, &cfg);
@@ -1365,7 +1367,7 @@ mod tests {
     #[test]
     fn draw_marks_cursor_row_with_background() {
         let sessions = vec![
-            Session { name: "alpha".into(), activity: 30, created: 1, attached: false,
+            Session { id: String::new(), name: "alpha".into(), activity: 30, created: 1, attached: false,
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
         ];
         let cfg = Config { groups: vec![], ..Default::default() };
@@ -1402,7 +1404,7 @@ mod tests {
         // the selection bar is also DarkGray. On the selected row, secondary text
         // must brighten so nothing renders DarkGray-on-DarkGray (invisible).
         let sessions = vec![
-            Session { name: "alpha".into(), activity: 30, created: 1, attached: false,
+            Session { id: String::new(), name: "alpha".into(), activity: 30, created: 1, attached: false,
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
         ];
         let cfg = Config { groups: vec![], ..Default::default() };
@@ -1480,9 +1482,9 @@ mod tests {
     #[test]
     fn command_footer_keeps_f_hint_in_place_when_focus_mode_is_on() {
         let sessions = vec![
-            Session { name: "alpha".into(), activity: 30, created: 1, attached: false,
+            Session { id: String::new(), name: "alpha".into(), activity: 30, created: 1, attached: false,
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
-            Session { name: "beta".into(), activity: 20, created: 2, attached: false,
+            Session { id: String::new(), name: "beta".into(), activity: 20, created: 2, attached: false,
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
         ];
         let cfg = Config { groups: vec![], dormant: vec!["beta".into()], ..Default::default() };
@@ -1500,9 +1502,9 @@ mod tests {
     #[test]
     fn draw_hides_dormant_sessions_and_shows_command_reminder() {
         let sessions = vec![
-            Session { name: "alpha".into(), activity: 30, created: 1, attached: false,
+            Session { id: String::new(), name: "alpha".into(), activity: 30, created: 1, attached: false,
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
-            Session { name: "beta".into(), activity: 20, created: 2, attached: false,
+            Session { id: String::new(), name: "beta".into(), activity: 20, created: 2, attached: false,
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
         ];
         let cfg = Config { groups: vec![], dormant: vec!["beta".into()], ..Default::default() };
@@ -1519,11 +1521,11 @@ mod tests {
     #[test]
     fn draw_search_hides_dormant_sessions_and_shows_reminder() {
         let sessions = vec![
-            Session { name: "alpha".into(), activity: 30, created: 1, attached: false,
+            Session { id: String::new(), name: "alpha".into(), activity: 30, created: 1, attached: false,
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
-            Session { name: "beta".into(), activity: 20, created: 2, attached: false,
+            Session { id: String::new(), name: "beta".into(), activity: 20, created: 2, attached: false,
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
-            Session { name: "bravo".into(), activity: 10, created: 3, attached: false,
+            Session { id: String::new(), name: "bravo".into(), activity: 10, created: 3, attached: false,
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
         ];
         let cfg = Config { groups: vec![], dormant: vec!["beta".into(), "bravo".into()], ..Default::default() };
@@ -1542,9 +1544,9 @@ mod tests {
     #[test]
     fn draw_dims_dormant_session_when_unselected_and_grays_it_when_selected() {
         let sessions = vec![
-            Session { name: "alpha".into(), activity: 30, created: 1, attached: false,
+            Session { id: String::new(), name: "alpha".into(), activity: 30, created: 1, attached: false,
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
-            Session { name: "beta".into(), activity: 20, created: 2, attached: false,
+            Session { id: String::new(), name: "beta".into(), activity: 20, created: 2, attached: false,
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
         ];
         let cfg = Config { groups: vec![], dormant: vec!["beta".into()], ..Default::default() };
@@ -1586,7 +1588,7 @@ mod tests {
     #[test]
     fn selected_attached_dormant_session_uses_dormant_gray() {
         let sessions = vec![
-            Session { name: "current".into(), activity: 30, created: 1, attached: true,
+            Session { id: String::new(), name: "current".into(), activity: 30, created: 1, attached: true,
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
         ];
         let cfg = Config {
@@ -1617,7 +1619,7 @@ mod tests {
     #[test]
     fn draw_shows_dormant_footer_hint() {
         let sessions = vec![
-            Session { name: "main".into(), activity: 100, created: 1, attached: false,
+            Session { id: String::new(), name: "main".into(), activity: 100, created: 1, attached: false,
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
         ];
         let cfg = Config { groups: vec![], ..Default::default() };
@@ -1641,7 +1643,7 @@ mod tests {
     #[test]
     fn draw_no_longer_renders_pin_star() {
         let sessions = vec![
-            Session { name: "claude".into(), activity: 30, created: 1, attached: false,
+            Session { id: String::new(), name: "claude".into(), activity: 30, created: 1, attached: false,
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
         ];
         let cfg = Config { groups: vec![Group { name: "G".into(), members: vec!["claude".into()], color: String::new(), ..Default::default() }], ..Default::default() };
@@ -1652,11 +1654,11 @@ mod tests {
     #[test]
     fn draw_shows_multiple_group_headers_in_order() {
         let sessions = vec![
-            Session { name: "claude".into(), activity: 30, created: 1, attached: false,
+            Session { id: String::new(), name: "claude".into(), activity: 30, created: 1, attached: false,
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
-            Session { name: "tent".into(), activity: 20, created: 2, attached: false,
+            Session { id: String::new(), name: "tent".into(), activity: 20, created: 2, attached: false,
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
-            Session { name: "ticket".into(), activity: 10, created: 3, attached: false,
+            Session { id: String::new(), name: "ticket".into(), activity: 10, created: 3, attached: false,
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
         ];
         let cfg = Config {
@@ -1681,9 +1683,9 @@ mod tests {
         // fill), grayed out, and it sits in config order between the group above
         // and the inbox below.
         let sessions = vec![
-            Session { name: "claude".into(), activity: 30, created: 1, attached: false,
+            Session { id: String::new(), name: "claude".into(), activity: 30, created: 1, attached: false,
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
-            Session { name: "loose".into(), activity: 10, created: 2, attached: false,
+            Session { id: String::new(), name: "loose".into(), activity: 10, created: 2, attached: false,
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
         ];
         let cfg = Config {
@@ -1725,9 +1727,9 @@ mod tests {
     #[test]
     fn focus_mode_hides_group_header_when_all_members_are_dormant() {
         let sessions = vec![
-            Session { name: "claude".into(), activity: 30, created: 1, attached: false,
+            Session { id: String::new(), name: "claude".into(), activity: 30, created: 1, attached: false,
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
-            Session { name: "old-deploy".into(), activity: 10, created: 2, attached: false,
+            Session { id: String::new(), name: "old-deploy".into(), activity: 10, created: 2, attached: false,
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
         ];
         let cfg = Config {
@@ -1749,7 +1751,7 @@ mod tests {
     #[test]
     fn focus_mode_hides_truly_empty_group_header() {
         let sessions = vec![
-            Session { name: "claude".into(), activity: 30, created: 1, attached: false,
+            Session { id: String::new(), name: "claude".into(), activity: 30, created: 1, attached: false,
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
         ];
         let cfg = Config {
@@ -1773,9 +1775,9 @@ mod tests {
     #[test]
     fn focus_mode_hides_inbox_header_when_it_has_no_visible_sessions() {
         let sessions = vec![
-            Session { name: "claude".into(), activity: 30, created: 1, attached: false,
+            Session { id: String::new(), name: "claude".into(), activity: 30, created: 1, attached: false,
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
-            Session { name: "loose".into(), activity: 10, created: 2, attached: false,
+            Session { id: String::new(), name: "loose".into(), activity: 10, created: 2, attached: false,
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
         ];
         let cfg = Config {
@@ -1797,7 +1799,7 @@ mod tests {
     #[test]
     fn draw_command_shows_inline_rename_field() {
         let sessions = vec![
-            Session { name: "alpha".into(), activity: 30, created: 1, attached: false,
+            Session { id: String::new(), name: "alpha".into(), activity: 30, created: 1, attached: false,
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
         ];
         let cfg = Config { groups: vec![], ..Default::default() };
@@ -1813,7 +1815,7 @@ mod tests {
     #[test]
     fn draw_shows_footer_hints() {
         let sessions = vec![
-            Session { name: "main".into(), activity: 100, created: 1, attached: false,
+            Session { id: String::new(), name: "main".into(), activity: 100, created: 1, attached: false,
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
         ];
         let cfg = Config { groups: vec![], ..Default::default() };
@@ -1831,7 +1833,7 @@ mod tests {
     #[test]
     fn draw_footer_hint_fits_within_real_popup_width_untruncated() {
         let sessions = vec![
-            Session { name: "main".into(), activity: 100, created: 1, attached: false,
+            Session { id: String::new(), name: "main".into(), activity: 100, created: 1, attached: false,
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
         ];
         let cfg = Config { groups: vec![], ..Default::default() };
@@ -1852,10 +1854,10 @@ mod tests {
         assert_eq!(
             spans,
             vec![
-                ("R".to_string(), Style::default().add_modifier(Modifier::BOLD)),
+                ("R".to_string(), Style::default().fg(Color::Gray)),
                 (" rename".to_string(), Style::default().fg(DIM)),
                 (" · ".to_string(), Style::default().fg(DIM)),
-                ("Esc".to_string(), Style::default().add_modifier(Modifier::BOLD)),
+                ("Esc".to_string(), Style::default().fg(Color::Gray)),
                 (" back".to_string(), Style::default().fg(DIM)),
             ]
         );
@@ -1863,7 +1865,7 @@ mod tests {
 
     #[test]
     fn command_footer_hint_brightens_key_tokens_in_the_real_render() {
-        let sessions = vec![Session { name: "a".into(), activity: 1, created: 1, attached: false,
+        let sessions = vec![Session { id: String::new(), name: "a".into(), activity: 1, created: 1, attached: false,
                                        windows: vec![] }];
         let cfg = Config { groups: vec![], ..Default::default() };
         let state = PickerState::build(sessions, &cfg);
@@ -1878,12 +1880,8 @@ mod tests {
         for y in 0..buf.area.height {
             if let Some(x) = find_text_x(&buf, y, "rename") {
                 let key_style = buf[(x - 2, y)].style(); // the "R" in "R rename"
-                // ratatui::buffer::Cell::style() always reports `fg: Some(_)`
-                // (cells carry a concrete Color, defaulting to Reset, never
-                // "unset"), so "plain default fg" is Some(Color::Reset), not
-                // literal None.
-                assert_eq!(key_style.fg, Some(Color::Reset), "key token renders in the plain default fg, not dim");
-                assert!(key_style.add_modifier.contains(Modifier::BOLD), "key token renders bold");
+                assert_eq!(key_style.fg, Some(Color::Gray), "key token renders in Gray, not dim");
+                assert!(!key_style.add_modifier.contains(Modifier::BOLD), "key token is not bold");
                 let desc_style = buf[(x, y)].style();
                 assert_eq!(desc_style.fg, Some(Color::DarkGray), "description stays dim");
                 checked = true;
@@ -1895,9 +1893,9 @@ mod tests {
     #[test]
     fn draw_numbers_sessions_in_left_gutter() {
         let sessions = vec![
-            Session { name: "main".into(), activity: 30, created: 1, attached: false,
+            Session { id: String::new(), name: "main".into(), activity: 30, created: 1, attached: false,
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
-            Session { name: "other".into(), activity: 20, created: 2, attached: false,
+            Session { id: String::new(), name: "other".into(), activity: 20, created: 2, attached: false,
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
         ];
         let cfg = Config { groups: vec![], ..Default::default() };
@@ -1926,7 +1924,7 @@ mod tests {
     #[test]
     fn draw_numbers_extend_past_nine_with_alt_glyph() {
         let sessions: Vec<Session> = (1..=12)
-            .map(|i| Session {
+            .map(|i| Session { id: String::new(),
                 name: format!("s{i}"),
                 activity: 0,
                 created: i as i64,
@@ -1974,11 +1972,11 @@ mod tests {
     #[test]
     fn draw_skips_dormant_jump_numbers_when_configured() {
         let sessions = vec![
-            Session { name: "alpha".into(), activity: 30, created: 1, attached: false,
+            Session { id: String::new(), name: "alpha".into(), activity: 30, created: 1, attached: false,
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
-            Session { name: "beta".into(), activity: 20, created: 2, attached: false,
+            Session { id: String::new(), name: "beta".into(), activity: 20, created: 2, attached: false,
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
-            Session { name: "gamma".into(), activity: 10, created: 3, attached: false,
+            Session { id: String::new(), name: "gamma".into(), activity: 10, created: 3, attached: false,
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
         ];
         let cfg = Config {
@@ -2034,9 +2032,9 @@ mod tests {
         // A single long name must shift every row's metadata together, not just
         // its own, so the middot separators stay vertically aligned (issue #3).
         let sessions = vec![
-            Session { name: "a-very-long-session-name-here".into(), activity: 30, created: 1,
+            Session { id: String::new(), name: "a-very-long-session-name-here".into(), activity: 30, created: 1,
                       attached: false, windows: vec![Window { index: 0, name: "w".into(), active: true }] },
-            Session { name: "short".into(), activity: 20, created: 2, attached: false,
+            Session { id: String::new(), name: "short".into(), activity: 20, created: 2, attached: false,
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
         ];
         let cfg = Config { groups: vec![], ..Default::default() };
@@ -2063,9 +2061,9 @@ mod tests {
             .map(|i| Window { index: i, name: "w".into(), active: i == 0 })
             .collect();
         let sessions = vec![
-            Session { name: "alpha".into(), activity: 30, created: 1, attached: false,
+            Session { id: String::new(), name: "alpha".into(), activity: 30, created: 1, attached: false,
                       windows: many },
-            Session { name: "beta".into(), activity: 20, created: 2, attached: false,
+            Session { id: String::new(), name: "beta".into(), activity: 20, created: 2, attached: false,
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
         ];
         let cfg = Config { groups: vec![], ..Default::default() };
@@ -2086,9 +2084,9 @@ mod tests {
         // With only short names, the shared column collapses back to META_COL,
         // preserving the original compact layout.
         let sessions = vec![
-            Session { name: "main".into(), activity: 30, created: 1, attached: false,
+            Session { id: String::new(), name: "main".into(), activity: 30, created: 1, attached: false,
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
-            Session { name: "other".into(), activity: 20, created: 2, attached: false,
+            Session { id: String::new(), name: "other".into(), activity: 20, created: 2, attached: false,
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
         ];
         let cfg = Config { groups: vec![], ..Default::default() };
@@ -2112,7 +2110,7 @@ mod tests {
     #[test]
     fn draw_insets_frame_by_popup_margin() {
         let sessions = vec![
-            Session { name: "alpha".into(), activity: 30, created: 1, attached: false,
+            Session { id: String::new(), name: "alpha".into(), activity: 30, created: 1, attached: false,
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
         ];
         let cfg = Config { groups: vec![], ..Default::default() };
@@ -2175,9 +2173,9 @@ mod tests {
 
     fn searching_state(query: &str) -> PickerState {
         let sessions = vec![
-            Session { name: "pr-review".into(), activity: 30, created: 1, attached: false,
+            Session { id: String::new(), name: "pr-review".into(), activity: 30, created: 1, attached: false,
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
-            Session { name: "scratch".into(), activity: 20, created: 2, attached: false,
+            Session { id: String::new(), name: "scratch".into(), activity: 20, created: 2, attached: false,
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
         ];
         let cfg = Config {
@@ -2225,7 +2223,7 @@ mod tests {
         // Lowercase group name so the assertion actually exercises
         // session_item's `.to_uppercase()` call (a fixture already in caps
         // would pass even if the uppercasing were silently dropped).
-        let sessions = vec![Session {
+        let sessions = vec![Session { id: String::new(),
             name: "pr-review".into(), activity: 30, created: 1, attached: false,
             windows: vec![Window { index: 0, name: "w".into(), active: true }],
         }];
@@ -2295,9 +2293,9 @@ mod tests {
         // tag one column right of the 2-char age's tag.
         let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
         let sessions = vec![
-            Session { name: "short-age".into(), activity: now - 5 * 3600, created: 1, attached: false,
+            Session { id: String::new(), name: "short-age".into(), activity: now - 5 * 3600, created: 1, attached: false,
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
-            Session { name: "long-age".into(), activity: now - 40 * 60, created: 2, attached: false,
+            Session { id: String::new(), name: "long-age".into(), activity: now - 40 * 60, created: 2, attached: false,
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
         ];
         let cfg = Config {
@@ -2330,7 +2328,7 @@ mod tests {
     #[test]
     fn session_row_shows_recency_by_default_and_age_when_switched() {
         let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
-        let sessions = vec![Session {
+        let sessions = vec![Session { id: String::new(),
             name: "alpha".into(),
             activity: now - 30, // "30s"
             created: now - 7200, // "2h"
@@ -2352,7 +2350,7 @@ mod tests {
 
     #[test]
     fn session_row_hides_age_and_separator_when_metric_is_hidden() {
-        let sessions = vec![Session {
+        let sessions = vec![Session { id: String::new(),
             name: "alpha".into(),
             activity: 1,
             created: 1,
@@ -2376,9 +2374,9 @@ mod tests {
         // Regression guard: age_width degenerates to 0 when Hidden, so the
         // age_pad computation must not panic or misalign group tags.
         let sessions = vec![
-            Session { name: "short-age".into(), activity: 1, created: 1, attached: false,
+            Session { id: String::new(), name: "short-age".into(), activity: 1, created: 1, attached: false,
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
-            Session { name: "long-age".into(), activity: 2, created: 2, attached: false,
+            Session { id: String::new(), name: "long-age".into(), activity: 2, created: 2, attached: false,
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
         ];
         let cfg = Config {
@@ -2444,9 +2442,9 @@ mod tests {
         // An explicit group color paints its header; a color-less group falls
         // back to the positional default (HEADER_COLORS[0] == cyan == ACCENT).
         let sessions = vec![
-            Session { name: "claude".into(), activity: 30, created: 1, attached: false,
+            Session { id: String::new(), name: "claude".into(), activity: 30, created: 1, attached: false,
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
-            Session { name: "tent".into(), activity: 20, created: 2, attached: false,
+            Session { id: String::new(), name: "tent".into(), activity: 20, created: 2, attached: false,
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
         ];
         let cfg = Config {
@@ -2480,9 +2478,9 @@ mod tests {
 
     fn groups_view(edit: bool) -> PickerState {
         let sessions = vec![
-            Session { name: "claude".into(), activity: 30, created: 1, attached: false,
+            Session { id: String::new(), name: "claude".into(), activity: 30, created: 1, attached: false,
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
-            Session { name: "ticket".into(), activity: 10, created: 2, attached: false,
+            Session { id: String::new(), name: "ticket".into(), activity: 10, created: 2, attached: false,
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
         ];
         let cfg = Config { groups: vec![Group { name: "config".into(), members: vec!["claude".into()], color: String::new(), ..Default::default() }], ..Default::default() };
@@ -2546,7 +2544,7 @@ mod tests {
     #[test]
     fn draw_is_graceful_on_tiny_popup() {
         let sessions = vec![
-            Session { name: "alpha".into(), activity: 30, created: 1, attached: false,
+            Session { id: String::new(), name: "alpha".into(), activity: 30, created: 1, attached: false,
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
         ];
         let cfg = Config { groups: vec![], ..Default::default() };
@@ -2585,7 +2583,7 @@ mod tests {
     #[test]
     fn draw_colors_group_header_from_active_palette_not_a_fixed_const() {
         let sessions = vec![
-            Session { name: "claude".into(), activity: 30, created: 1, attached: false,
+            Session { id: String::new(), name: "claude".into(), activity: 30, created: 1, attached: false,
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
         ];
         let cfg = Config {
@@ -2618,7 +2616,7 @@ mod tests {
     #[test]
     fn draw_shows_settings_footer_hint() {
         let sessions = vec![
-            Session { name: "main".into(), activity: 100, created: 1, attached: false,
+            Session { id: String::new(), name: "main".into(), activity: 100, created: 1, attached: false,
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
         ];
         let cfg = Config::default();
@@ -2628,7 +2626,7 @@ mod tests {
     }
 
     fn settings_view() -> PickerState {
-        let sessions = vec![Session { name: "a".into(), activity: 1, created: 1, attached: false,
+        let sessions = vec![Session { id: String::new(), name: "a".into(), activity: 1, created: 1, attached: false,
                                        windows: vec![Window { index: 0, name: "w".into(), active: true }] }];
         let cfg = Config::default();
         let mut st = PickerState::build(sessions, &cfg);
@@ -3013,7 +3011,7 @@ mod tests {
     fn draw_shows_group_color_gutter_next_to_its_sessions() {
         // A named group's session rows get a leading '│' in the group's color.
         let sessions = vec![
-            Session { name: "claude".into(), activity: 30, created: 1, attached: false,
+            Session { id: String::new(), name: "claude".into(), activity: 30, created: 1, attached: false,
                       windows: vec![Window { index: 0, name: "w".into(), active: true }] },
         ];
         let cfg = Config {
@@ -3050,7 +3048,7 @@ mod tests {
         // Sessions in no named group (the inbox group) get the same
         // treatment, in ACCENT (cyan).
         let sessions = vec![
-            Session { name: "scratch".into(), activity: 20, created: 2, attached: false,
+            Session { id: String::new(), name: "scratch".into(), activity: 20, created: 2, attached: false,
                       windows: vec![] },
         ];
         let cfg = Config { groups: vec![], ..Default::default() };
@@ -3080,7 +3078,7 @@ mod tests {
         // A window row under an expanded session inherits the parent
         // session's (i.e. its group's) gutter color.
         let sessions = vec![
-            Session { name: "claude".into(), activity: 30, created: 1, attached: false,
+            Session { id: String::new(), name: "claude".into(), activity: 30, created: 1, attached: false,
                       windows: vec![Window { index: 0, name: "editor".into(), active: true }] },
         ];
         let cfg = Config {
@@ -3121,7 +3119,7 @@ mod tests {
         // width of the number gutter windows don't have) to the right of
         // where the session's own name starts.
         let sessions = vec![
-            Session { name: "claude".into(), activity: 30, created: 1, attached: false,
+            Session { id: String::new(), name: "claude".into(), activity: 30, created: 1, attached: false,
                       windows: vec![Window { index: 0, name: "editor".into(), active: true }] },
         ];
         let cfg = Config::default();
@@ -3143,7 +3141,7 @@ mod tests {
         // Out of scope per spec: search's flat results list keeps its
         // existing inline group tag and gets no leading gutter column.
         let sessions = vec![
-            Session { name: "claude".into(), activity: 30, created: 1, attached: false, windows: vec![] },
+            Session { id: String::new(), name: "claude".into(), activity: 30, created: 1, attached: false, windows: vec![] },
         ];
         let cfg = Config {
             dormant: vec![], groups: vec![
@@ -3186,7 +3184,7 @@ mod tests {
     #[test]
     fn gutter_colors_inbox_sessions_with_the_inbox_groups_own_color() {
         let sessions = vec![
-            Session { name: "a".into(), activity: 1, created: 1, attached: false, windows: vec![] },
+            Session { id: String::new(), name: "a".into(), activity: 1, created: 1, attached: false, windows: vec![] },
         ];
         let cfg = Config {
             groups: vec![Group { name: "INBOX".into(), color: "magenta".into(), inbox: true, ..Default::default() }],
@@ -3218,7 +3216,7 @@ mod tests {
     #[test]
     fn search_results_tag_inbox_members_same_as_named_group_members() {
         let sessions = vec![
-            Session { name: "solo".into(), activity: 1, created: 1, attached: false, windows: vec![] },
+            Session { id: String::new(), name: "solo".into(), activity: 1, created: 1, attached: false, windows: vec![] },
         ];
         let cfg = Config {
             groups: vec![Group { name: "TRIAGE".into(), inbox: true, ..Default::default() }],
