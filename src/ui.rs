@@ -268,14 +268,17 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
     // Render the divider and hint row inside the footer area. A pending
     // window-move confirm is destructive if missed, so it renders in
     // WARNING (red) rather than the normal dim hint color.
-    let hint_style = if state.pending_window_move_warning().is_some() {
-        Style::default().fg(WARNING).add_modifier(Modifier::BOLD)
+    let hint_line = if let Some(warning) = state.pending_window_move_warning() {
+        Line::from(Span::styled(
+            warning.to_string(),
+            Style::default().fg(WARNING).add_modifier(Modifier::BOLD),
+        ))
     } else {
-        Style::default().fg(DIM)
+        styled_hint(&command_footer_hint(state))
     };
     let footer = Paragraph::new(vec![
         Line::from(Span::styled(footer_rule(footer_area.width, state), Style::default().fg(DIM))),
-        Line::from(Span::styled(command_footer_hint(state), hint_style)),
+        hint_line,
     ]);
     frame.render_widget(footer, footer_area);
 }
@@ -344,7 +347,7 @@ fn draw_search(frame: &mut Frame, state: &PickerState, inner: Rect) {
 
     let footer = Paragraph::new(vec![
         Line::from(Span::styled(footer_rule(chunks[2].width, state), Style::default().fg(DIM))),
-        Line::from(Span::styled(search_footer_hint(state), Style::default().fg(DIM))),
+        styled_hint(&search_footer_hint(state)),
     ]);
     frame.render_widget(footer, chunks[2]);
 }
@@ -398,7 +401,7 @@ fn draw_groups(frame: &mut Frame, state: &PickerState, inner: Rect) {
     let rule = "─".repeat(footer_area.width as usize);
     let footer = Paragraph::new(vec![
         Line::from(Span::styled(rule, Style::default().fg(DIM))),
-        Line::from(Span::styled(GROUP_FOOTER_HINT, Style::default().fg(DIM))),
+        styled_hint(GROUP_FOOTER_HINT),
     ]);
     frame.render_widget(footer, footer_area);
 }
@@ -523,7 +526,7 @@ fn draw_settings(frame: &mut Frame, state: &PickerState, inner: Rect) {
     let footer = Paragraph::new(vec![
         Line::from(Span::styled(rule, Style::default().fg(DIM))),
         Line::from(Span::styled(current_description, Style::default())),
-        Line::from(Span::styled(SETTINGS_FOOTER_HINT, Style::default().fg(DIM))),
+        styled_hint(SETTINGS_FOOTER_HINT),
     ]);
     frame.render_widget(footer, footer_area);
 }
@@ -777,6 +780,27 @@ fn command_footer_hint(state: &PickerState) -> String {
 
 fn search_footer_hint(_state: &PickerState) -> String {
     SEARCH_FOOTER_HINT.to_string()
+}
+
+/// Style a `"key desc · key desc"` hint line so each segment's leading key
+/// token renders brighter (bold, plain default fg) than its DarkGray
+/// description, giving shortcut areas contrast against the rest of the dim
+/// chrome (issue #86). Shared by all four footer-hint render sites.
+fn styled_hint(text: &str) -> Line<'static> {
+    let mut spans = Vec::new();
+    for (i, segment) in text.split(" · ").enumerate() {
+        if i > 0 {
+            spans.push(Span::styled(" · ", Style::default().fg(DIM)));
+        }
+        match segment.split_once(' ') {
+            Some((key, desc)) => {
+                spans.push(Span::styled(key.to_string(), Style::default().add_modifier(Modifier::BOLD)));
+                spans.push(Span::styled(format!(" {desc}"), Style::default().fg(DIM)));
+            }
+            None => spans.push(Span::styled(segment.to_string(), Style::default().fg(DIM))),
+        }
+    }
+    Line::from(spans)
 }
 
 /// Shared geometry for the metadata block, computed once per render so every
@@ -1818,6 +1842,54 @@ mod tests {
             text.contains(FOOTER_HINT),
             "footer hint must render untruncated at the real 84-column popup width"
         );
+    }
+
+    #[test]
+    fn styled_hint_brightens_key_and_dims_description() {
+        let line = styled_hint("R rename · Esc back");
+        let spans: Vec<(String, Style)> =
+            line.spans.iter().map(|s| (s.content.to_string(), s.style)).collect();
+        assert_eq!(
+            spans,
+            vec![
+                ("R".to_string(), Style::default().add_modifier(Modifier::BOLD)),
+                (" rename".to_string(), Style::default().fg(DIM)),
+                (" · ".to_string(), Style::default().fg(DIM)),
+                ("Esc".to_string(), Style::default().add_modifier(Modifier::BOLD)),
+                (" back".to_string(), Style::default().fg(DIM)),
+            ]
+        );
+    }
+
+    #[test]
+    fn command_footer_hint_brightens_key_tokens_in_the_real_render() {
+        let sessions = vec![Session { name: "a".into(), activity: 1, created: 1, attached: false,
+                                       windows: vec![] }];
+        let cfg = Config { groups: vec![], ..Default::default() };
+        let state = PickerState::build(sessions, &cfg);
+        let backend = TestBackend::new(84, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| draw(f, &state)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+        let mut checked = false;
+        // find_text_x (not a raw `String::find` over concatenated symbols)
+        // because the footer line contains multi-byte glyphs ("│", "·")
+        // before "rename"; a byte offset would overshoot the real column.
+        for y in 0..buf.area.height {
+            if let Some(x) = find_text_x(&buf, y, "rename") {
+                let key_style = buf[(x - 2, y)].style(); // the "R" in "R rename"
+                // ratatui::buffer::Cell::style() always reports `fg: Some(_)`
+                // (cells carry a concrete Color, defaulting to Reset, never
+                // "unset"), so "plain default fg" is Some(Color::Reset), not
+                // literal None.
+                assert_eq!(key_style.fg, Some(Color::Reset), "key token renders in the plain default fg, not dim");
+                assert!(key_style.add_modifier.contains(Modifier::BOLD), "key token renders bold");
+                let desc_style = buf[(x, y)].style();
+                assert_eq!(desc_style.fg, Some(Color::DarkGray), "description stays dim");
+                checked = true;
+            }
+        }
+        assert!(checked, "expected to find the rename hint in the command-mode footer");
     }
 
     #[test]
