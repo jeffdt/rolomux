@@ -61,8 +61,8 @@ impl Default for Config {
             new_group_color_policy: ColorPolicy::default(),
             static_color: "cyan".to_string(),
             active_palette: default_active_palette(),
-            attached_color: "cyan".to_string(),
-            border_color: "cyan".to_string(),
+            attached_color: "green".to_string(),
+            border_color: "green".to_string(),
             remember_expanded_sessions: false,
             expanded: Vec::new(),
             session_metric: SessionMetric::default(),
@@ -217,8 +217,8 @@ impl Config {
             .map(ColorPolicy::from_config_str)
             .unwrap_or_default();
         let static_color = raw.settings.static_color.unwrap_or_else(|| "cyan".to_string());
-        let attached_color = raw.settings.attached_color.unwrap_or_else(|| "cyan".to_string());
-        let border_color = raw.settings.border_color.unwrap_or_else(|| "cyan".to_string());
+        let attached_color = raw.settings.attached_color.unwrap_or_else(|| "green".to_string());
+        let border_color = raw.settings.border_color.unwrap_or_else(|| "green".to_string());
         let active_palette = raw
             .settings
             .active_palette
@@ -702,8 +702,8 @@ mod tests {
         assert!(cfg.number_dormant_sessions);
         assert_eq!(cfg.new_group_color_policy, ColorPolicy::Rotate);
         assert_eq!(cfg.static_color, "cyan");
-        assert_eq!(cfg.attached_color, "cyan");
-        assert_eq!(cfg.border_color, "cyan");
+        assert_eq!(cfg.attached_color, "green");
+        assert_eq!(cfg.border_color, "green");
         assert_eq!(
             cfg.active_palette,
             HEADER_COLORS.iter().map(|s| s.to_string()).collect::<Vec<_>>()
@@ -722,8 +722,8 @@ mod tests {
         assert!(cfg.number_dormant_sessions);
         assert_eq!(cfg.new_group_color_policy, ColorPolicy::Rotate);
         assert_eq!(cfg.static_color, "cyan");
-        assert_eq!(cfg.attached_color, "cyan");
-        assert_eq!(cfg.border_color, "cyan");
+        assert_eq!(cfg.attached_color, "green");
+        assert_eq!(cfg.border_color, "green");
         assert_eq!(
             cfg.active_palette,
             HEADER_COLORS.iter().map(|s| s.to_string()).collect::<Vec<_>>()

@@ -32,10 +32,12 @@ const META_BUDGET: usize = 18;
 /// only separation between rolomux's frame and the surrounding tmux panes; it
 /// keeps the picker from sitting flush against busy content behind the popup.
 const POPUP_MARGIN: u16 = 2;
-/// Rows reserved right under the top border for the letterhead divider and a
-/// blank breathing-room row, separating the title's chrome from the first
-/// group header so content doesn't start flush against it.
-const TITLE_CHROME_ROWS: u16 = 2;
+/// Rows reserved right under the top border as blank breathing room,
+/// separating the title's chrome from the first group header so content
+/// doesn't start flush against it. Used to be two rows (a DarkGray divider
+/// rule plus this blank row); the rule was removed (issue #81) since it
+/// read as visual clutter rather than a useful separator.
+const TITLE_CHROME_ROWS: u16 = 1;
 
 const FOOTER_HINT: &str =
     "/ search · R rename · JK mv · g groups · , settings · d dim · f focus · q quit";
@@ -134,14 +136,7 @@ pub fn draw(frame: &mut Frame, state: &PickerState) {
         .direction(Direction::Vertical)
         .constraints([Constraint::Length(TITLE_CHROME_ROWS), Constraint::Min(0)])
         .split(inner);
-    let chrome_area = chunks[0];
     let content = chunks[1];
-
-    let rule = "─".repeat(chrome_area.width as usize);
-    frame.render_widget(
-        Paragraph::new(Line::from(Span::styled(rule, Style::default().fg(DIM)))),
-        chrome_area,
-    );
 
     match state.mode {
         Mode::Command => draw_command(frame, state, content),
@@ -273,14 +268,17 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
     // Render the divider and hint row inside the footer area. A pending
     // window-move confirm is destructive if missed, so it renders in
     // WARNING (red) rather than the normal dim hint color.
-    let hint_style = if state.pending_window_move_warning().is_some() {
-        Style::default().fg(WARNING).add_modifier(Modifier::BOLD)
+    let hint_line = if let Some(warning) = state.pending_window_move_warning() {
+        Line::from(Span::styled(
+            warning.to_string(),
+            Style::default().fg(WARNING).add_modifier(Modifier::BOLD),
+        ))
     } else {
-        Style::default().fg(DIM)
+        styled_hint(&command_footer_hint(state))
     };
     let footer = Paragraph::new(vec![
         Line::from(Span::styled(footer_rule(footer_area.width, state), Style::default().fg(DIM))),
-        Line::from(Span::styled(command_footer_hint(state), hint_style)),
+        hint_line,
     ]);
     frame.render_widget(footer, footer_area);
 }
@@ -349,7 +347,7 @@ fn draw_search(frame: &mut Frame, state: &PickerState, inner: Rect) {
 
     let footer = Paragraph::new(vec![
         Line::from(Span::styled(footer_rule(chunks[2].width, state), Style::default().fg(DIM))),
-        Line::from(Span::styled(search_footer_hint(state), Style::default().fg(DIM))),
+        styled_hint(&search_footer_hint(state)),
     ]);
     frame.render_widget(footer, chunks[2]);
 }
@@ -403,7 +401,7 @@ fn draw_groups(frame: &mut Frame, state: &PickerState, inner: Rect) {
     let rule = "─".repeat(footer_area.width as usize);
     let footer = Paragraph::new(vec![
         Line::from(Span::styled(rule, Style::default().fg(DIM))),
-        Line::from(Span::styled(GROUP_FOOTER_HINT, Style::default().fg(DIM))),
+        styled_hint(GROUP_FOOTER_HINT),
     ]);
     frame.render_widget(footer, footer_area);
 }
@@ -528,7 +526,7 @@ fn draw_settings(frame: &mut Frame, state: &PickerState, inner: Rect) {
     let footer = Paragraph::new(vec![
         Line::from(Span::styled(rule, Style::default().fg(DIM))),
         Line::from(Span::styled(current_description, Style::default())),
-        Line::from(Span::styled(SETTINGS_FOOTER_HINT, Style::default().fg(DIM))),
+        styled_hint(SETTINGS_FOOTER_HINT),
     ]);
     frame.render_widget(footer, footer_area);
 }
@@ -782,6 +780,27 @@ fn command_footer_hint(state: &PickerState) -> String {
 
 fn search_footer_hint(_state: &PickerState) -> String {
     SEARCH_FOOTER_HINT.to_string()
+}
+
+/// Style a `"key desc · key desc"` hint line so each segment's leading key
+/// token renders brighter (bold, plain default fg) than its DarkGray
+/// description, giving shortcut areas contrast against the rest of the dim
+/// chrome (issue #86). Shared by all four footer-hint render sites.
+fn styled_hint(text: &str) -> Line<'static> {
+    let mut spans = Vec::new();
+    for (i, segment) in text.split(" · ").enumerate() {
+        if i > 0 {
+            spans.push(Span::styled(" · ", Style::default().fg(DIM)));
+        }
+        match segment.split_once(' ') {
+            Some((key, desc)) => {
+                spans.push(Span::styled(key.to_string(), Style::default().add_modifier(Modifier::BOLD)));
+                spans.push(Span::styled(format!(" {desc}"), Style::default().fg(DIM)));
+            }
+            None => spans.push(Span::styled(segment.to_string(), Style::default().fg(DIM))),
+        }
+    }
+    Line::from(spans)
 }
 
 /// Shared geometry for the metadata block, computed once per render so every
@@ -1303,6 +1322,27 @@ mod tests {
     }
 
     #[test]
+    fn no_dim_rule_renders_between_title_and_first_group_header() {
+        let sessions = vec![Session { name: "a".into(), activity: 1, created: 1, attached: false,
+                                       windows: vec![] }];
+        let cfg = Config { groups: vec![], ..Default::default() };
+        let state = PickerState::build(sessions, &cfg);
+        let backend = TestBackend::new(84, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| draw(f, &state)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+        // The row directly under the top border (which itself carries the
+        // title) used to hold the DarkGray divider rule; it must now be blank.
+        let chrome_row = POPUP_MARGIN + 1;
+        let sample_x = POPUP_MARGIN + 3;
+        assert_ne!(
+            buf[(sample_x, chrome_row)].symbol(),
+            "─",
+            "the row under the title should be blank, not a divider rule"
+        );
+    }
+
+    #[test]
     fn attached_session_name_uses_the_configured_attached_color() {
         let sessions = vec![Session { name: "current".into(), activity: 1, created: 1, attached: true,
                                        windows: vec![] }];
@@ -1802,6 +1842,54 @@ mod tests {
             text.contains(FOOTER_HINT),
             "footer hint must render untruncated at the real 84-column popup width"
         );
+    }
+
+    #[test]
+    fn styled_hint_brightens_key_and_dims_description() {
+        let line = styled_hint("R rename · Esc back");
+        let spans: Vec<(String, Style)> =
+            line.spans.iter().map(|s| (s.content.to_string(), s.style)).collect();
+        assert_eq!(
+            spans,
+            vec![
+                ("R".to_string(), Style::default().add_modifier(Modifier::BOLD)),
+                (" rename".to_string(), Style::default().fg(DIM)),
+                (" · ".to_string(), Style::default().fg(DIM)),
+                ("Esc".to_string(), Style::default().add_modifier(Modifier::BOLD)),
+                (" back".to_string(), Style::default().fg(DIM)),
+            ]
+        );
+    }
+
+    #[test]
+    fn command_footer_hint_brightens_key_tokens_in_the_real_render() {
+        let sessions = vec![Session { name: "a".into(), activity: 1, created: 1, attached: false,
+                                       windows: vec![] }];
+        let cfg = Config { groups: vec![], ..Default::default() };
+        let state = PickerState::build(sessions, &cfg);
+        let backend = TestBackend::new(84, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| draw(f, &state)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+        let mut checked = false;
+        // find_text_x (not a raw `String::find` over concatenated symbols)
+        // because the footer line contains multi-byte glyphs ("│", "·")
+        // before "rename"; a byte offset would overshoot the real column.
+        for y in 0..buf.area.height {
+            if let Some(x) = find_text_x(&buf, y, "rename") {
+                let key_style = buf[(x - 2, y)].style(); // the "R" in "R rename"
+                // ratatui::buffer::Cell::style() always reports `fg: Some(_)`
+                // (cells carry a concrete Color, defaulting to Reset, never
+                // "unset"), so "plain default fg" is Some(Color::Reset), not
+                // literal None.
+                assert_eq!(key_style.fg, Some(Color::Reset), "key token renders in the plain default fg, not dim");
+                assert!(key_style.add_modifier.contains(Modifier::BOLD), "key token renders bold");
+                let desc_style = buf[(x, y)].style();
+                assert_eq!(desc_style.fg, Some(Color::DarkGray), "description stays dim");
+                checked = true;
+            }
+        }
+        assert!(checked, "expected to find the rename hint in the command-mode footer");
     }
 
     #[test]
@@ -2673,8 +2761,8 @@ mod tests {
         let text = render_to_string(&settings_view());
         assert!(text.contains("Attached session color"));
         assert!(text.contains("Border color"));
-        // Both default to cyan and render collapsed with a swatch + name.
-        assert_eq!(text.matches("cyan").count(), 2, "one swatch label per collapsed color row");
+        // Both default to green and render collapsed with a swatch + name.
+        assert_eq!(text.matches("green").count(), 2, "one swatch label per collapsed color row");
     }
 
     #[test]
@@ -2713,7 +2801,7 @@ mod tests {
         let text = render_to_string_sized(&st, 80, 24);
         assert!(text.contains("[x]"), "active color checked");
         assert!(text.contains("[ ]"), "inactive color unchecked");
-        assert!(text.contains("cyan"));
+        assert!(text.contains("green"));
         assert!(text.contains("black"));
     }
 
