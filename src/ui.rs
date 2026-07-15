@@ -32,10 +32,12 @@ const META_BUDGET: usize = 18;
 /// only separation between rolomux's frame and the surrounding tmux panes; it
 /// keeps the picker from sitting flush against busy content behind the popup.
 const POPUP_MARGIN: u16 = 2;
-/// Rows reserved right under the top border for the letterhead divider and a
-/// blank breathing-room row, separating the title's chrome from the first
-/// group header so content doesn't start flush against it.
-const TITLE_CHROME_ROWS: u16 = 2;
+/// Rows reserved right under the top border as blank breathing room,
+/// separating the title's chrome from the first group header so content
+/// doesn't start flush against it. Used to be two rows (a DarkGray divider
+/// rule plus this blank row); the rule was removed (issue #81) since it
+/// read as visual clutter rather than a useful separator.
+const TITLE_CHROME_ROWS: u16 = 1;
 
 const FOOTER_HINT: &str =
     "/ search · R rename · JK mv · g groups · , settings · d dim · f focus · q quit";
@@ -134,14 +136,7 @@ pub fn draw(frame: &mut Frame, state: &PickerState) {
         .direction(Direction::Vertical)
         .constraints([Constraint::Length(TITLE_CHROME_ROWS), Constraint::Min(0)])
         .split(inner);
-    let chrome_area = chunks[0];
     let content = chunks[1];
-
-    let rule = "─".repeat(chrome_area.width as usize);
-    frame.render_widget(
-        Paragraph::new(Line::from(Span::styled(rule, Style::default().fg(DIM)))),
-        chrome_area,
-    );
 
     match state.mode {
         Mode::Command => draw_command(frame, state, content),
@@ -1300,6 +1295,27 @@ mod tests {
             }
         }
         assert!(title_magenta, "title text picks up the configured border color");
+    }
+
+    #[test]
+    fn no_dim_rule_renders_between_title_and_first_group_header() {
+        let sessions = vec![Session { name: "a".into(), activity: 1, created: 1, attached: false,
+                                       windows: vec![] }];
+        let cfg = Config { groups: vec![], ..Default::default() };
+        let state = PickerState::build(sessions, &cfg);
+        let backend = TestBackend::new(84, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| draw(f, &state)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+        // The row directly under the top border (which itself carries the
+        // title) used to hold the DarkGray divider rule; it must now be blank.
+        let chrome_row = POPUP_MARGIN + 1;
+        let sample_x = POPUP_MARGIN + 3;
+        assert_ne!(
+            buf[(sample_x, chrome_row)].symbol(),
+            "─",
+            "the row under the title should be blank, not a divider rule"
+        );
     }
 
     #[test]
