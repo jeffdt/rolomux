@@ -2673,8 +2673,8 @@ mod tests {
         let text = render_to_string(&settings_view());
         assert!(text.contains("Attached session color"));
         assert!(text.contains("Border color"));
-        // Both default to cyan and render collapsed with a swatch + name.
-        assert_eq!(text.matches("cyan").count(), 2, "one swatch label per collapsed color row");
+        // Both default to green and render collapsed with a swatch + name.
+        assert_eq!(text.matches("green").count(), 2, "one swatch label per collapsed color row");
     }
 
     #[test]
@@ -2713,7 +2713,7 @@ mod tests {
         let text = render_to_string_sized(&st, 80, 24);
         assert!(text.contains("[x]"), "active color checked");
         assert!(text.contains("[ ]"), "inactive color unchecked");
-        assert!(text.contains("cyan"));
+        assert!(text.contains("green"));
         assert!(text.contains("black"));
     }
 

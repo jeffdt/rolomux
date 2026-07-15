@@ -3276,10 +3276,10 @@ mod tests {
     }
 
     #[test]
-    fn attached_and_border_color_default_to_cyan() {
+    fn attached_and_border_color_default_to_green() {
         let st = settings_state();
-        assert_eq!(st.attached_color, "cyan");
-        assert_eq!(st.border_color, "cyan");
+        assert_eq!(st.attached_color, "green");
+        assert_eq!(st.border_color, "green");
     }
 
     #[test]
@@ -3291,8 +3291,8 @@ mod tests {
         assert_eq!(st.settings_visible_rows().len(), 8 + 16, "expanded into 16 options");
         assert_eq!(
             st.settings_visible_rows()[st.settings_cursor()],
-            SettingsRow::AttachedColorOption(6),
-            "cursor lands on the currently selected color (cyan, index 6), not row 0"
+            SettingsRow::AttachedColorOption(2),
+            "cursor lands on the currently selected color (green, index 2), not row 0"
         );
         st.settings_step_left();
         assert_eq!(st.settings_visible_rows().len(), 8, "collapsed back");
@@ -3307,8 +3307,8 @@ mod tests {
         assert_eq!(st.settings_visible_rows().len(), 8 + 16);
         assert_eq!(
             st.settings_visible_rows()[st.settings_cursor()],
-            SettingsRow::BorderColorOption(6),
-            "cursor lands on the currently selected color (cyan, index 6)"
+            SettingsRow::BorderColorOption(2),
+            "cursor lands on the currently selected color (green, index 2)"
         );
         st.settings_step_left();
         assert_eq!(st.settings_visible_rows().len(), 8);
@@ -3319,11 +3319,11 @@ mod tests {
     fn activate_on_an_attached_color_option_commits_and_collapses() {
         let mut st = settings_state();
         st.settings_move_cursor(4); // AttachedColor
-        st.settings_step_right(); // expand, cursor lands on index 6 (cyan)
-        st.settings_move_cursor(-1); // step to index 5 ("magenta")
-        assert_eq!(st.settings_visible_rows()[st.settings_cursor()], SettingsRow::AttachedColorOption(5));
+        st.settings_step_right(); // expand, cursor lands on index 2 (green)
+        st.settings_move_cursor(-1); // step to index 1 ("red")
+        assert_eq!(st.settings_visible_rows()[st.settings_cursor()], SettingsRow::AttachedColorOption(1));
         st.settings_activate();
-        assert_eq!(st.attached_color, "magenta");
+        assert_eq!(st.attached_color, "red");
         assert!(st.dirty);
         assert_eq!(st.settings_visible_rows().len(), 8, "collapsed after committing");
         assert_eq!(st.settings_cursor(), 4, "cursor returned to the AttachedColor row");
@@ -3333,11 +3333,11 @@ mod tests {
     fn activate_on_a_border_color_option_commits_and_collapses() {
         let mut st = settings_state();
         st.settings_move_cursor(5); // BorderColor
-        st.settings_step_right();
-        st.settings_move_cursor(-5); // index 6 -> index 1 ("red")
-        assert_eq!(st.settings_visible_rows()[st.settings_cursor()], SettingsRow::BorderColorOption(1));
+        st.settings_step_right(); // expand, cursor lands on index 2 (green)
+        st.settings_move_cursor(1); // step to index 3 ("yellow")
+        assert_eq!(st.settings_visible_rows()[st.settings_cursor()], SettingsRow::BorderColorOption(3));
         st.settings_activate();
-        assert_eq!(st.border_color, "red");
+        assert_eq!(st.border_color, "yellow");
         assert!(st.dirty);
         assert_eq!(st.settings_cursor(), 5, "cursor returned to the BorderColor row");
     }
@@ -3347,9 +3347,9 @@ mod tests {
         let mut st = settings_state();
         st.settings_move_cursor(4);
         st.settings_step_right();
-        st.settings_move_cursor(-1); // onto "magenta"
+        st.settings_move_cursor(-1); // onto "red"
         st.settings_step_left(); // cancel, not activate
-        assert_eq!(st.attached_color, "cyan", "unchanged: h cancels rather than commits");
+        assert_eq!(st.attached_color, "green", "unchanged: h cancels rather than commits");
         assert_eq!(st.settings_cursor(), 4);
     }
 
@@ -3571,7 +3571,7 @@ mod tests {
         let mut st = settings_state();
         st.settings_move_cursor(4); // AttachedColor, collapsed
         st.settings_cycle_color();
-        assert_eq!(st.attached_color, "gray", "cyan -> gray, next in ALL_NAMED_COLORS");
+        assert_eq!(st.attached_color, "yellow", "green -> yellow, next in ALL_NAMED_COLORS");
         assert!(st.dirty);
         assert_eq!(st.settings_visible_rows().len(), 8, "stays collapsed");
     }
@@ -3581,7 +3581,7 @@ mod tests {
         let mut st = settings_state();
         st.settings_move_cursor(5); // BorderColor, collapsed
         st.settings_cycle_color();
-        assert_eq!(st.border_color, "gray");
+        assert_eq!(st.border_color, "yellow");
         assert!(st.dirty);
         assert_eq!(st.settings_visible_rows().len(), 8, "stays collapsed");
     }
