@@ -5,3 +5,4 @@
 /.claude/*
 !/.claude/skills
 /examples/mockup.rs
+*.local.md
