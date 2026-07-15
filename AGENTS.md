@@ -258,6 +258,11 @@ and updating `scripts/release.sh`'s asset handling.
   `tmux list-windows -a -F '#{window_id} #{window_name} #{pane_current_command}
   #{pane_current_path}'`.
 
+  Once the preview window is confirmed live, report back a one-sentence
+  summary of the problem being solved and a one-sentence description of how
+  to test it (which keys to press, what to look for) -- so Jeff can jump
+  straight to trying it without re-deriving context from the conversation.
+
   A prior version of this note told agents to run bare
   `tmux split-window`/`new-window` with no `-t`. Don't: an agent's Bash tool
   runs as a detached subprocess with no controlling tty, so that resolves
