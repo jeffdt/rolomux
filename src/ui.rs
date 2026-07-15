@@ -1890,6 +1890,52 @@ mod tests {
         assert!(checked, "expected to find the rename hint in the command-mode footer");
     }
 
+    // Guards against a future edit reverting one footer call site back to a
+    // raw `Style::default().fg(DIM)` span, bypassing `styled_hint` -- while
+    // command mode already gets a full draw()-level assertion above, the
+    // other three modes all end their hint in "Esc back", so one shared
+    // helper is enough to catch that regression without three near-duplicate
+    // copies of the same render-and-inspect test.
+    fn assert_footer_key_is_styled(buf: &ratatui::buffer::Buffer) {
+        let mut checked = false;
+        for y in 0..buf.area.height {
+            if let Some(x) = find_text_x(buf, y, "back") {
+                let key_style = buf[(x - 4, y)].style(); // the "E" in "Esc back"
+                assert_eq!(key_style.fg, Some(Color::Gray), "key token renders in Gray, not dim");
+                assert!(!key_style.add_modifier.contains(Modifier::BOLD), "key token is not bold");
+                checked = true;
+            }
+        }
+        assert!(checked, "expected to find the 'Esc back' hint in the footer");
+    }
+
+    #[test]
+    fn search_footer_hint_uses_styled_hint() {
+        let state = searching_state("pr");
+        let backend = TestBackend::new(84, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| draw(f, &state)).unwrap();
+        assert_footer_key_is_styled(terminal.backend().buffer());
+    }
+
+    #[test]
+    fn group_footer_hint_uses_styled_hint() {
+        let state = groups_view(false);
+        let backend = TestBackend::new(84, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| draw(f, &state)).unwrap();
+        assert_footer_key_is_styled(terminal.backend().buffer());
+    }
+
+    #[test]
+    fn settings_footer_hint_uses_styled_hint() {
+        let state = settings_view();
+        let backend = TestBackend::new(84, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| draw(f, &state)).unwrap();
+        assert_footer_key_is_styled(terminal.backend().buffer());
+    }
+
     #[test]
     fn draw_numbers_sessions_in_left_gutter() {
         let sessions = vec![

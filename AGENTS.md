@@ -224,6 +224,15 @@ and updating `scripts/release.sh`'s asset handling.
 
 ## Working in this repo
 
+- **Always work in a dedicated `wt switch --create jeffdt/<branch>` worktree,
+  never directly in this main checkout.** Create the worktree first, even for
+  an edit that feels too small to bother. This bit us directly: two agent
+  sessions once edited the shared main checkout at the same time with no
+  worktree isolation, producing one entangled uncommitted diff (an unrelated
+  cosmetic tweak and a mid-flight model refactor mixed into the same files)
+  and a broken build that neither session noticed until Jeff asked about it.
+  A worktree per feature branch is what makes concurrent or resumed sessions
+  safe; the main checkout should stay clean and always reflect `origin/main`.
 - Build/test loop: `RUSTFLAGS="-D warnings" cargo test`, then
   `cargo build --release`.
 - **Leave a live preview when a feature is done.** Once a feature is
