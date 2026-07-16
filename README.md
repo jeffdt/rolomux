@@ -126,7 +126,7 @@ In Settings, change **Number dormant sessions** to **No** if you want dormant se
 Once you have a few sessions marked dormant, you can press `f` to enter focus mode.
 In focus mode, both dormant sessions and empty groups disappear from view altogether.
 This is a powerful tool when you cannot afford distractions luring you away from your priorities.
-You will see a small reminder like `8 dormant sessions hidden` while focus mode is active.
+You will see a small reminder like `8 sessions hidden` while focus mode is active.
 
 Dormant sessions and focus mode persist across popups until turned off.
 Press `f` again to exit focus mode and everything will be restored exactly as it was.

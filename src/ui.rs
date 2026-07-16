@@ -749,8 +749,8 @@ fn window_count(wins: usize) -> String {
     format!("{wins} {label}")
 }
 
-fn hidden_dormant_status(count: usize) -> String {
-    let label = if count == 1 { "dormant session" } else { "dormant sessions" };
+fn hidden_status(count: usize) -> String {
+    let label = if count == 1 { "session" } else { "sessions" };
     format!("{count} {label} hidden")
 }
 
@@ -759,7 +759,7 @@ fn footer_rule(width: u16, state: &PickerState) -> String {
     if !state.focus_mode() {
         return "─".repeat(width);
     }
-    let label = format!("─ {} ", hidden_dormant_status(state.hidden_dormant_count()));
+    let label = format!("─ {} ", hidden_status(state.hidden_dormant_count()));
     let label_width = label.chars().count();
     if label_width >= width {
         return label.chars().take(width).collect();
@@ -1514,7 +1514,7 @@ mod tests {
         let text = render_to_string(&state);
         assert!(text.contains("alpha"), "active session remains visible");
         assert!(!text.contains("beta"), "dormant session is hidden");
-        assert!(text.contains("1 dormant session hidden"), "hidden count reminder is visible");
+        assert!(text.contains("1 session hidden"), "hidden count reminder is visible");
         assert!(text.contains("f show"), "footer shows how to restore dormant sessions");
     }
 
@@ -1538,7 +1538,44 @@ mod tests {
         assert!(!text.contains("beta"), "matching dormant session is hidden from search");
         assert!(!text.contains("bravo"), "matching dormant session is hidden from search");
         assert!(text.contains("no matches"), "search reports no visible matches");
-        assert!(text.contains("2 dormant sessions hidden"), "search mode shows hidden count reminder");
+        assert!(text.contains("2 sessions hidden"), "search mode shows hidden count reminder");
+    }
+
+    #[test]
+    fn attached_dormant_session_stays_visible_and_excluded_from_hidden_count() {
+        let sessions = vec![
+            Session { id: String::new(), name: "alpha".into(), activity: 30, created: 1, attached: true,
+                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+            Session { id: String::new(), name: "beta".into(), activity: 20, created: 2, attached: false,
+                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+        ];
+        let cfg = Config { groups: vec![], dormant: vec!["alpha".into(), "beta".into()], ..Default::default() };
+        let mut state = PickerState::build(sessions, &cfg);
+        state.toggle_focus_mode();
+
+        let text = render_to_string(&state);
+        assert!(text.contains("alpha"), "attached session stays visible even though dormant");
+        assert!(!text.contains("beta"), "non-attached dormant session is still hidden");
+        assert!(text.contains("1 session hidden"), "hidden count excludes the visible attached session");
+    }
+
+    #[test]
+    fn focus_mode_keeps_group_header_when_only_member_is_attached_dormant() {
+        let sessions = vec![
+            Session { id: String::new(), name: "work".into(), activity: 30, created: 1, attached: true,
+                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+        ];
+        let cfg = Config {
+            groups: vec![Group { name: "PROJECT".into(), members: vec!["work".into()], color: String::new(), ..Default::default() }],
+            dormant: vec!["work".into()],
+            ..Default::default()
+        };
+        let mut state = PickerState::build(sessions, &cfg);
+        state.toggle_focus_mode();
+
+        let text = render_to_string(&state);
+        assert!(text.contains("PROJECT"), "group header stays visible: its only member is the attached dormant session");
+        assert!(text.contains("work"), "attached dormant session itself stays visible");
     }
 
     #[test]
