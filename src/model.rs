@@ -553,7 +553,7 @@ impl PickerState {
             }
         }
         if self.focus_mode {
-            out.retain(|s| !self.dormant.contains(&s.name));
+            out.retain(|s| !self.dormant.contains(&s.name) || s.attached);
         }
         out
     }
@@ -636,9 +636,15 @@ impl PickerState {
 
     /// Whether `name` is marked dormant. When dormant sessions are shown, they
     /// are dimmed but otherwise fully normal; `focus_mode` is the only filter
-    /// that removes them from the picker.
+    /// that removes them from the picker, except for the attached session,
+    /// which always stays visible even while dormant (see `is_attached`).
     pub fn is_dormant(&self, name: &str) -> bool {
         self.dormant.contains(name)
+    }
+
+    /// Whether `name` is the session the current tmux client is attached to.
+    fn is_attached(&self, name: &str) -> bool {
+        self.all.iter().any(|s| s.name == name && s.attached)
     }
 
     pub fn focus_mode(&self) -> bool {
@@ -649,12 +655,17 @@ impl PickerState {
         self.all.iter().filter(|s| self.is_dormant(&s.name)).count()
     }
 
+    /// Count of dormant sessions actually hidden by focus mode -- excludes
+    /// the attached session, which stays visible even while dormant.
     pub fn hidden_dormant_count(&self) -> usize {
-        if self.focus_mode { self.dormant_count() } else { 0 }
+        if !self.focus_mode {
+            return 0;
+        }
+        self.all.iter().filter(|s| self.is_dormant(&s.name) && !s.attached).count()
     }
 
     fn session_visible(&self, name: &str) -> bool {
-        !self.focus_mode || !self.is_dormant(name)
+        !self.focus_mode || !self.is_dormant(name) || self.is_attached(name)
     }
 
     /// Toggle whether focus mode (hiding dormant sessions, and any group left
@@ -2544,6 +2555,61 @@ mod tests {
         assert_eq!(state.hidden_dormant_count(), 1);
         let visible: Vec<&str> = state.ordered().iter().map(|s| s.name.as_str()).collect();
         assert_eq!(visible, vec!["b"]);
+    }
+
+    #[test]
+    fn attached_dormant_session_stays_visible_in_focus_mode() {
+        let mut sessions = vec![s("a", 30, 1), s("b", 20, 2)];
+        sessions[1].attached = true;
+        let cfg = Config {
+            groups: vec![],
+            dormant: vec!["a".into(), "b".into()],
+            focus_mode: true,
+            ..Default::default()
+        };
+        let state = PickerState::build(sessions, &cfg);
+        let visible: Vec<&str> = state.ordered().iter().map(|s| s.name.as_str()).collect();
+        assert_eq!(
+            visible,
+            vec!["b"],
+            "attached dormant session stays visible; non-attached dormant session stays hidden"
+        );
+        assert_eq!(
+            state.hidden_dormant_count(),
+            1,
+            "only the non-attached dormant session counts toward the hidden count"
+        );
+    }
+
+    #[test]
+    fn session_visible_true_for_attached_dormant_session_in_focus_mode() {
+        let mut sessions = vec![s("a", 30, 1)];
+        sessions[0].attached = true;
+        let cfg = Config {
+            groups: vec![],
+            dormant: vec!["a".into()],
+            focus_mode: true,
+            ..Default::default()
+        };
+        let state = PickerState::build(sessions, &cfg);
+        assert!(state.session_visible("a"));
+    }
+
+    #[test]
+    fn toggle_dormant_on_attached_session_keeps_cursor_focused_in_focus_mode() {
+        let mut sessions = vec![s("a", 30, 1), s("b", 20, 2)];
+        sessions[0].attached = true;
+        let cfg = Config { groups: vec![], focus_mode: true, ..Default::default() };
+        let mut state = PickerState::build(sessions, &cfg); // cursor starts on "a" (attached)
+        assert_eq!(state.cursor_session_name().as_deref(), Some("a"));
+
+        state.toggle_dormant(); // marks "a" dormant while it's the attached session
+        assert!(state.is_dormant("a"));
+        assert_eq!(
+            state.cursor_session_name().as_deref(),
+            Some("a"),
+            "cursor stays on the attached session even though it's now dormant"
+        );
     }
 
     #[test]
