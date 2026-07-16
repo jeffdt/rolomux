@@ -2857,6 +2857,26 @@ mod tests {
     }
 
     #[test]
+    fn draw_settings_shows_clear_dormant_on_attach_row() {
+        let text = render_to_string(&settings_view());
+        assert!(text.contains("Clear dormant on attach"));
+        assert!(text.contains("No"), "defaults to No");
+    }
+
+    #[test]
+    fn draw_settings_clear_dormant_on_attach_shows_yes_when_toggled_on() {
+        let mut st = settings_view();
+        st.settings_move_cursor(4); // ClearDormantOnAttach
+        st.settings_step_right();
+        let text = render_to_string(&st);
+        let row = text
+            .lines()
+            .find(|line| line.contains("Clear dormant on attach"))
+            .expect("Clear dormant on attach row is rendered");
+        assert!(row.contains("Yes"), "row should show Yes once toggled on: {row:?}");
+    }
+
+    #[test]
     fn draw_settings_shows_session_metric_row() {
         let text = render_to_string(&settings_view());
         assert!(text.contains("Session metadata"));
@@ -2895,7 +2915,7 @@ mod tests {
     #[test]
     fn draw_settings_expanded_attached_color_shows_radio_glyphs() {
         let mut st = settings_view();
-        st.settings_move_cursor(4); // AttachedColor
+        st.settings_move_cursor(5); // AttachedColor
         st.settings_step_right(); // expand
         let text = render_to_string(&st);
         assert!(text.contains("●"), "the currently selected color is marked filled");
@@ -2911,7 +2931,7 @@ mod tests {
     #[test]
     fn draw_settings_expanded_border_color_shows_radio_glyphs() {
         let mut st = settings_view();
-        st.settings_move_cursor(5); // BorderColor
+        st.settings_move_cursor(6); // BorderColor
         st.settings_step_right();
         let text = render_to_string(&st);
         assert!(text.contains("●"));
@@ -2921,7 +2941,7 @@ mod tests {
     #[test]
     fn draw_settings_expanded_palette_shows_swatches_and_checkboxes() {
         let mut st = settings_view();
-        st.settings_move_cursor(7); // Palette
+        st.settings_move_cursor(8); // Palette
         st.settings_step_right(); // expand
         // Taller than the usual 80x20: section headers now push the palette
         // rows further down than the default viewport reveals.
@@ -2935,7 +2955,7 @@ mod tests {
     #[test]
     fn draw_settings_shows_static_color_value_when_policy_is_static() {
         let mut st = settings_view();
-        st.settings_move_cursor(6); // ColorPolicy row
+        st.settings_move_cursor(7); // ColorPolicy row
         st.settings_step_right(); // Rotate -> Random
         st.settings_step_right(); // Random -> Static
         st.static_color = "magenta".to_string();
@@ -2998,7 +3018,7 @@ mod tests {
     #[test]
     fn draw_settings_gutter_bar_continues_through_expanded_color_options() {
         let mut st = settings_view();
-        st.settings_move_cursor(4); // AttachedColor
+        st.settings_move_cursor(5); // AttachedColor
         st.settings_step_right(); // expand
         let text = render_to_string(&st);
         let row = text
@@ -3013,7 +3033,7 @@ mod tests {
     #[test]
     fn draw_settings_gutter_bar_continues_through_expanded_palette_rows() {
         let mut st = settings_view();
-        st.settings_move_cursor(7); // Palette
+        st.settings_move_cursor(8); // Palette
         st.settings_step_right(); // expand
         // Taller than the usual 80x20: section headers now push the palette
         // rows further down than the default viewport reveals.
