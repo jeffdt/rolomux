@@ -243,7 +243,8 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
                 }
                 let last = *wi + 1 == sess.windows.len();
                 let rename_buf = if selected && state.renaming() { state.rename_edit_buffer() } else { None };
-                items.push(window_item(&sess.windows[*wi], last, selected, current_gutter_color, rename_buf));
+                let dormant = state.is_dormant(&sess.name);
+                items.push(window_item(&sess.windows[*wi], last, selected, current_gutter_color, dormant, rename_buf));
             }
         }
     }
@@ -917,9 +918,11 @@ fn session_item(
     ListItem::new(Line::from(spans))
 }
 
-fn window_item(win: &Window, last: bool, selected: bool, gutter_color: Color, rename_buf: Option<&str>) -> ListItem<'static> {
+fn window_item(win: &Window, last: bool, selected: bool, gutter_color: Color, dormant: bool, rename_buf: Option<&str>) -> ListItem<'static> {
     let connector = if last { "  └─" } else { "  ├─" };
     let dot = if win.active { "●" } else { " " };
+    let dot_style = if dormant { dormant_session(selected) } else { Style::default().fg(DOT) };
+    let name_style = if dormant { dormant_session(selected) } else { Style::default() };
     if let Some(buf) = rename_buf {
         return ListItem::new(Line::from(vec![
             Span::styled("│", Style::default().fg(gutter_color)),
@@ -932,8 +935,8 @@ fn window_item(win: &Window, last: bool, selected: bool, gutter_color: Color, re
     ListItem::new(Line::from(vec![
         Span::styled("│", Style::default().fg(gutter_color)),
         Span::styled(connector.to_string(), secondary(selected)),
-        Span::styled(format!("{dot} "), Style::default().fg(DOT)),
-        Span::raw(win.name.clone()),
+        Span::styled(format!("{dot} "), dot_style),
+        Span::styled(win.name.clone(), name_style),
     ]))
 }
 
@@ -1620,6 +1623,38 @@ mod tests {
             }
         }
         assert!(beta_selected_gray, "selected dormant session renders gray on the highlight bar");
+    }
+
+    #[test]
+    fn draw_dims_dormant_sessions_windows() {
+        let sessions = vec![
+            Session { id: String::new(), name: "beta".into(), activity: 20, created: 2, attached: false,
+                      windows: vec![
+                          Window { index: 0, name: "editor".into(), active: true },
+                          Window { index: 1, name: "shell".into(), active: false },
+                      ] },
+        ];
+        let cfg = Config { groups: vec![], dormant: vec!["beta".into()], ..Default::default() };
+        let mut state = PickerState::build(sessions, &cfg); // cursor starts on "beta"
+        state.expand();
+
+        let backend = TestBackend::new(80, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| draw(f, &state)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+
+        let mut name_dim = false;
+        let mut dot_dim = false;
+        for y in 0..buf.area.height {
+            if let Some(x) = find_text_x(&buf, y, "editor") {
+                name_dim = buf[(x, y)].style().fg == Some(Color::DarkGray);
+                if x >= 2 {
+                    dot_dim = buf[(x - 2, y)].style().fg == Some(Color::DarkGray);
+                }
+            }
+        }
+        assert!(name_dim, "dormant session's window name renders dim");
+        assert!(dot_dim, "dormant session's active-window dot renders dim, not green");
     }
 
     #[test]
