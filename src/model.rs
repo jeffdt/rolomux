@@ -658,10 +658,6 @@ impl PickerState {
         self.focus_mode
     }
 
-    pub fn dormant_count(&self) -> usize {
-        self.all.iter().filter(|s| self.is_dormant(&s.name)).count()
-    }
-
     /// Count of dormant sessions actually hidden by focus mode -- excludes
     /// the attached session, which stays visible even while dormant.
     pub fn hidden_dormant_count(&self) -> usize {
@@ -2799,7 +2795,7 @@ mod tests {
         let cfg = Config { groups: vec![], dormant: vec!["beta".into()], ..Default::default() };
         let mut state = PickerState::build(sessions, &cfg);
 
-        assert_eq!(state.dormant_count(), 1);
+        assert!(state.is_dormant("beta"));
         let shown: Vec<&str> = state.ordered().iter().map(|s| s.name.as_str()).collect();
         assert_eq!(shown, vec!["alpha", "beta", "gamma"]);
 
