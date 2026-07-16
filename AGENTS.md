@@ -298,14 +298,19 @@ and updating `scripts/release.sh`'s asset handling.
   material and the reference implementers/reviewers read), but treat the
   **implementation plan** as the actual review gate: present that for his
   approval before execution begins.
-- **Keep the README current in the same PR.** A functional change (new key,
-  new behavior, new config option) needs its own line in the relevant README
-  section (Keys, How it works, Configuration); don't leave it to a later
-  cleanup pass. A change to the picker's visual appearance (colors, layout,
-  new UI element) needs a refreshed `docs/images/screenshot.png` showing it
-  live, using the same live-preview step above to get a real running picker
-  on screen before capturing it. Skip both for internal-only changes (specs
-  and plans, CI config, dependency bumps) with no user-facing surface.
+- **Update the README only when it's actually stale, not on every PR.**
+  Three triggers warrant a README change: (1) a new feature worth
+  advertising (a key, a mode, a config option someone would want to know
+  exists), (2) something the README currently says that's now obsolete or
+  factually wrong, or (3) a reference section (Keys, Settings) that would be
+  incomplete without the addition. A behavior tweak, an edge-case fix, or
+  something already implied by existing docs is not a trigger on its own:
+  don't add a line just because a PR touched the area. A change to the
+  picker's visual appearance (colors, layout, new UI element) needs a
+  refreshed `docs/images/screenshot.png` showing it live, using the same
+  live-preview step above to get a real running picker on screen before
+  capturing it. Skip both for internal-only changes (specs and plans, CI
+  config, dependency bumps) with no user-facing surface.
 - **Changes land via pull request.** Work on a feature branch named
   `jeffdt/<domain>-<brief-kebab-desc>` (the global convention applies here). When
   Jeff clears a change to go live, open a PR and then merge it yourself (squash,
