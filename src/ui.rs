@@ -455,6 +455,13 @@ fn draw_settings(frame: &mut Frame, state: &PickerState, inner: Rect) {
             SettingsRow::SessionMetric => {
                 settings_value_line("Session metadata", session_metric_label(state.session_metric), selected)
             }
+            SettingsRow::ClearDormantOnAttach => {
+                settings_value_line(
+                    "Clear dormant on attach",
+                    clear_dormant_on_attach_label(state.clear_dormant_on_attach),
+                    selected,
+                )
+            }
             SettingsRow::AttachedColor => {
                 settings_color_line("Attached session color", &state.attached_color, state.attached_color_expanded(), selected)
             }
@@ -619,6 +626,10 @@ fn session_metric_label(m: SessionMetric) -> &'static str {
 
 fn remember_expanded_label(remember_expanded_sessions: bool) -> &'static str {
     if remember_expanded_sessions { "Yes" } else { "No" }
+}
+
+fn clear_dormant_on_attach_label(clear_dormant_on_attach: bool) -> &'static str {
+    if clear_dormant_on_attach { "Yes" } else { "No" }
 }
 
 fn color_policy_label(p: ColorPolicy) -> &'static str {
