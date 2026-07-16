@@ -126,7 +126,7 @@ In Settings, change **Number dormant sessions** to **No** if you want dormant se
 Once you have a few sessions marked dormant, you can press `f` to enter focus mode.
 In focus mode, both dormant sessions and empty groups disappear from view altogether.
 This is a powerful tool when you cannot afford distractions luring you away from your priorities.
-You will see a small reminder like `8 dormant sessions hidden` while focus mode is active.
+You will see a small reminder like `8 sessions hidden` while focus mode is active.
 
 Dormant sessions and focus mode persist across popups until turned off.
 Press `f` again to exit focus mode and everything will be restored exactly as it was.
@@ -143,6 +143,7 @@ Press `,` to open Settings, a full-screen view of picker-wide preferences, group
 - **Default mode.** Whether the picker opens in Command mode or straight into Search.
 - **Number dormant sessions.** Whether visible dormant sessions are included in jump numbering (sessions 1-20).
 - **Remember expanded sessions.** Off by default (every popup starts fully collapsed). When on, expanding or collapsing a session's window tree (`l`/`h`/`z`) persists across popups, so the sessions you're actively jumping between stay expanded.
+- **Clear dormant on attach.** Off by default. When on, attaching to a dormant session automatically clears its dormant flag, so you don't have to remember to press `d` yourself.
 - **Session metadata.** Whether the row's trailing timestamp shows time since last activity (**Recency**, default), time since the session was created (**Age**), or is omitted entirely (**Hidden**).
 
 **Appearance**

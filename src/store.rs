@@ -28,6 +28,7 @@ pub struct Config {
     pub focus_mode: bool,
     pub default_mode: DefaultMode,
     pub number_dormant_sessions: bool,
+    pub clear_dormant_on_attach: bool,
     pub new_group_color_policy: ColorPolicy,
     pub static_color: String,
     pub active_palette: Vec<String>,
@@ -58,6 +59,7 @@ impl Default for Config {
             focus_mode: false,
             default_mode: DefaultMode::default(),
             number_dormant_sessions: true,
+            clear_dormant_on_attach: false,
             new_group_color_policy: ColorPolicy::default(),
             static_color: "cyan".to_string(),
             active_palette: default_active_palette(),
@@ -89,6 +91,8 @@ struct RawSettings {
     #[serde(default)]
     number_dormant_sessions: Option<bool>,
     #[serde(default)]
+    clear_dormant_on_attach: Option<bool>,
+    #[serde(default)]
     new_group_color_policy: Option<String>,
     #[serde(default)]
     static_color: Option<String>,
@@ -108,6 +112,7 @@ struct RawSettings {
 struct OutSettings {
     default_mode: String,
     number_dormant_sessions: bool,
+    clear_dormant_on_attach: bool,
     new_group_color_policy: String,
     static_color: String,
     active_palette: Vec<String>,
@@ -237,6 +242,7 @@ impl Config {
             focus_mode,
             default_mode,
             number_dormant_sessions: raw.settings.number_dormant_sessions.unwrap_or(true),
+            clear_dormant_on_attach: raw.settings.clear_dormant_on_attach.unwrap_or(false),
             new_group_color_policy,
             static_color,
             active_palette,
@@ -276,6 +282,7 @@ impl Config {
             settings: OutSettings {
                 default_mode: self.default_mode.as_config_str().to_string(),
                 number_dormant_sessions: self.number_dormant_sessions,
+                clear_dormant_on_attach: self.clear_dormant_on_attach,
                 new_group_color_policy: self.new_group_color_policy.as_config_str().to_string(),
                 static_color: self.static_color.clone(),
                 active_palette: self.active_palette.clone(),
@@ -927,6 +934,24 @@ inbox = true
         let changed = cfg.reconcile(&live_ids(&["a"]));
         assert!(changed);
         assert_eq!(cfg.expanded, vec!["a".to_string()]);
+    }
+
+    #[test]
+    fn default_config_has_clear_dormant_on_attach_off() {
+        let cfg = Config::default();
+        assert!(!cfg.clear_dormant_on_attach);
+    }
+
+    #[test]
+    fn round_trips_clear_dormant_on_attach() {
+        let dir = std::env::temp_dir().join(format!("rolomux-clear-dormant-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.toml");
+        let cfg = Config { clear_dormant_on_attach: true, ..Default::default() };
+        cfg.save_to(&path).unwrap();
+        let reloaded = Config::load_from(&path);
+        assert!(reloaded.clear_dormant_on_attach);
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     fn live_ids(names: &[&str]) -> Vec<(String, String)> {

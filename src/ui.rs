@@ -243,7 +243,8 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
                 }
                 let last = *wi + 1 == sess.windows.len();
                 let rename_buf = if selected && state.renaming() { state.rename_edit_buffer() } else { None };
-                items.push(window_item(&sess.windows[*wi], last, selected, current_gutter_color, rename_buf));
+                let dormant = state.is_dormant(&sess.name);
+                items.push(window_item(&sess.windows[*wi], last, selected, current_gutter_color, dormant, rename_buf));
             }
         }
     }
@@ -454,6 +455,13 @@ fn draw_settings(frame: &mut Frame, state: &PickerState, inner: Rect) {
             SettingsRow::SessionMetric => {
                 settings_value_line("Session metadata", session_metric_label(state.session_metric), selected)
             }
+            SettingsRow::ClearDormantOnAttach => {
+                settings_value_line(
+                    "Clear dormant on attach",
+                    clear_dormant_on_attach_label(state.clear_dormant_on_attach),
+                    selected,
+                )
+            }
             SettingsRow::AttachedColor => {
                 settings_color_line("Attached session color", &state.attached_color, state.attached_color_expanded(), selected)
             }
@@ -620,6 +628,10 @@ fn remember_expanded_label(remember_expanded_sessions: bool) -> &'static str {
     if remember_expanded_sessions { "Yes" } else { "No" }
 }
 
+fn clear_dormant_on_attach_label(clear_dormant_on_attach: bool) -> &'static str {
+    if clear_dormant_on_attach { "Yes" } else { "No" }
+}
+
 fn color_policy_label(p: ColorPolicy) -> &'static str {
     match p {
         ColorPolicy::Rotate => "Rotate",
@@ -749,8 +761,8 @@ fn window_count(wins: usize) -> String {
     format!("{wins} {label}")
 }
 
-fn hidden_dormant_status(count: usize) -> String {
-    let label = if count == 1 { "dormant session" } else { "dormant sessions" };
+fn hidden_status(count: usize) -> String {
+    let label = if count == 1 { "session" } else { "sessions" };
     format!("{count} {label} hidden")
 }
 
@@ -759,7 +771,7 @@ fn footer_rule(width: u16, state: &PickerState) -> String {
     if !state.focus_mode() {
         return "─".repeat(width);
     }
-    let label = format!("─ {} ", hidden_dormant_status(state.hidden_dormant_count()));
+    let label = format!("─ {} ", hidden_status(state.hidden_dormant_count()));
     let label_width = label.chars().count();
     if label_width >= width {
         return label.chars().take(width).collect();
@@ -917,9 +929,11 @@ fn session_item(
     ListItem::new(Line::from(spans))
 }
 
-fn window_item(win: &Window, last: bool, selected: bool, gutter_color: Color, rename_buf: Option<&str>) -> ListItem<'static> {
+fn window_item(win: &Window, last: bool, selected: bool, gutter_color: Color, dormant: bool, rename_buf: Option<&str>) -> ListItem<'static> {
     let connector = if last { "  └─" } else { "  ├─" };
     let dot = if win.active { "●" } else { " " };
+    let dot_style = if dormant { dormant_session(selected) } else { Style::default().fg(DOT) };
+    let name_style = if dormant { dormant_session(selected) } else { Style::default() };
     if let Some(buf) = rename_buf {
         return ListItem::new(Line::from(vec![
             Span::styled("│", Style::default().fg(gutter_color)),
@@ -932,8 +946,8 @@ fn window_item(win: &Window, last: bool, selected: bool, gutter_color: Color, re
     ListItem::new(Line::from(vec![
         Span::styled("│", Style::default().fg(gutter_color)),
         Span::styled(connector.to_string(), secondary(selected)),
-        Span::styled(format!("{dot} "), Style::default().fg(DOT)),
-        Span::raw(win.name.clone()),
+        Span::styled(format!("{dot} "), dot_style),
+        Span::styled(win.name.clone(), name_style),
     ]))
 }
 
@@ -1514,7 +1528,7 @@ mod tests {
         let text = render_to_string(&state);
         assert!(text.contains("alpha"), "active session remains visible");
         assert!(!text.contains("beta"), "dormant session is hidden");
-        assert!(text.contains("1 dormant session hidden"), "hidden count reminder is visible");
+        assert!(text.contains("1 session hidden"), "hidden count reminder is visible");
         assert!(text.contains("f show"), "footer shows how to restore dormant sessions");
     }
 
@@ -1538,7 +1552,44 @@ mod tests {
         assert!(!text.contains("beta"), "matching dormant session is hidden from search");
         assert!(!text.contains("bravo"), "matching dormant session is hidden from search");
         assert!(text.contains("no matches"), "search reports no visible matches");
-        assert!(text.contains("2 dormant sessions hidden"), "search mode shows hidden count reminder");
+        assert!(text.contains("2 sessions hidden"), "search mode shows hidden count reminder");
+    }
+
+    #[test]
+    fn attached_dormant_session_stays_visible_and_excluded_from_hidden_count() {
+        let sessions = vec![
+            Session { id: String::new(), name: "alpha".into(), activity: 30, created: 1, attached: true,
+                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+            Session { id: String::new(), name: "beta".into(), activity: 20, created: 2, attached: false,
+                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+        ];
+        let cfg = Config { groups: vec![], dormant: vec!["alpha".into(), "beta".into()], ..Default::default() };
+        let mut state = PickerState::build(sessions, &cfg);
+        state.toggle_focus_mode();
+
+        let text = render_to_string(&state);
+        assert!(text.contains("alpha"), "attached session stays visible even though dormant");
+        assert!(!text.contains("beta"), "non-attached dormant session is still hidden");
+        assert!(text.contains("1 session hidden"), "hidden count excludes the visible attached session");
+    }
+
+    #[test]
+    fn focus_mode_keeps_group_header_when_only_member_is_attached_dormant() {
+        let sessions = vec![
+            Session { id: String::new(), name: "work".into(), activity: 30, created: 1, attached: true,
+                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+        ];
+        let cfg = Config {
+            groups: vec![Group { name: "PROJECT".into(), members: vec!["work".into()], color: String::new(), ..Default::default() }],
+            dormant: vec!["work".into()],
+            ..Default::default()
+        };
+        let mut state = PickerState::build(sessions, &cfg);
+        state.toggle_focus_mode();
+
+        let text = render_to_string(&state);
+        assert!(text.contains("PROJECT"), "group header stays visible: its only member is the attached dormant session");
+        assert!(text.contains("work"), "attached dormant session itself stays visible");
     }
 
     #[test]
@@ -1583,6 +1634,38 @@ mod tests {
             }
         }
         assert!(beta_selected_gray, "selected dormant session renders gray on the highlight bar");
+    }
+
+    #[test]
+    fn draw_dims_dormant_sessions_windows() {
+        let sessions = vec![
+            Session { id: String::new(), name: "beta".into(), activity: 20, created: 2, attached: false,
+                      windows: vec![
+                          Window { index: 0, name: "editor".into(), active: true },
+                          Window { index: 1, name: "shell".into(), active: false },
+                      ] },
+        ];
+        let cfg = Config { groups: vec![], dormant: vec!["beta".into()], ..Default::default() };
+        let mut state = PickerState::build(sessions, &cfg); // cursor starts on "beta"
+        state.expand();
+
+        let backend = TestBackend::new(80, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| draw(f, &state)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+
+        let mut name_dim = false;
+        let mut dot_dim = false;
+        for y in 0..buf.area.height {
+            if let Some(x) = find_text_x(&buf, y, "editor") {
+                name_dim = buf[(x, y)].style().fg == Some(Color::DarkGray);
+                if x >= 2 {
+                    dot_dim = buf[(x - 2, y)].style().fg == Some(Color::DarkGray);
+                }
+            }
+        }
+        assert!(name_dim, "dormant session's window name renders dim");
+        assert!(dot_dim, "dormant session's active-window dot renders dim, not green");
     }
 
     #[test]
@@ -2774,6 +2857,26 @@ mod tests {
     }
 
     #[test]
+    fn draw_settings_shows_clear_dormant_on_attach_row() {
+        let text = render_to_string(&settings_view());
+        assert!(text.contains("Clear dormant on attach"));
+        assert!(text.contains("No"), "defaults to No");
+    }
+
+    #[test]
+    fn draw_settings_clear_dormant_on_attach_shows_yes_when_toggled_on() {
+        let mut st = settings_view();
+        st.settings_move_cursor(4); // ClearDormantOnAttach
+        st.settings_step_right();
+        let text = render_to_string(&st);
+        let row = text
+            .lines()
+            .find(|line| line.contains("Clear dormant on attach"))
+            .expect("Clear dormant on attach row is rendered");
+        assert!(row.contains("Yes"), "row should show Yes once toggled on: {row:?}");
+    }
+
+    #[test]
     fn draw_settings_shows_session_metric_row() {
         let text = render_to_string(&settings_view());
         assert!(text.contains("Session metadata"));
@@ -2812,7 +2915,7 @@ mod tests {
     #[test]
     fn draw_settings_expanded_attached_color_shows_radio_glyphs() {
         let mut st = settings_view();
-        st.settings_move_cursor(4); // AttachedColor
+        st.settings_move_cursor(5); // AttachedColor
         st.settings_step_right(); // expand
         let text = render_to_string(&st);
         assert!(text.contains("●"), "the currently selected color is marked filled");
@@ -2828,7 +2931,7 @@ mod tests {
     #[test]
     fn draw_settings_expanded_border_color_shows_radio_glyphs() {
         let mut st = settings_view();
-        st.settings_move_cursor(5); // BorderColor
+        st.settings_move_cursor(6); // BorderColor
         st.settings_step_right();
         let text = render_to_string(&st);
         assert!(text.contains("●"));
@@ -2838,7 +2941,7 @@ mod tests {
     #[test]
     fn draw_settings_expanded_palette_shows_swatches_and_checkboxes() {
         let mut st = settings_view();
-        st.settings_move_cursor(7); // Palette
+        st.settings_move_cursor(8); // Palette
         st.settings_step_right(); // expand
         // Taller than the usual 80x20: section headers now push the palette
         // rows further down than the default viewport reveals.
@@ -2852,7 +2955,7 @@ mod tests {
     #[test]
     fn draw_settings_shows_static_color_value_when_policy_is_static() {
         let mut st = settings_view();
-        st.settings_move_cursor(6); // ColorPolicy row
+        st.settings_move_cursor(7); // ColorPolicy row
         st.settings_step_right(); // Rotate -> Random
         st.settings_step_right(); // Random -> Static
         st.static_color = "magenta".to_string();
@@ -2915,7 +3018,7 @@ mod tests {
     #[test]
     fn draw_settings_gutter_bar_continues_through_expanded_color_options() {
         let mut st = settings_view();
-        st.settings_move_cursor(4); // AttachedColor
+        st.settings_move_cursor(5); // AttachedColor
         st.settings_step_right(); // expand
         let text = render_to_string(&st);
         let row = text
@@ -2930,7 +3033,7 @@ mod tests {
     #[test]
     fn draw_settings_gutter_bar_continues_through_expanded_palette_rows() {
         let mut st = settings_view();
-        st.settings_move_cursor(7); // Palette
+        st.settings_move_cursor(8); // Palette
         st.settings_step_right(); // expand
         // Taller than the usual 80x20: section headers now push the palette
         // rows further down than the default viewport reveals.
