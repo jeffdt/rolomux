@@ -1116,7 +1116,7 @@ checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 
 [[package]]
 name = "rolomux"
-version = "0.24.0"
+version = "0.25.0"
 dependencies = [
  "crossterm 0.28.1",
  "nucleo-matcher",
