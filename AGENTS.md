@@ -305,8 +305,15 @@ and updating `scripts/release.sh`'s asset handling.
   factually wrong, or (3) a reference section (Keys, Settings) that would be
   incomplete without the addition. A behavior tweak, an edge-case fix, or
   something already implied by existing docs is not a trigger on its own:
-  don't add a line just because a PR touched the area. A change to the
-  picker's visual appearance (colors, layout, new UI element) needs a
+  don't add a line just because a PR touched the area. When a trigger does
+  fire, decide what the line should say as part of designing the feature,
+  not by drafting prose once the code is done -- and keep it to the
+  behavioral fact a user needs (what changed, what they can now do), not
+  the implementation mechanism (how it renders, which internal function
+  backs it, what it looked like mid-iteration). A chat summary written for
+  Jeff mid-conversation is not README prose; the two have different
+  audiences and detail levels, so don't port one into the other verbatim.
+  A change to the picker's visual appearance (colors, layout, new UI element) needs a
   refreshed `docs/images/screenshot.png` showing it live, using the same
   live-preview step above to get a real running picker on screen before
   capturing it. Skip both for internal-only changes (specs and plans, CI
