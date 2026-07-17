@@ -1,6 +1,6 @@
 use crate::model::{
-    ColorPolicy, DefaultMode, Group, Mode, PickerState, Row, Session, SessionMetric, SettingsRow,
-    Window, ALL_NAMED_COLORS,
+    ColorPolicy, DefaultMode, Group, Mode, NewGroupPosition, PickerState, Row, Session, SessionMetric,
+    SettingsRow, Window, ALL_NAMED_COLORS,
 };
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
@@ -462,6 +462,13 @@ fn draw_settings(frame: &mut Frame, state: &PickerState, inner: Rect) {
                     selected,
                 )
             }
+            SettingsRow::NewGroupPosition => {
+                settings_value_line(
+                    "New group position",
+                    new_group_position_label(state.new_group_position),
+                    selected,
+                )
+            }
             SettingsRow::AttachedColor => {
                 settings_color_line("Attached session color", &state.attached_color, state.attached_color_expanded(), selected)
             }
@@ -630,6 +637,13 @@ fn remember_expanded_label(remember_expanded_sessions: bool) -> &'static str {
 
 fn clear_dormant_on_attach_label(clear_dormant_on_attach: bool) -> &'static str {
     if clear_dormant_on_attach { "Yes" } else { "No" }
+}
+
+fn new_group_position_label(p: NewGroupPosition) -> &'static str {
+    match p {
+        NewGroupPosition::Top => "Top",
+        NewGroupPosition::Bottom => "Bottom",
+    }
 }
 
 fn color_policy_label(p: ColorPolicy) -> &'static str {
@@ -2877,6 +2891,26 @@ mod tests {
     }
 
     #[test]
+    fn draw_settings_shows_new_group_position_row() {
+        let text = render_to_string(&settings_view());
+        assert!(text.contains("New group position"));
+        assert!(text.contains("Top"), "defaults to Top");
+    }
+
+    #[test]
+    fn draw_settings_new_group_position_shows_bottom_when_toggled() {
+        let mut st = settings_view();
+        st.settings_move_cursor(5); // NewGroupPosition
+        st.settings_step_right();
+        let text = render_to_string(&st);
+        let row = text
+            .lines()
+            .find(|line| line.contains("New group position"))
+            .expect("New group position row is rendered");
+        assert!(row.contains("Bottom"), "row should show Bottom once toggled: {row:?}");
+    }
+
+    #[test]
     fn draw_settings_shows_session_metric_row() {
         let text = render_to_string(&settings_view());
         assert!(text.contains("Session metadata"));
@@ -2905,7 +2939,9 @@ mod tests {
 
     #[test]
     fn draw_settings_shows_attached_and_border_color_rows() {
-        let text = render_to_string(&settings_view());
+        // Taller than the usual 80x20: the added New group position row
+        // pushes Border color further down the list.
+        let text = render_to_string_sized(&settings_view(), 80, 21);
         assert!(text.contains("Attached session color"));
         assert!(text.contains("Border color"));
         // Both default to green and render collapsed with a swatch + name.
@@ -2915,7 +2951,7 @@ mod tests {
     #[test]
     fn draw_settings_expanded_attached_color_shows_radio_glyphs() {
         let mut st = settings_view();
-        st.settings_move_cursor(5); // AttachedColor
+        st.settings_move_cursor(6); // AttachedColor
         st.settings_step_right(); // expand
         let text = render_to_string(&st);
         assert!(text.contains("●"), "the currently selected color is marked filled");
@@ -2931,7 +2967,7 @@ mod tests {
     #[test]
     fn draw_settings_expanded_border_color_shows_radio_glyphs() {
         let mut st = settings_view();
-        st.settings_move_cursor(6); // BorderColor
+        st.settings_move_cursor(7); // BorderColor
         st.settings_step_right();
         let text = render_to_string(&st);
         assert!(text.contains("●"));
@@ -2941,11 +2977,12 @@ mod tests {
     #[test]
     fn draw_settings_expanded_palette_shows_swatches_and_checkboxes() {
         let mut st = settings_view();
-        st.settings_move_cursor(8); // Palette
+        st.settings_move_cursor(9); // Palette
         st.settings_step_right(); // expand
-        // Taller than the usual 80x20: section headers now push the palette
-        // rows further down than the default viewport reveals.
-        let text = render_to_string_sized(&st, 80, 24);
+        // Taller than the usual 80x20: section headers and the New group
+        // position row now push the palette rows further down than the
+        // default viewport reveals.
+        let text = render_to_string_sized(&st, 80, 25);
         assert!(text.contains("[x]"), "active color checked");
         assert!(text.contains("[ ]"), "inactive color unchecked");
         assert!(text.contains("green"));
@@ -2955,7 +2992,7 @@ mod tests {
     #[test]
     fn draw_settings_shows_static_color_value_when_policy_is_static() {
         let mut st = settings_view();
-        st.settings_move_cursor(7); // ColorPolicy row
+        st.settings_move_cursor(8); // ColorPolicy row
         st.settings_step_right(); // Rotate -> Random
         st.settings_step_right(); // Random -> Static
         st.static_color = "magenta".to_string();
@@ -3018,7 +3055,7 @@ mod tests {
     #[test]
     fn draw_settings_gutter_bar_continues_through_expanded_color_options() {
         let mut st = settings_view();
-        st.settings_move_cursor(5); // AttachedColor
+        st.settings_move_cursor(6); // AttachedColor
         st.settings_step_right(); // expand
         let text = render_to_string(&st);
         let row = text
@@ -3033,7 +3070,7 @@ mod tests {
     #[test]
     fn draw_settings_gutter_bar_continues_through_expanded_palette_rows() {
         let mut st = settings_view();
-        st.settings_move_cursor(8); // Palette
+        st.settings_move_cursor(9); // Palette
         st.settings_step_right(); // expand
         // Taller than the usual 80x20: section headers now push the palette
         // rows further down than the default viewport reveals.

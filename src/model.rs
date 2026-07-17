@@ -119,6 +119,42 @@ impl ColorPolicy {
     }
 }
 
+/// Governs where `PickerState::group_new` inserts a freshly created group in
+/// `groups`, now that the inbox is itself a normal, reorderable `Group` and
+/// so can no longer serve as a fixed "insert above this" anchor (issue
+/// #111). Never retroactively moves any existing group.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum NewGroupPosition {
+    #[default]
+    Top,
+    Bottom,
+}
+
+impl NewGroupPosition {
+    pub fn from_config_str(s: &str) -> NewGroupPosition {
+        match s {
+            "bottom" => NewGroupPosition::Bottom,
+            _ => NewGroupPosition::Top,
+        }
+    }
+
+    pub fn as_config_str(self) -> &'static str {
+        match self {
+            NewGroupPosition::Top => "top",
+            NewGroupPosition::Bottom => "bottom",
+        }
+    }
+
+    /// Only two values, so a single `next` covers both `h` and `l` -- unlike
+    /// `ColorPolicy`'s three-way cycle, there's no separate `prev` direction.
+    pub fn next(self) -> NewGroupPosition {
+        match self {
+            NewGroupPosition::Top => NewGroupPosition::Bottom,
+            NewGroupPosition::Bottom => NewGroupPosition::Top,
+        }
+    }
+}
+
 /// All 16 named ANSI terminal colors (never RGB), in a fixed canonical order.
 /// Backs the settings palette checklist and the Static-policy color cycle.
 pub const ALL_NAMED_COLORS: [&str; 16] = [
@@ -295,6 +331,7 @@ pub enum SettingsRow {
     RememberExpanded,
     SessionMetric,
     ClearDormantOnAttach,
+    NewGroupPosition,
     AttachedColor,
     /// Index into `ALL_NAMED_COLORS`.
     AttachedColorOption(usize),
@@ -328,6 +365,9 @@ impl SettingsRow {
             }
             SettingsRow::ClearDormantOnAttach => {
                 "When on, attaching to a dormant session automatically clears its dormant flag."
+            }
+            SettingsRow::NewGroupPosition => {
+                "Where a newly created group is inserted: Top or Bottom of the list."
             }
             SettingsRow::AttachedColor | SettingsRow::AttachedColorOption(_) => {
                 "Highlight color for the session your tmux client is attached to."
@@ -375,6 +415,7 @@ pub struct PickerState {
     pub remember_expanded_sessions: bool,
     pub clear_dormant_on_attach: bool,
     pub session_metric: SessionMetric,
+    pub new_group_position: NewGroupPosition,
     pub new_group_color_policy: ColorPolicy,
     pub static_color: String,
     pub active_palette: Vec<String>,
@@ -427,6 +468,7 @@ impl PickerState {
             remember_expanded_sessions: config.remember_expanded_sessions,
             clear_dormant_on_attach: config.clear_dormant_on_attach,
             session_metric: config.session_metric,
+            new_group_position: config.new_group_position,
             new_group_color_policy: config.new_group_color_policy,
             static_color: config.static_color.clone(),
             active_palette: config.active_palette.clone(),
@@ -776,6 +818,7 @@ impl PickerState {
         config.focus_mode = self.focus_mode();
         config.default_mode = self.default_mode;
         config.number_dormant_sessions = self.number_dormant_sessions;
+        config.new_group_position = self.new_group_position;
         config.new_group_color_policy = self.new_group_color_policy;
         config.static_color = self.static_color.clone();
         config.active_palette = self.active_palette.clone();
@@ -1188,6 +1231,7 @@ impl PickerState {
             SettingsRow::RememberExpanded,
             SettingsRow::SessionMetric,
             SettingsRow::ClearDormantOnAttach,
+            SettingsRow::NewGroupPosition,
             SettingsRow::AttachedColor,
         ];
         if self.attached_color_expanded {
@@ -1296,6 +1340,11 @@ impl PickerState {
         self.dirty = true;
     }
 
+    fn toggle_new_group_position(&mut self) {
+        self.new_group_position = self.new_group_position.next();
+        self.dirty = true;
+    }
+
     fn cycle_session_metric(&mut self) {
         self.session_metric = self.session_metric.next();
         self.dirty = true;
@@ -1315,6 +1364,7 @@ impl PickerState {
             SettingsRow::RememberExpanded => self.toggle_remember_expanded_sessions(),
             SettingsRow::SessionMetric => self.cycle_session_metric(),
             SettingsRow::ClearDormantOnAttach => self.toggle_clear_dormant_on_attach(),
+            SettingsRow::NewGroupPosition => self.toggle_new_group_position(),
             SettingsRow::AttachedColor => self.attached_color_expanded = false,
             SettingsRow::AttachedColorOption(_) => {
                 self.attached_color_expanded = false;
@@ -1352,6 +1402,7 @@ impl PickerState {
             SettingsRow::RememberExpanded => self.toggle_remember_expanded_sessions(),
             SettingsRow::SessionMetric => self.cycle_session_metric(),
             SettingsRow::ClearDormantOnAttach => self.toggle_clear_dormant_on_attach(),
+            SettingsRow::NewGroupPosition => self.toggle_new_group_position(),
             SettingsRow::AttachedColor => self.expand_attached_color(),
             SettingsRow::AttachedColorOption(_) => {}
             SettingsRow::BorderColor => self.expand_border_color(),
@@ -1377,6 +1428,7 @@ impl PickerState {
             | SettingsRow::RememberExpanded
             | SettingsRow::SessionMetric
             | SettingsRow::ClearDormantOnAttach
+            | SettingsRow::NewGroupPosition
             | SettingsRow::ColorPolicy => self.settings_step_right(),
             SettingsRow::AttachedColor => self.expand_attached_color(),
             SettingsRow::AttachedColorOption(idx) => self.select_attached_color(idx),
@@ -1471,29 +1523,59 @@ impl PickerState {
     }
 
     /// Reorder the selected group among the named groups (clamped at the ends).
+    /// A group with an unset (positional-default) color resolves its display
+    /// color from its index (see `ui::group_color`), so before swapping we
+    /// pin each of the two groups' *currently visible* color explicitly --
+    /// same "resolve, then store explicit" move `group_cycle_color` already
+    /// makes -- so the swap itself never changes what's on screen (issue
+    /// #118: without this, repeated ⇧J/⇧K on a fresh, never-flipped group
+    /// cycled its color every press).
     pub fn group_reorder(&mut self, delta: i32) {
         let gc = self.group_cursor;
         let target = gc as i32 + delta;
         if target < 0 || target >= self.groups.len() as i32 { return; }
-        self.groups.swap(gc, target as usize);
-        self.group_cursor = target as usize;
+        let target = target as usize;
+        if !self.active_palette.is_empty() {
+            let palette = &self.active_palette;
+            let resolve = |g: &Group, idx: usize| {
+                if g.color.is_empty() { palette[idx % palette.len()].clone() } else { g.color.clone() }
+            };
+            let gc_color = resolve(&self.groups[gc], gc);
+            let target_color = resolve(&self.groups[target], target);
+            self.groups[gc].color = gc_color;
+            self.groups[target].color = target_color;
+        }
+        self.groups.swap(gc, target);
+        self.group_cursor = target;
         self.dirty = true;
     }
 
-    /// Append a new empty group after the last named group and begin naming it.
-    /// The header color is resolved from the current new-group-color policy:
-    /// Rotate leaves it unset (positional default, resolved at render/cycle
-    /// time from the live active palette); Random picks once now from the
-    /// active palette; Static uses the configured static color. Neither Random
-    /// nor Static retroactively touch any other group.
+    /// Insert a new empty group and begin naming it. The header color is
+    /// resolved from the current new-group-color policy: Rotate leaves it
+    /// unset (positional default, resolved at render/cycle time from the
+    /// live active palette); Random picks once now from the active palette;
+    /// Static uses the configured static color. Neither Random nor Static
+    /// retroactively touch any other group. The insertion point (absolute
+    /// top or bottom of `groups`) is governed by `new_group_position` --
+    /// there's no "above the inbox" anchor since the inbox is itself a
+    /// normal, reorderable group that can sit anywhere (issue #111).
     pub fn group_new(&mut self) {
         let color = match self.new_group_color_policy {
             ColorPolicy::Rotate => String::new(),
             ColorPolicy::Random => pick_random_color(&self.active_palette, random_seed()),
             ColorPolicy::Static => self.static_color.clone(),
         };
-        self.groups.push(Group { name: String::new(), members: Vec::new(), color, inbox: false });
-        self.group_cursor = self.groups.len() - 1;
+        let group = Group { name: String::new(), members: Vec::new(), color, inbox: false };
+        match self.new_group_position {
+            NewGroupPosition::Top => {
+                self.groups.insert(0, group);
+                self.group_cursor = 0;
+            }
+            NewGroupPosition::Bottom => {
+                self.groups.push(group);
+                self.group_cursor = self.groups.len() - 1;
+            }
+        }
         self.group_edit = Some(String::new());
     }
 
@@ -2887,20 +2969,47 @@ mod tests {
     }
 
     #[test]
-    fn group_new_appends_empty_and_starts_rename() {
+    fn group_new_inserts_at_top_by_default_and_starts_rename() {
         let mut st = grouped_state();
         st.enter_groups();
         st.group_new();
         assert_eq!(st.groups.len(), 4);
-        assert_eq!(st.groups[3].name, "");
-        assert!(st.groups[3].members.is_empty());
-        assert_eq!(st.group_cursor(), 3);
+        assert_eq!(st.groups[0].name, "");
+        assert!(st.groups[0].members.is_empty());
+        assert_eq!(st.group_cursor(), 0);
         assert!(st.group_editing());
         for c in "TOOLS".chars() { st.group_edit_push(c); }
         st.group_commit_rename();
-        assert_eq!(st.groups[3].name, "TOOLS");
+        assert_eq!(st.groups[0].name, "TOOLS");
         assert!(!st.group_editing());
         assert!(st.dirty);
+        assert_eq!(st.groups[1].name, "G1", "existing groups keep their relative order");
+        assert_eq!(st.groups[2].name, "G2");
+    }
+
+    #[test]
+    fn group_new_position_bottom_appends_after_last_group() {
+        let mut st = grouped_state();
+        st.new_group_position = NewGroupPosition::Bottom;
+        st.enter_groups();
+        st.group_new();
+        assert_eq!(st.groups.len(), 4);
+        assert_eq!(st.groups[3].name, "");
+        assert_eq!(st.group_cursor(), 3);
+    }
+
+    #[test]
+    fn settings_step_left_and_right_toggle_new_group_position() {
+        let mut st = grouped_state();
+        assert_eq!(st.new_group_position, NewGroupPosition::Top);
+        st.settings_move_cursor(5); // NewGroupPosition row (after ClearDormantOnAttach)
+        assert_eq!(st.current_settings_row(), SettingsRow::NewGroupPosition);
+        st.settings_step_right();
+        assert_eq!(st.new_group_position, NewGroupPosition::Bottom);
+        st.settings_step_right();
+        assert_eq!(st.new_group_position, NewGroupPosition::Top, "only two values, so right also wraps");
+        st.settings_step_left();
+        assert_eq!(st.new_group_position, NewGroupPosition::Bottom);
     }
 
     #[test]
@@ -3044,6 +3153,32 @@ mod tests {
     }
 
     #[test]
+    fn group_reorder_pins_positional_colors_so_a_moved_group_keeps_its_look() {
+        // Issue #118: a freshly created group under the default Rotate policy
+        // has an unset color, resolved positionally from its index at render
+        // time. Without pinning, every ⇧J/⇧K swap recomputes a new color
+        // purely from the new index -- the group's visible color cycles on
+        // every press even though the user never touched color settings.
+        let mut st = grouped_state();
+        st.enter_groups();
+        assert!(st.groups[0].color.is_empty(), "G1 starts on the positional default");
+        assert!(st.groups[1].color.is_empty(), "G2 starts on the positional default");
+
+        st.group_reorder(1); // move G1 (idx 0, "cyan") down past G2 (idx 1, "green")
+        assert_eq!(st.groups[0].name, "G2");
+        assert_eq!(st.groups[0].color, HEADER_COLORS[1], "G2 keeps the color it had at index 1");
+        assert_eq!(st.groups[1].name, "G1");
+        assert_eq!(st.groups[1].color, HEADER_COLORS[0], "G1 keeps the color it had at index 0");
+
+        // Moving back and forth repeatedly must not keep cycling the color.
+        st.group_reorder(-1);
+        assert_eq!(st.groups[0].name, "G1");
+        assert_eq!(st.groups[0].color, HEADER_COLORS[0]);
+        assert_eq!(st.groups[1].name, "G2");
+        assert_eq!(st.groups[1].color, HEADER_COLORS[1]);
+    }
+
+    #[test]
     fn group_move_cursor_wraps_between_first_and_last_group() {
         let mut st = grouped_state();
         st.enter_groups();
@@ -3093,6 +3228,7 @@ mod tests {
     #[test]
     fn group_new_leaves_color_positional_and_cycle_pins_explicit() {
         let mut st = grouped_state();
+        st.new_group_position = NewGroupPosition::Bottom;
         st.enter_groups();
         st.group_new(); // empty color -> positional default (HEADER_COLORS[index])
         assert!(st.groups[3].color.is_empty(), "new group defaults to positional color");
@@ -3380,7 +3516,7 @@ mod tests {
     }
 
     #[test]
-    fn settings_visible_rows_collapsed_shows_nine_rows_in_order() {
+    fn settings_visible_rows_collapsed_shows_ten_rows_in_order() {
         let st = settings_state();
         assert_eq!(
             st.settings_visible_rows(),
@@ -3390,6 +3526,7 @@ mod tests {
                 SettingsRow::RememberExpanded,
                 SettingsRow::SessionMetric,
                 SettingsRow::ClearDormantOnAttach,
+                SettingsRow::NewGroupPosition,
                 SettingsRow::AttachedColor,
                 SettingsRow::BorderColor,
                 SettingsRow::ColorPolicy,
@@ -3438,72 +3575,72 @@ mod tests {
     #[test]
     fn attached_color_expands_and_collapses_via_step_right_and_left() {
         let mut st = settings_state();
-        st.settings_move_cursor(5); // row 5: AttachedColor
-        assert_eq!(st.settings_visible_rows().len(), 9);
+        st.settings_move_cursor(6); // row 6: AttachedColor
+        assert_eq!(st.settings_visible_rows().len(), 10);
         st.settings_step_right();
-        assert_eq!(st.settings_visible_rows().len(), 9 + 16, "expanded into 16 options");
+        assert_eq!(st.settings_visible_rows().len(), 10 + 16, "expanded into 16 options");
         assert_eq!(
             st.settings_visible_rows()[st.settings_cursor()],
             SettingsRow::AttachedColorOption(2),
             "cursor lands on the currently selected color (green, index 2), not row 0"
         );
         st.settings_step_left();
-        assert_eq!(st.settings_visible_rows().len(), 9, "collapsed back");
-        assert_eq!(st.settings_cursor(), 5, "cursor returned to the AttachedColor row");
+        assert_eq!(st.settings_visible_rows().len(), 10, "collapsed back");
+        assert_eq!(st.settings_cursor(), 6, "cursor returned to the AttachedColor row");
     }
 
     #[test]
     fn border_color_expands_and_collapses_via_step_right_and_left() {
         let mut st = settings_state();
-        st.settings_move_cursor(6); // row 6: BorderColor
+        st.settings_move_cursor(7); // row 7: BorderColor
         st.settings_step_right();
-        assert_eq!(st.settings_visible_rows().len(), 9 + 16);
+        assert_eq!(st.settings_visible_rows().len(), 10 + 16);
         assert_eq!(
             st.settings_visible_rows()[st.settings_cursor()],
             SettingsRow::BorderColorOption(2),
             "cursor lands on the currently selected color (green, index 2)"
         );
         st.settings_step_left();
-        assert_eq!(st.settings_visible_rows().len(), 9);
-        assert_eq!(st.settings_cursor(), 6, "cursor returned to the BorderColor row");
+        assert_eq!(st.settings_visible_rows().len(), 10);
+        assert_eq!(st.settings_cursor(), 7, "cursor returned to the BorderColor row");
     }
 
     #[test]
     fn activate_on_an_attached_color_option_commits_and_collapses() {
         let mut st = settings_state();
-        st.settings_move_cursor(5); // AttachedColor
+        st.settings_move_cursor(6); // AttachedColor
         st.settings_step_right(); // expand, cursor lands on index 2 (green)
         st.settings_move_cursor(-1); // step to index 1 ("red")
         assert_eq!(st.settings_visible_rows()[st.settings_cursor()], SettingsRow::AttachedColorOption(1));
         st.settings_activate();
         assert_eq!(st.attached_color, "red");
         assert!(st.dirty);
-        assert_eq!(st.settings_visible_rows().len(), 9, "collapsed after committing");
-        assert_eq!(st.settings_cursor(), 5, "cursor returned to the AttachedColor row");
+        assert_eq!(st.settings_visible_rows().len(), 10, "collapsed after committing");
+        assert_eq!(st.settings_cursor(), 6, "cursor returned to the AttachedColor row");
     }
 
     #[test]
     fn activate_on_a_border_color_option_commits_and_collapses() {
         let mut st = settings_state();
-        st.settings_move_cursor(6); // BorderColor
+        st.settings_move_cursor(7); // BorderColor
         st.settings_step_right(); // expand, cursor lands on index 2 (green)
         st.settings_move_cursor(1); // step to index 3 ("yellow")
         assert_eq!(st.settings_visible_rows()[st.settings_cursor()], SettingsRow::BorderColorOption(3));
         st.settings_activate();
         assert_eq!(st.border_color, "yellow");
         assert!(st.dirty);
-        assert_eq!(st.settings_cursor(), 6, "cursor returned to the BorderColor row");
+        assert_eq!(st.settings_cursor(), 7, "cursor returned to the BorderColor row");
     }
 
     #[test]
     fn h_on_an_attached_color_option_collapses_without_changing_the_value() {
         let mut st = settings_state();
-        st.settings_move_cursor(5);
+        st.settings_move_cursor(6);
         st.settings_step_right();
         st.settings_move_cursor(-1); // onto "red"
         st.settings_step_left(); // cancel, not activate
         assert_eq!(st.attached_color, "green", "unchanged: h cancels rather than commits");
-        assert_eq!(st.settings_cursor(), 5);
+        assert_eq!(st.settings_cursor(), 6);
     }
 
     #[test]
@@ -3512,17 +3649,17 @@ mod tests {
         // own index is no longer fixed at 2 once AttachedColor/BorderColor can
         // also expand above it.
         let mut st = settings_state();
-        st.settings_move_cursor(5);
+        st.settings_move_cursor(6);
         st.settings_step_right(); // expand AttachedColor: 16 rows now sit between it and BorderColor/ColorPolicy/Palette
         st.settings_move_cursor(-1);
-        st.settings_step_left(); // collapse AttachedColor again, back to the 9-row layout
-        assert_eq!(st.settings_visible_rows().len(), 9);
-        st.settings_move_cursor(8); // Palette, still at index 8
+        st.settings_step_left(); // collapse AttachedColor again, back to the 10-row layout
+        assert_eq!(st.settings_visible_rows().len(), 10);
+        st.settings_move_cursor(9); // Palette, still at index 9
         assert_eq!(st.settings_visible_rows()[st.settings_cursor()], SettingsRow::Palette);
         st.settings_step_right(); // expand Palette
         st.settings_move_cursor(1); // first PaletteColor child
         st.settings_step_left(); // collapse
-        assert_eq!(st.settings_cursor(), 8, "Palette collapse still lands on index 8");
+        assert_eq!(st.settings_cursor(), 9, "Palette collapse still lands on index 9");
     }
 
     #[test]
@@ -3530,13 +3667,13 @@ mod tests {
         let mut st = settings_state();
         assert_eq!(st.settings_cursor(), 0);
         st.settings_move_cursor(-1);
-        assert_eq!(st.settings_cursor(), 8, "moving up from the top wraps to bottom");
+        assert_eq!(st.settings_cursor(), 9, "moving up from the top wraps to bottom");
         st.settings_move_cursor(1);
         assert_eq!(st.settings_cursor(), 0, "moving down from the bottom wraps to top");
         st.settings_move_cursor(1);
         assert_eq!(st.settings_cursor(), 1);
         st.settings_move_cursor(99);
-        assert_eq!(st.settings_cursor(), 8, "large jumps still land on the edge");
+        assert_eq!(st.settings_cursor(), 9, "large jumps still land on the edge");
     }
 
     #[test]
@@ -3576,7 +3713,7 @@ mod tests {
     #[test]
     fn step_cycles_color_policy_forward_and_backward() {
         let mut st = settings_state();
-        st.settings_move_cursor(7); // row 7: ColorPolicy
+        st.settings_move_cursor(8); // row 8: ColorPolicy
         assert_eq!(st.new_group_color_policy, ColorPolicy::Rotate);
         st.settings_step_right();
         assert_eq!(st.new_group_color_policy, ColorPolicy::Random);
@@ -3591,32 +3728,32 @@ mod tests {
     #[test]
     fn palette_expands_and_collapses_via_step_right_and_left() {
         let mut st = settings_state();
-        st.settings_move_cursor(8); // row 8: Palette
+        st.settings_move_cursor(9); // row 9: Palette
         assert!(!st.palette_expanded());
         st.settings_step_right();
         assert!(st.palette_expanded());
-        assert_eq!(st.settings_visible_rows().len(), 9 + 16);
+        assert_eq!(st.settings_visible_rows().len(), 10 + 16);
         st.settings_step_left();
         assert!(!st.palette_expanded());
-        assert_eq!(st.settings_visible_rows().len(), 9);
+        assert_eq!(st.settings_visible_rows().len(), 10);
     }
 
     #[test]
     fn step_left_on_a_palette_color_row_collapses_and_refocuses_the_parent() {
         let mut st = settings_state();
-        st.settings_move_cursor(8);
+        st.settings_move_cursor(9);
         st.settings_step_right(); // expand
         st.settings_move_cursor(1); // onto the first PaletteColor child
         assert_eq!(st.settings_visible_rows()[st.settings_cursor()], SettingsRow::PaletteColor(0));
         st.settings_step_left();
         assert!(!st.palette_expanded());
-        assert_eq!(st.settings_cursor(), 8, "cursor returns to the Palette row");
+        assert_eq!(st.settings_cursor(), 9, "cursor returns to the Palette row");
     }
 
     #[test]
     fn activate_toggles_a_palette_color_off() {
         let mut st = settings_state();
-        st.settings_move_cursor(8);
+        st.settings_move_cursor(9);
         st.settings_step_right(); // expand
         let cyan_idx = st.settings_palette_rows().iter().position(|(n, _)| n == "cyan").unwrap();
         st.settings_move_cursor(1 + cyan_idx as i32); // descend onto the "cyan" child row
@@ -3630,7 +3767,7 @@ mod tests {
     fn activate_cannot_deactivate_the_last_active_color() {
         let mut st = settings_state();
         st.active_palette = vec!["cyan".to_string()];
-        st.settings_move_cursor(8);
+        st.settings_move_cursor(9);
         st.settings_step_right();
         let cyan_idx = st.settings_palette_rows().iter().position(|(n, _)| n == "cyan").unwrap();
         st.settings_move_cursor(1 + cyan_idx as i32); // the only active color
@@ -3641,7 +3778,7 @@ mod tests {
     #[test]
     fn activate_reactivates_an_inactive_color_at_its_canonical_position() {
         let mut st = settings_state(); // active: cyan, green, yellow, magenta, blue, red
-        st.settings_move_cursor(8);
+        st.settings_move_cursor(9);
         st.settings_step_right();
         let black_idx = st.settings_palette_rows().iter().position(|(n, _)| n == "black").unwrap();
         st.settings_move_cursor(1 + black_idx as i32); // descend onto the "black" child row
@@ -3661,7 +3798,7 @@ mod tests {
     #[test]
     fn toggling_a_color_never_reorders_the_checklist() {
         let mut st = settings_state();
-        st.settings_move_cursor(8);
+        st.settings_move_cursor(9);
         st.settings_step_right(); // expand
         let before: Vec<String> =
             st.settings_palette_rows().into_iter().map(|(n, _)| n).collect();
@@ -3681,7 +3818,7 @@ mod tests {
     #[test]
     fn c_key_only_cycles_static_color_when_policy_is_static() {
         let mut st = settings_state();
-        st.settings_move_cursor(7); // ColorPolicy row, policy still Rotate
+        st.settings_move_cursor(8); // ColorPolicy row, policy still Rotate
         st.settings_cycle_color();
         assert_eq!(st.static_color, "cyan", "no-op: policy is not Static");
 
@@ -3699,9 +3836,9 @@ mod tests {
     #[test]
     fn c_key_is_a_noop_off_a_color_row() {
         let mut st = settings_state();
-        st.settings_move_cursor(7);
+        st.settings_move_cursor(8);
         st.settings_step_right(); st.settings_step_right(); // -> Static
-        st.settings_move_cursor(-7); // back to DefaultMode row
+        st.settings_move_cursor(-8); // back to DefaultMode row
         st.settings_cycle_color();
         assert_eq!(st.static_color, "cyan", "cursor must be on a color row");
     }
@@ -3709,7 +3846,7 @@ mod tests {
     #[test]
     fn static_color_persists_across_policy_switches() {
         let mut st = settings_state();
-        st.settings_move_cursor(7);
+        st.settings_move_cursor(8);
         st.settings_step_right(); st.settings_step_right(); // -> Static
         st.settings_cycle_color(); // cyan -> gray
         assert_eq!(st.static_color, "gray");
@@ -3722,21 +3859,21 @@ mod tests {
     #[test]
     fn c_key_quick_cycles_attached_color_without_expanding() {
         let mut st = settings_state();
-        st.settings_move_cursor(5); // AttachedColor, collapsed
+        st.settings_move_cursor(6); // AttachedColor, collapsed
         st.settings_cycle_color();
         assert_eq!(st.attached_color, "yellow", "green -> yellow, next in ALL_NAMED_COLORS");
         assert!(st.dirty);
-        assert_eq!(st.settings_visible_rows().len(), 9, "stays collapsed");
+        assert_eq!(st.settings_visible_rows().len(), 10, "stays collapsed");
     }
 
     #[test]
     fn c_key_quick_cycles_border_color_without_expanding() {
         let mut st = settings_state();
-        st.settings_move_cursor(6); // BorderColor, collapsed
+        st.settings_move_cursor(7); // BorderColor, collapsed
         st.settings_cycle_color();
         assert_eq!(st.border_color, "yellow");
         assert!(st.dirty);
-        assert_eq!(st.settings_visible_rows().len(), 9, "stays collapsed");
+        assert_eq!(st.settings_visible_rows().len(), 10, "stays collapsed");
     }
 
     #[test]
@@ -3751,6 +3888,7 @@ mod tests {
         st.default_mode = DefaultMode::Search;
         st.number_dormant_sessions = false;
         st.focus_mode = true;
+        st.new_group_position = NewGroupPosition::Bottom;
         st.new_group_color_policy = ColorPolicy::Static;
         st.static_color = "white".to_string();
         st.active_palette = vec!["red".to_string(), "white".to_string()];
@@ -3767,6 +3905,7 @@ mod tests {
         assert_eq!(reloaded.default_mode, DefaultMode::Search);
         assert!(!reloaded.number_dormant_sessions);
         assert!(reloaded.focus_mode);
+        assert_eq!(reloaded.new_group_position, NewGroupPosition::Bottom);
         assert_eq!(reloaded.new_group_color_policy, ColorPolicy::Static);
         assert_eq!(reloaded.static_color, "white");
         assert_eq!(reloaded.active_palette, vec!["red".to_string(), "white".to_string()]);
@@ -3793,6 +3932,7 @@ mod tests {
     #[test]
     fn group_new_under_rotate_policy_leaves_color_empty() {
         let mut st = grouped_state(); // default policy is Rotate
+        st.new_group_position = NewGroupPosition::Bottom;
         st.enter_groups();
         st.group_new();
         assert!(st.groups.last().unwrap().color.is_empty(), "unchanged Rotate behavior");
@@ -3803,6 +3943,7 @@ mod tests {
         let mut st = grouped_state();
         st.new_group_color_policy = ColorPolicy::Static;
         st.static_color = "magenta".to_string();
+        st.new_group_position = NewGroupPosition::Bottom;
         st.enter_groups();
         st.group_new();
         assert_eq!(st.groups.last().unwrap().color, "magenta");
@@ -3812,6 +3953,7 @@ mod tests {
     fn group_new_under_random_policy_picks_from_the_active_palette() {
         let mut st = grouped_state();
         st.new_group_color_policy = ColorPolicy::Random;
+        st.new_group_position = NewGroupPosition::Bottom;
         st.enter_groups();
         st.group_new();
         let picked = st.groups.last().unwrap().color.clone();

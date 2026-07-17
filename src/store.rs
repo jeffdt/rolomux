@@ -1,4 +1,6 @@
-use crate::model::{ColorPolicy, DefaultMode, Group, HEADER_COLORS, SessionMetric, ensure_single_inbox};
+use crate::model::{
+    ColorPolicy, DefaultMode, Group, HEADER_COLORS, NewGroupPosition, SessionMetric, ensure_single_inbox,
+};
 use serde::Deserialize;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io;
@@ -29,6 +31,7 @@ pub struct Config {
     pub default_mode: DefaultMode,
     pub number_dormant_sessions: bool,
     pub clear_dormant_on_attach: bool,
+    pub new_group_position: NewGroupPosition,
     pub new_group_color_policy: ColorPolicy,
     pub static_color: String,
     pub active_palette: Vec<String>,
@@ -60,6 +63,7 @@ impl Default for Config {
             default_mode: DefaultMode::default(),
             number_dormant_sessions: true,
             clear_dormant_on_attach: false,
+            new_group_position: NewGroupPosition::default(),
             new_group_color_policy: ColorPolicy::default(),
             static_color: "cyan".to_string(),
             active_palette: default_active_palette(),
@@ -93,6 +97,8 @@ struct RawSettings {
     #[serde(default)]
     clear_dormant_on_attach: Option<bool>,
     #[serde(default)]
+    new_group_position: Option<String>,
+    #[serde(default)]
     new_group_color_policy: Option<String>,
     #[serde(default)]
     static_color: Option<String>,
@@ -113,6 +119,7 @@ struct OutSettings {
     default_mode: String,
     number_dormant_sessions: bool,
     clear_dormant_on_attach: bool,
+    new_group_position: String,
     new_group_color_policy: String,
     static_color: String,
     active_palette: Vec<String>,
@@ -215,6 +222,12 @@ impl Config {
             .as_deref()
             .map(DefaultMode::from_config_str)
             .unwrap_or_default();
+        let new_group_position = raw
+            .settings
+            .new_group_position
+            .as_deref()
+            .map(NewGroupPosition::from_config_str)
+            .unwrap_or_default();
         let new_group_color_policy = raw
             .settings
             .new_group_color_policy
@@ -243,6 +256,7 @@ impl Config {
             default_mode,
             number_dormant_sessions: raw.settings.number_dormant_sessions.unwrap_or(true),
             clear_dormant_on_attach: raw.settings.clear_dormant_on_attach.unwrap_or(false),
+            new_group_position,
             new_group_color_policy,
             static_color,
             active_palette,
@@ -283,6 +297,7 @@ impl Config {
                 default_mode: self.default_mode.as_config_str().to_string(),
                 number_dormant_sessions: self.number_dormant_sessions,
                 clear_dormant_on_attach: self.clear_dormant_on_attach,
+                new_group_position: self.new_group_position.as_config_str().to_string(),
                 new_group_color_policy: self.new_group_color_policy.as_config_str().to_string(),
                 static_color: self.static_color.clone(),
                 active_palette: self.active_palette.clone(),
@@ -707,6 +722,7 @@ mod tests {
         let cfg = Config::default();
         assert_eq!(cfg.default_mode, DefaultMode::Command);
         assert!(cfg.number_dormant_sessions);
+        assert_eq!(cfg.new_group_position, NewGroupPosition::Top);
         assert_eq!(cfg.new_group_color_policy, ColorPolicy::Rotate);
         assert_eq!(cfg.static_color, "cyan");
         assert_eq!(cfg.attached_color, "green");
@@ -727,6 +743,7 @@ mod tests {
         let cfg = Config::load_from(&path);
         assert_eq!(cfg.default_mode, DefaultMode::Command);
         assert!(cfg.number_dormant_sessions);
+        assert_eq!(cfg.new_group_position, NewGroupPosition::Top);
         assert_eq!(cfg.new_group_color_policy, ColorPolicy::Rotate);
         assert_eq!(cfg.static_color, "cyan");
         assert_eq!(cfg.attached_color, "green");
@@ -877,6 +894,7 @@ inbox = true
         let cfg = Config {
             default_mode: DefaultMode::Search,
             number_dormant_sessions: false,
+            new_group_position: NewGroupPosition::Bottom,
             new_group_color_policy: ColorPolicy::Static,
             static_color: "magenta".to_string(),
             active_palette: vec!["magenta".to_string(), "white".to_string()],
@@ -888,6 +906,7 @@ inbox = true
         let reloaded = Config::load_from(&path);
         assert_eq!(reloaded.default_mode, DefaultMode::Search);
         assert!(!reloaded.number_dormant_sessions);
+        assert_eq!(reloaded.new_group_position, NewGroupPosition::Bottom);
         assert_eq!(reloaded.new_group_color_policy, ColorPolicy::Static);
         assert_eq!(reloaded.static_color, "magenta");
         assert_eq!(reloaded.attached_color, "lightgreen");
