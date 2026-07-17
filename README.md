@@ -103,6 +103,8 @@ Once inside:
 
 As you create groups, they'll be assigned a color from your terminal theme (cyan, green, yellow, magenta, blue, red); new groups rotate through them, `c` flips a group's color, and empty groups show grayed out until you fill them.
 
+The inbox can be renamed and recolored like any other group, but it always stays last and can't be reordered.
+
 ### Search
 
 ![rolomux fuzzy search](docs/images/search.png)
@@ -144,6 +146,7 @@ Press `,` to open Settings, a full-screen view of picker-wide preferences, group
 - **Number dormant sessions.** Whether visible dormant sessions are included in jump numbering (sessions 1-20).
 - **Remember expanded sessions.** Off by default (every popup starts fully collapsed). When on, expanding or collapsing a session's window tree (`l`/`h`/`z`) persists across popups, so the sessions you're actively jumping between stay expanded.
 - **Clear dormant on attach.** Off by default. When on, attaching to a dormant session automatically clears its dormant flag, so you don't have to remember to press `d` yourself.
+- **New group position.** Where a newly created group is inserted: **Top** of the list, or **Bottom** (default), immediately above the inbox, which always stays last.
 - **Session metadata.** Whether the row's trailing timestamp shows time since last activity (**Recency**, default), time since the session was created (**Age**), or is omitted entirely (**Hidden**).
 
 **Appearance**

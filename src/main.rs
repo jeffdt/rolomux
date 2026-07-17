@@ -368,7 +368,11 @@ fn event_loop(
                             SearchInput::Up | SearchInput::Down | SearchInput::None => {}
                         }
                     } else {
-                        match map_group_key(key) {
+                        let input = map_group_key(key);
+                        if !matches!(input, GroupInput::MoveUp | GroupInput::MoveDown) {
+                            state.clear_group_reorder_warning();
+                        }
+                        match input {
                             GroupInput::Up => state.group_move_cursor(-1),
                             GroupInput::Down => state.group_move_cursor(1),
                             GroupInput::MoveUp => state.group_reorder(-1),

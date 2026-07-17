@@ -1,6 +1,6 @@
 use crate::model::{
-    ColorPolicy, DefaultMode, Group, Mode, PickerState, Row, Session, SessionMetric, SettingsRow,
-    Window, ALL_NAMED_COLORS,
+    ColorPolicy, DefaultMode, Group, Mode, NewGroupPosition, PickerState, Row, Session, SessionMetric,
+    SettingsRow, Window, ALL_NAMED_COLORS,
 };
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
@@ -366,6 +366,16 @@ fn draw_groups(frame: &mut Frame, state: &PickerState, inner: Rect) {
     let mut items: Vec<ListItem> = Vec::new();
     let mut selected_line: Option<usize> = None;
     for (gi, g) in state.groups.iter().enumerate() {
+        // The inbox can't be reordered (see `PickerState::group_reorder`), so
+        // once there's at least one named group to separate it from, a dim
+        // rule marks it as sitting outside the manually-ordered block. With
+        // no named groups yet, inbox is the only row and needs no divider.
+        if g.inbox && state.groups.len() > 1 {
+            items.push(ListItem::new(Line::from(Span::styled(
+                "─".repeat(list_area.width as usize),
+                Style::default().fg(DIM),
+            ))));
+        }
         let selected = gi == state.group_cursor();
         if selected { selected_line = Some(items.len()); }
         let editing = selected && state.group_editing();
@@ -400,9 +410,20 @@ fn draw_groups(frame: &mut Frame, state: &PickerState, inner: Rect) {
     frame.render_stateful_widget(list, list_area, &mut list_state);
 
     let rule = "─".repeat(footer_area.width as usize);
+    // A blocked inbox-reorder attempt takes over the hint line with a
+    // one-shot warning, same treatment as the pending window-move warning
+    // in command mode: it explains why ⇧J/⇧K visibly did nothing.
+    let hint_line = if let Some(warning) = state.group_reorder_blocked_warning() {
+        Line::from(Span::styled(
+            warning.to_string(),
+            Style::default().fg(WARNING).add_modifier(Modifier::BOLD),
+        ))
+    } else {
+        styled_hint(GROUP_FOOTER_HINT)
+    };
     let footer = Paragraph::new(vec![
         Line::from(Span::styled(rule, Style::default().fg(DIM))),
-        styled_hint(GROUP_FOOTER_HINT),
+        hint_line,
     ]);
     frame.render_widget(footer, footer_area);
 }
@@ -459,6 +480,13 @@ fn draw_settings(frame: &mut Frame, state: &PickerState, inner: Rect) {
                 settings_value_line(
                     "Clear dormant on attach",
                     clear_dormant_on_attach_label(state.clear_dormant_on_attach),
+                    selected,
+                )
+            }
+            SettingsRow::NewGroupPosition => {
+                settings_value_line(
+                    "New group position",
+                    new_group_position_label(state.new_group_position),
                     selected,
                 )
             }
@@ -630,6 +658,13 @@ fn remember_expanded_label(remember_expanded_sessions: bool) -> &'static str {
 
 fn clear_dormant_on_attach_label(clear_dormant_on_attach: bool) -> &'static str {
     if clear_dormant_on_attach { "Yes" } else { "No" }
+}
+
+fn new_group_position_label(p: NewGroupPosition) -> &'static str {
+    match p {
+        NewGroupPosition::Top => "Top",
+        NewGroupPosition::Bottom => "Bottom",
+    }
 }
 
 fn color_policy_label(p: ColorPolicy) -> &'static str {
@@ -2628,6 +2663,70 @@ mod tests {
         assert!(text.contains("Enter rename"), "group footer");
     }
 
+    fn is_dim_rule_line(line: &str) -> bool {
+        let content: String = line.chars().skip(3).take_while(|c| *c != '│').collect();
+        !content.is_empty() && content.chars().all(|c| c == '─')
+    }
+
+    #[test]
+    fn draw_groups_shows_a_divider_above_the_inbox_when_a_named_group_exists() {
+        let text = render_to_string(&groups_view(false)); // CONFIG + INBOX
+        let lines: Vec<&str> = text.lines().collect();
+        let inbox_idx = lines.iter().position(|l| l.contains("⊛ INBOX")).expect("inbox row rendered");
+        assert!(
+            is_dim_rule_line(lines[inbox_idx - 1]),
+            "a dim rule should sit directly above the inbox row: {:?}",
+            lines[inbox_idx - 1]
+        );
+        // Exactly two dash-only rows: the divider and the footer's own rule.
+        assert_eq!(lines.iter().filter(|l| is_dim_rule_line(l)).count(), 2);
+    }
+
+    #[test]
+    fn draw_groups_hides_the_divider_when_inbox_is_the_only_group() {
+        let sessions = vec![Session {
+            id: String::new(), name: "claude".into(), activity: 30, created: 1, attached: false,
+            windows: vec![Window { index: 0, name: "w".into(), active: true }],
+        }];
+        let cfg = Config { groups: vec![], ..Default::default() }; // synthesizes INBOX alone
+        let mut st = PickerState::build(sessions, &cfg);
+        st.enter_groups();
+        let text = render_to_string(&st);
+        let lines: Vec<&str> = text.lines().collect();
+        assert!(lines.iter().any(|l| l.contains("⊛ INBOX")));
+        // Only the footer's own rule, no divider above the sole inbox row.
+        assert_eq!(lines.iter().filter(|l| is_dim_rule_line(l)).count(), 1);
+    }
+
+    #[test]
+    fn draw_groups_footer_shows_warning_after_a_blocked_inbox_reorder() {
+        let mut st = groups_view(false); // CONFIG + INBOX
+        st.group_move_cursor(1); // land on INBOX
+        st.group_reorder(-1); // blocked
+        let text = render_to_string(&st);
+        assert!(text.contains("Inbox can't be reordered"));
+        assert!(!text.contains("Enter rename"), "warning replaces the normal footer hint, not alongside it");
+    }
+
+    #[test]
+    fn draw_groups_footer_warning_is_red_not_dim() {
+        let mut st = groups_view(false);
+        st.group_move_cursor(1);
+        st.group_reorder(-1);
+        let backend = TestBackend::new(80, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| draw(f, &st)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+        let mut found_red = false;
+        for y in 0..buf.area.height {
+            let line: String = (0..buf.area.width).map(|x| buf[(x, y)].symbol()).collect();
+            if line.contains("Inbox can't be reordered") {
+                found_red = buf[(POPUP_MARGIN + 1, y)].style().fg == Some(Color::Red);
+            }
+        }
+        assert!(found_red, "blocked-reorder warning should render in WARNING red, not the dim hint color");
+    }
+
     #[test]
     fn draw_groups_selected_empty_group_name_is_visible() {
         // Issue #14: a newly created (empty) group sits selected against the
@@ -2877,6 +2976,26 @@ mod tests {
     }
 
     #[test]
+    fn draw_settings_shows_new_group_position_row() {
+        let text = render_to_string(&settings_view());
+        assert!(text.contains("New group position"));
+        assert!(text.contains("Bottom"), "defaults to Bottom");
+    }
+
+    #[test]
+    fn draw_settings_new_group_position_shows_top_when_toggled() {
+        let mut st = settings_view();
+        st.settings_move_cursor(5); // NewGroupPosition
+        st.settings_step_right();
+        let text = render_to_string(&st);
+        let row = text
+            .lines()
+            .find(|line| line.contains("New group position"))
+            .expect("New group position row is rendered");
+        assert!(row.contains("Top"), "row should show Top once toggled: {row:?}");
+    }
+
+    #[test]
     fn draw_settings_shows_session_metric_row() {
         let text = render_to_string(&settings_view());
         assert!(text.contains("Session metadata"));
@@ -2905,7 +3024,9 @@ mod tests {
 
     #[test]
     fn draw_settings_shows_attached_and_border_color_rows() {
-        let text = render_to_string(&settings_view());
+        // Taller than the usual 80x20: the added New group position row
+        // pushes Border color further down the list.
+        let text = render_to_string_sized(&settings_view(), 80, 21);
         assert!(text.contains("Attached session color"));
         assert!(text.contains("Border color"));
         // Both default to green and render collapsed with a swatch + name.
@@ -2915,7 +3036,7 @@ mod tests {
     #[test]
     fn draw_settings_expanded_attached_color_shows_radio_glyphs() {
         let mut st = settings_view();
-        st.settings_move_cursor(5); // AttachedColor
+        st.settings_move_cursor(6); // AttachedColor
         st.settings_step_right(); // expand
         let text = render_to_string(&st);
         assert!(text.contains("●"), "the currently selected color is marked filled");
@@ -2931,7 +3052,7 @@ mod tests {
     #[test]
     fn draw_settings_expanded_border_color_shows_radio_glyphs() {
         let mut st = settings_view();
-        st.settings_move_cursor(6); // BorderColor
+        st.settings_move_cursor(7); // BorderColor
         st.settings_step_right();
         let text = render_to_string(&st);
         assert!(text.contains("●"));
@@ -2941,11 +3062,12 @@ mod tests {
     #[test]
     fn draw_settings_expanded_palette_shows_swatches_and_checkboxes() {
         let mut st = settings_view();
-        st.settings_move_cursor(8); // Palette
+        st.settings_move_cursor(9); // Palette
         st.settings_step_right(); // expand
-        // Taller than the usual 80x20: section headers now push the palette
-        // rows further down than the default viewport reveals.
-        let text = render_to_string_sized(&st, 80, 24);
+        // Taller than the usual 80x20: section headers and the New group
+        // position row now push the palette rows further down than the
+        // default viewport reveals.
+        let text = render_to_string_sized(&st, 80, 25);
         assert!(text.contains("[x]"), "active color checked");
         assert!(text.contains("[ ]"), "inactive color unchecked");
         assert!(text.contains("green"));
@@ -2955,7 +3077,7 @@ mod tests {
     #[test]
     fn draw_settings_shows_static_color_value_when_policy_is_static() {
         let mut st = settings_view();
-        st.settings_move_cursor(7); // ColorPolicy row
+        st.settings_move_cursor(8); // ColorPolicy row
         st.settings_step_right(); // Rotate -> Random
         st.settings_step_right(); // Random -> Static
         st.static_color = "magenta".to_string();
@@ -3018,7 +3140,7 @@ mod tests {
     #[test]
     fn draw_settings_gutter_bar_continues_through_expanded_color_options() {
         let mut st = settings_view();
-        st.settings_move_cursor(5); // AttachedColor
+        st.settings_move_cursor(6); // AttachedColor
         st.settings_step_right(); // expand
         let text = render_to_string(&st);
         let row = text
@@ -3033,7 +3155,7 @@ mod tests {
     #[test]
     fn draw_settings_gutter_bar_continues_through_expanded_palette_rows() {
         let mut st = settings_view();
-        st.settings_move_cursor(8); // Palette
+        st.settings_move_cursor(9); // Palette
         st.settings_step_right(); // expand
         // Taller than the usual 80x20: section headers now push the palette
         // rows further down than the default viewport reveals.
