@@ -120,21 +120,22 @@ impl ColorPolicy {
 }
 
 /// Governs where `PickerState::group_new` inserts a freshly created group in
-/// `groups`, now that the inbox is itself a normal, reorderable `Group` and
-/// so can no longer serve as a fixed "insert above this" anchor (issue
-/// #111). Never retroactively moves any existing group.
+/// `groups`. The inbox always occupies the trailing slot (see
+/// `ensure_inbox_last`), so `Bottom` means immediately above the inbox, not
+/// the absolute end of the vector. Never retroactively moves any existing
+/// group.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum NewGroupPosition {
-    #[default]
     Top,
+    #[default]
     Bottom,
 }
 
 impl NewGroupPosition {
     pub fn from_config_str(s: &str) -> NewGroupPosition {
         match s {
-            "bottom" => NewGroupPosition::Bottom,
-            _ => NewGroupPosition::Top,
+            "top" => NewGroupPosition::Top,
+            _ => NewGroupPosition::Bottom,
         }
     }
 
@@ -269,6 +270,24 @@ pub fn ensure_single_inbox(groups: &mut Vec<Group>) {
     }
 }
 
+/// Guarantees the inbox group -- wherever it's flagged -- sits at the very
+/// end of `groups`. The inbox can still be renamed and recolored like any
+/// other group, but its position is fixed: it can't be reordered via
+/// `PickerState::group_reorder`, so this is the self-healing counterpart to
+/// that guard for any config where the inbox landed elsewhere on disk (e.g.
+/// hand-edited TOML, or one saved by issue #23's now-reverted "inbox moves
+/// freely" behavior). Always call after `ensure_single_inbox`, which
+/// guarantees there's exactly one flagged group to relocate. A no-op if the
+/// inbox is already last.
+pub fn ensure_inbox_last(groups: &mut Vec<Group>) {
+    if let Some(i) = groups.iter().position(|g| g.inbox) {
+        if i != groups.len() - 1 {
+            let inbox = groups.remove(i);
+            groups.push(inbox);
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Action {
     SwitchSession(String),
@@ -367,7 +386,7 @@ impl SettingsRow {
                 "When on, attaching to a dormant session automatically clears its dormant flag."
             }
             SettingsRow::NewGroupPosition => {
-                "Where a newly created group is inserted: Top or Bottom of the list."
+                "Where a newly created group is inserted: Top of the list, or Bottom (just above the inbox)."
             }
             SettingsRow::AttachedColor | SettingsRow::AttachedColorOption(_) => {
                 "Highlight color for the session your tmux client is attached to."
@@ -444,6 +463,7 @@ impl PickerState {
     ) -> PickerState {
         let mut groups = config.groups.clone();
         ensure_single_inbox(&mut groups);
+        ensure_inbox_last(&mut groups);
         let mut state = PickerState {
             all: sessions,
             groups,
@@ -1523,6 +1543,11 @@ impl PickerState {
     }
 
     /// Reorder the selected group among the named groups (clamped at the ends).
+    /// A no-op if either side of the swap is the inbox: the inbox always
+    /// sits in the trailing slot (see `ensure_inbox_last`) and can't be
+    /// reordered, only renamed/recolored -- issue #23 originally let it move
+    /// freely, but that just created problems (see #111) rather than solving
+    /// any, so it's pinned now.
     /// A group with an unset (positional-default) color resolves its display
     /// color from its index (see `ui::group_color`), so before swapping we
     /// pin each of the two groups' *currently visible* color explicitly --
@@ -1535,6 +1560,7 @@ impl PickerState {
         let target = gc as i32 + delta;
         if target < 0 || target >= self.groups.len() as i32 { return; }
         let target = target as usize;
+        if self.groups[gc].inbox || self.groups[target].inbox { return; }
         if !self.active_palette.is_empty() {
             let palette = &self.active_palette;
             let resolve = |g: &Group, idx: usize| {
@@ -1555,10 +1581,11 @@ impl PickerState {
     /// unset (positional default, resolved at render/cycle time from the
     /// live active palette); Random picks once now from the active palette;
     /// Static uses the configured static color. Neither Random nor Static
-    /// retroactively touch any other group. The insertion point (absolute
-    /// top or bottom of `groups`) is governed by `new_group_position` --
-    /// there's no "above the inbox" anchor since the inbox is itself a
-    /// normal, reorderable group that can sit anywhere (issue #111).
+    /// retroactively touch any other group. The insertion point is governed
+    /// by `new_group_position`: `Top` is the absolute top of `groups`;
+    /// `Bottom` lands immediately above the inbox, which always occupies the
+    /// trailing slot (see `ensure_inbox_last`) -- so "Bottom" reads as "the
+    /// bottom of the named groups," not literally the end of the vector.
     pub fn group_new(&mut self) {
         let color = match self.new_group_color_policy {
             ColorPolicy::Rotate => String::new(),
@@ -1566,16 +1593,12 @@ impl PickerState {
             ColorPolicy::Static => self.static_color.clone(),
         };
         let group = Group { name: String::new(), members: Vec::new(), color, inbox: false };
-        match self.new_group_position {
-            NewGroupPosition::Top => {
-                self.groups.insert(0, group);
-                self.group_cursor = 0;
-            }
-            NewGroupPosition::Bottom => {
-                self.groups.push(group);
-                self.group_cursor = self.groups.len() - 1;
-            }
-        }
+        let index = match self.new_group_position {
+            NewGroupPosition::Top => 0,
+            NewGroupPosition::Bottom => self.inbox_index().unwrap_or(self.groups.len()),
+        };
+        self.groups.insert(index, group);
+        self.group_cursor = index;
         self.group_edit = Some(String::new());
     }
 
@@ -2969,8 +2992,9 @@ mod tests {
     }
 
     #[test]
-    fn group_new_inserts_at_top_by_default_and_starts_rename() {
+    fn group_new_position_top_inserts_at_index_zero_and_starts_rename() {
         let mut st = grouped_state();
+        st.new_group_position = NewGroupPosition::Top;
         st.enter_groups();
         st.group_new();
         assert_eq!(st.groups.len(), 4);
@@ -2988,28 +3012,39 @@ mod tests {
     }
 
     #[test]
-    fn group_new_position_bottom_appends_after_last_group() {
+    fn group_new_position_bottom_lands_immediately_above_the_inbox() {
         let mut st = grouped_state();
         st.new_group_position = NewGroupPosition::Bottom;
         st.enter_groups();
         st.group_new();
         assert_eq!(st.groups.len(), 4);
-        assert_eq!(st.groups[3].name, "");
-        assert_eq!(st.group_cursor(), 3);
+        assert_eq!(st.groups[2].name, "", "new group lands just above the inbox, not at the absolute end");
+        assert_eq!(st.group_cursor(), 2);
+        assert!(st.groups[3].inbox, "inbox stays in the trailing slot");
+    }
+
+    #[test]
+    fn group_new_defaults_to_bottom() {
+        let mut st = grouped_state();
+        assert_eq!(st.new_group_position, NewGroupPosition::Bottom);
+        st.enter_groups();
+        st.group_new();
+        assert_eq!(st.groups[2].name, "", "default position lands above the inbox");
+        assert!(st.groups[3].inbox);
     }
 
     #[test]
     fn settings_step_left_and_right_toggle_new_group_position() {
         let mut st = grouped_state();
-        assert_eq!(st.new_group_position, NewGroupPosition::Top);
+        assert_eq!(st.new_group_position, NewGroupPosition::Bottom);
         st.settings_move_cursor(5); // NewGroupPosition row (after ClearDormantOnAttach)
         assert_eq!(st.current_settings_row(), SettingsRow::NewGroupPosition);
         st.settings_step_right();
-        assert_eq!(st.new_group_position, NewGroupPosition::Bottom);
+        assert_eq!(st.new_group_position, NewGroupPosition::Top);
         st.settings_step_right();
-        assert_eq!(st.new_group_position, NewGroupPosition::Top, "only two values, so right also wraps");
+        assert_eq!(st.new_group_position, NewGroupPosition::Bottom, "only two values, so right also wraps");
         st.settings_step_left();
-        assert_eq!(st.new_group_position, NewGroupPosition::Bottom);
+        assert_eq!(st.new_group_position, NewGroupPosition::Top);
     }
 
     #[test]
@@ -3153,6 +3188,35 @@ mod tests {
     }
 
     #[test]
+    fn group_reorder_is_a_noop_when_the_inbox_is_the_selected_group() {
+        let mut st = grouped_state(); // groups: G1, G2, INBOX (synthesized last)
+        st.enter_groups();
+        st.group_move_cursor(2); // land on INBOX
+        assert!(st.groups[st.group_cursor()].inbox);
+        st.group_reorder(-1); // try to move it up past G2
+        assert_eq!(
+            st.groups.iter().map(|g| g.name.as_str()).collect::<Vec<_>>(),
+            vec!["G1", "G2", "INBOX"],
+            "inbox never moves, even when explicitly targeted"
+        );
+        assert!(!st.dirty);
+    }
+
+    #[test]
+    fn group_reorder_is_a_noop_when_the_target_slot_is_the_inbox() {
+        let mut st = grouped_state(); // groups: G1, G2, INBOX (synthesized last)
+        st.enter_groups();
+        st.group_move_cursor(1); // land on G2
+        st.group_reorder(1); // try to swap down into the inbox's slot
+        assert_eq!(
+            st.groups.iter().map(|g| g.name.as_str()).collect::<Vec<_>>(),
+            vec!["G1", "G2", "INBOX"],
+            "a named group can never swap into the inbox's trailing slot"
+        );
+        assert!(!st.dirty);
+    }
+
+    #[test]
     fn group_reorder_pins_positional_colors_so_a_moved_group_keeps_its_look() {
         // Issue #118: a freshly created group under the default Rotate policy
         // has an unset color, resolved positionally from its index at render
@@ -3228,22 +3292,22 @@ mod tests {
     #[test]
     fn group_new_leaves_color_positional_and_cycle_pins_explicit() {
         let mut st = grouped_state();
-        st.new_group_position = NewGroupPosition::Bottom;
+        st.new_group_position = NewGroupPosition::Bottom; // lands at index 2, just above the inbox
         st.enter_groups();
         st.group_new(); // empty color -> positional default (HEADER_COLORS[index])
-        assert!(st.groups[3].color.is_empty(), "new group defaults to positional color");
+        assert!(st.groups[2].color.is_empty(), "new group defaults to positional color");
 
         st.dirty = false;
-        // Cursor is on the new group (index 3); its positional color is
-        // HEADER_COLORS[3] ("magenta"), so a flip advances to "blue".
+        // Cursor is on the new group (index 2); its positional color is
+        // HEADER_COLORS[2] ("yellow"), so a flip advances to "magenta".
         st.group_cycle_color();
-        assert_eq!(st.groups[3].color, "blue");
+        assert_eq!(st.groups[2].color, "magenta");
         assert!(st.dirty, "flipping a color dirties state");
 
         // Cycling wraps around the palette back to the start.
-        st.groups[3].color = HEADER_COLORS[HEADER_COLORS.len() - 1].to_string();
+        st.groups[2].color = HEADER_COLORS[HEADER_COLORS.len() - 1].to_string();
         st.group_cycle_color();
-        assert_eq!(st.groups[3].color, HEADER_COLORS[0]);
+        assert_eq!(st.groups[2].color, HEADER_COLORS[0]);
     }
 
     #[test]
@@ -3337,10 +3401,11 @@ mod tests {
     }
 
     #[test]
-    fn ordered_places_unassigned_sessions_inside_inbox_block_wherever_it_sits() {
+    fn build_normalizes_a_stored_inbox_position_back_to_the_trailing_slot() {
         let sessions = vec![s("a", 1, 1), s("b", 1, 2), s("new", 1, 3)];
-        // Inbox is first in `groups` (as if the user dragged it to the top);
-        // WORK is second. "new" is never explicitly listed anywhere.
+        // A config saved before issue #111 pinned the inbox down (or a
+        // hand-edited TOML) might store the inbox anywhere; `build` must
+        // normalize it back to the trailing slot via `ensure_inbox_last`.
         let cfg = Config {
             groups: vec![
                 Group { name: "INBOX".into(), members: vec!["b".into()], inbox: true, ..Default::default() },
@@ -3349,10 +3414,12 @@ mod tests {
             ..Default::default()
         };
         let st = PickerState::build(sessions, &cfg);
+        assert_eq!(st.groups.last().map(|g| g.name.as_str()), Some("INBOX"));
+        assert_eq!(st.groups.first().map(|g| g.name.as_str()), Some("WORK"));
         let names: Vec<&str> = st.ordered().iter().map(|s| s.name.as_str()).collect();
-        // "new" renders right after "b" (inbox's own block), not at the very
-        // end of the whole list after WORK.
-        assert_eq!(names, vec!["b", "new", "a"]);
+        // "new" is never explicitly listed anywhere, so it renders inside the
+        // inbox's own (now always-trailing) block, right after "b".
+        assert_eq!(names, vec!["a", "b", "new"]);
     }
 
     #[test]
@@ -3932,10 +3999,10 @@ mod tests {
     #[test]
     fn group_new_under_rotate_policy_leaves_color_empty() {
         let mut st = grouped_state(); // default policy is Rotate
-        st.new_group_position = NewGroupPosition::Bottom;
+        st.new_group_position = NewGroupPosition::Top;
         st.enter_groups();
         st.group_new();
-        assert!(st.groups.last().unwrap().color.is_empty(), "unchanged Rotate behavior");
+        assert!(st.groups.first().unwrap().color.is_empty(), "unchanged Rotate behavior");
     }
 
     #[test]
@@ -3943,20 +4010,20 @@ mod tests {
         let mut st = grouped_state();
         st.new_group_color_policy = ColorPolicy::Static;
         st.static_color = "magenta".to_string();
-        st.new_group_position = NewGroupPosition::Bottom;
+        st.new_group_position = NewGroupPosition::Top;
         st.enter_groups();
         st.group_new();
-        assert_eq!(st.groups.last().unwrap().color, "magenta");
+        assert_eq!(st.groups.first().unwrap().color, "magenta");
     }
 
     #[test]
     fn group_new_under_random_policy_picks_from_the_active_palette() {
         let mut st = grouped_state();
         st.new_group_color_policy = ColorPolicy::Random;
-        st.new_group_position = NewGroupPosition::Bottom;
+        st.new_group_position = NewGroupPosition::Top;
         st.enter_groups();
         st.group_new();
-        let picked = st.groups.last().unwrap().color.clone();
+        let picked = st.groups.first().unwrap().color.clone();
         assert!(
             st.active_palette.contains(&picked),
             "random pick must come from the active palette"
@@ -4009,6 +4076,53 @@ mod tests {
         ensure_single_inbox(&mut groups);
         assert!(groups[0].inbox);
         assert!(!groups[1].inbox);
+    }
+
+    #[test]
+    fn ensure_inbox_last_relocates_a_leading_inbox_to_the_end() {
+        let mut groups = vec![
+            Group { name: "INBOX".into(), inbox: true, ..Default::default() },
+            Group { name: "WORK".into(), ..Default::default() },
+        ];
+        ensure_inbox_last(&mut groups);
+        assert_eq!(groups.iter().map(|g| g.name.as_str()).collect::<Vec<_>>(), vec!["WORK", "INBOX"]);
+        assert!(groups[1].inbox);
+    }
+
+    #[test]
+    fn ensure_inbox_last_relocates_a_middle_inbox_to_the_end() {
+        let mut groups = vec![
+            Group { name: "WORK".into(), ..Default::default() },
+            Group { name: "INBOX".into(), inbox: true, ..Default::default() },
+            Group { name: "PLAY".into(), ..Default::default() },
+        ];
+        ensure_inbox_last(&mut groups);
+        assert_eq!(
+            groups.iter().map(|g| g.name.as_str()).collect::<Vec<_>>(),
+            vec!["WORK", "PLAY", "INBOX"]
+        );
+    }
+
+    #[test]
+    fn ensure_inbox_last_is_a_noop_when_already_last() {
+        let mut groups = vec![
+            Group { name: "WORK".into(), ..Default::default() },
+            Group { name: "INBOX".into(), inbox: true, ..Default::default() },
+        ];
+        let before = groups.clone();
+        ensure_inbox_last(&mut groups);
+        assert_eq!(groups, before);
+    }
+
+    #[test]
+    fn ensure_inbox_last_is_a_noop_on_an_empty_or_unflagged_list() {
+        let mut groups: Vec<Group> = vec![];
+        ensure_inbox_last(&mut groups); // never panics on empty input
+        assert!(groups.is_empty());
+
+        let mut groups = vec![Group { name: "WORK".into(), ..Default::default() }];
+        ensure_inbox_last(&mut groups); // no flagged group to relocate
+        assert_eq!(groups[0].name, "WORK");
     }
 
     #[test]

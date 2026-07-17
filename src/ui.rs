@@ -2894,11 +2894,11 @@ mod tests {
     fn draw_settings_shows_new_group_position_row() {
         let text = render_to_string(&settings_view());
         assert!(text.contains("New group position"));
-        assert!(text.contains("Top"), "defaults to Top");
+        assert!(text.contains("Bottom"), "defaults to Bottom");
     }
 
     #[test]
-    fn draw_settings_new_group_position_shows_bottom_when_toggled() {
+    fn draw_settings_new_group_position_shows_top_when_toggled() {
         let mut st = settings_view();
         st.settings_move_cursor(5); // NewGroupPosition
         st.settings_step_right();
@@ -2907,7 +2907,7 @@ mod tests {
             .lines()
             .find(|line| line.contains("New group position"))
             .expect("New group position row is rendered");
-        assert!(row.contains("Bottom"), "row should show Bottom once toggled: {row:?}");
+        assert!(row.contains("Top"), "row should show Top once toggled: {row:?}");
     }
 
     #[test]

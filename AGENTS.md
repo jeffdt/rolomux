@@ -24,20 +24,21 @@ These are the reasons the project exists. Changes should preserve them.
   single tmux subprocess call, renders, and exits. No daemon, no caching layer.
 - **Named groups first, then always manual.** Sessions are curated into an
   arbitrary number of durable, user-named groups that stay on top in a
-  user-defined order; everything else falls into a designated inbox group
-  (any group can look, act, and be positioned like any other — see issue
-  #23 — but exactly one is always flagged as the inbox and receives
-  unlisted sessions), which is also always in manual order (there is no
+  user-defined order, which is reordered with `⇧J/⇧K` (there is no
   sort-mode cycling — this tool is for people who curate their layout by
-  hand). The order is user-defined and reordered with the same `⇧J/⇧K`
-  keys; new/unlisted sessions sink to the bottom of the inbox group's own
-  block, wherever that group currently sits. Groups, their order, and the
-  manual order all persist across tmux restarts. Groups are durable: they
-  survive empty and vanish only via an explicit delete (there is
-  intentionally no auto-prune) — except the inbox group, which additionally
-  can never be deleted at all. A legacy single `pinned` list migrates to
-  one group named `PINNED`. A legacy `manual_order` list migrates to one
-  group named `INBOX`, flagged as the inbox.
+  hand); everything else falls into a designated inbox group, which can be
+  renamed and recolored like any other group but always renders in the
+  trailing slot and can never be reordered (issue #23 briefly let it move
+  freely; in practice that just created problems to solve rather than
+  solving any, so issue #111 pinned it back down — see `ensure_inbox_last`).
+  New/unlisted sessions sink to the bottom of the inbox group's own block,
+  itself always in manual order. Groups, their order, and the manual order
+  all persist across tmux restarts. Groups are durable: they survive empty
+  and vanish only via an explicit delete (there is intentionally no
+  auto-prune) — except the inbox group, which additionally can never be
+  deleted at all. A legacy single `pinned` list migrates to one group named
+  `PINNED`. A legacy `manual_order` list migrates to one group named
+  `INBOX`, flagged as the inbox.
 - **Two altitudes, two modes.** Session mode operates on sessions (switch, jump,
   move a session across group boundaries with `⇧J/⇧K`, search). A dedicated
   full-screen group mode (`g`) operates only on group structure (create, rename,
@@ -72,10 +73,9 @@ These are deliberate and have driven past work. Do not reverse them casually.
   value is a regression.
 - **Numbering philosophy.** Numbers mean "jumpable." Only sessions are
   jumpable, so only sessions are numbered. Numbering is stable, follows
-  final visual top-to-bottom order (the inbox group can be reordered above
-  named groups, per issue #23, so there is no more hardcoded
-  "named groups always first"), continuous, capped at 1-20, and
-  **never renumbers on expand**. This is the
+  final visual top-to-bottom order (named groups in their user-defined
+  order, followed by the inbox group, which always renders last),
+  continuous, capped at 1-20, and **never renumbers on expand**. This is the
   intentional divergence from tmux choose-tree, which renumbers every visible
   line as the tree opens. Plain digit (`1`-`9`, `0`) switches to sessions
   1-10 (`0` = the 10th); `Option/Alt + digit` switches to sessions 11-20

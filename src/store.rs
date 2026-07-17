@@ -1,5 +1,6 @@
 use crate::model::{
-    ColorPolicy, DefaultMode, Group, HEADER_COLORS, NewGroupPosition, SessionMetric, ensure_single_inbox,
+    ColorPolicy, DefaultMode, Group, HEADER_COLORS, NewGroupPosition, SessionMetric, ensure_inbox_last,
+    ensure_single_inbox,
 };
 use serde::Deserialize;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -216,6 +217,7 @@ impl Config {
             });
         }
         ensure_single_inbox(&mut groups);
+        ensure_inbox_last(&mut groups);
         let default_mode = raw
             .settings
             .default_mode
@@ -722,7 +724,7 @@ mod tests {
         let cfg = Config::default();
         assert_eq!(cfg.default_mode, DefaultMode::Command);
         assert!(cfg.number_dormant_sessions);
-        assert_eq!(cfg.new_group_position, NewGroupPosition::Top);
+        assert_eq!(cfg.new_group_position, NewGroupPosition::Bottom);
         assert_eq!(cfg.new_group_color_policy, ColorPolicy::Rotate);
         assert_eq!(cfg.static_color, "cyan");
         assert_eq!(cfg.attached_color, "green");
@@ -743,7 +745,7 @@ mod tests {
         let cfg = Config::load_from(&path);
         assert_eq!(cfg.default_mode, DefaultMode::Command);
         assert!(cfg.number_dormant_sessions);
-        assert_eq!(cfg.new_group_position, NewGroupPosition::Top);
+        assert_eq!(cfg.new_group_position, NewGroupPosition::Bottom);
         assert_eq!(cfg.new_group_color_policy, ColorPolicy::Rotate);
         assert_eq!(cfg.static_color, "cyan");
         assert_eq!(cfg.attached_color, "green");
@@ -832,8 +834,12 @@ inbox = true
         )
         .unwrap();
         let cfg = Config::load_from(&path);
-        assert!(cfg.groups[0].inbox);
-        assert!(!cfg.groups[1].inbox);
+        // "FIRST" keeps the inbox flag (ensure_single_inbox), then
+        // ensure_inbox_last relocates it to the trailing slot.
+        assert_eq!(cfg.groups[0].name, "SECOND");
+        assert!(!cfg.groups[0].inbox);
+        assert_eq!(cfg.groups[1].name, "FIRST");
+        assert!(cfg.groups[1].inbox);
         std::fs::remove_dir_all(&dir).ok();
     }
 
