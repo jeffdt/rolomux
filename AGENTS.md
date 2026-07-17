@@ -310,9 +310,7 @@ and updating `scripts/release.sh`'s asset handling.
   not by drafting prose once the code is done -- and keep it to the
   behavioral fact a user needs (what changed, what they can now do), not
   the implementation mechanism (how it renders, which internal function
-  backs it, what it looked like mid-iteration). A chat summary written for
-  Jeff mid-conversation is not README prose; the two have different
-  audiences and detail levels, so don't port one into the other verbatim.
+  backs it, what it looked like mid-iteration).
   A change to the picker's visual appearance (colors, layout, new UI element) needs a
   refreshed `docs/images/screenshot.png` showing it live, using the same
   live-preview step above to get a real running picker on screen before
