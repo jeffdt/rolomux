@@ -103,6 +103,8 @@ Once inside:
 
 As you create groups, they'll be assigned a color from your terminal theme (cyan, green, yellow, magenta, blue, red); new groups rotate through them, `c` flips a group's color, and empty groups show grayed out until you fill them.
 
+The inbox can be renamed and recolored like any other group, but it always stays last and can't be reordered: once you have at least one other group, a dim rule marks it off from the rest, and trying to move it shows a footer warning instead.
+
 ### Search
 
 ![rolomux fuzzy search](docs/images/search.png)

@@ -429,6 +429,10 @@ pub struct PickerState {
     /// a session; `Some` until the same-direction key repeats it or any
     /// other key clears it.
     pending_window_move: Option<PendingWindowMove>,
+    /// One-shot flag set when `group_reorder` refuses to move the inbox;
+    /// cleared by any other group-mode input, mirroring
+    /// `pending_window_move`'s clear-on-any-other-key lifecycle.
+    group_reorder_blocked: bool,
     pub default_mode: DefaultMode,
     pub number_dormant_sessions: bool,
     pub remember_expanded_sessions: bool,
@@ -483,6 +487,7 @@ impl PickerState {
             group_edit: None,
             rename_edit: None,
             pending_window_move: None,
+            group_reorder_blocked: false,
             default_mode: config.default_mode,
             number_dormant_sessions: config.number_dormant_sessions,
             remember_expanded_sessions: config.remember_expanded_sessions,
@@ -1558,9 +1563,16 @@ impl PickerState {
     pub fn group_reorder(&mut self, delta: i32) {
         let gc = self.group_cursor;
         let target = gc as i32 + delta;
-        if target < 0 || target >= self.groups.len() as i32 { return; }
+        if target < 0 || target >= self.groups.len() as i32 {
+            self.group_reorder_blocked = false; // plain edge clamp, not an inbox block
+            return;
+        }
         let target = target as usize;
-        if self.groups[gc].inbox || self.groups[target].inbox { return; }
+        if self.groups[gc].inbox || self.groups[target].inbox {
+            self.group_reorder_blocked = true;
+            return;
+        }
+        self.group_reorder_blocked = false;
         if !self.active_palette.is_empty() {
             let palette = &self.active_palette;
             let resolve = |g: &Group, idx: usize| {
@@ -1574,6 +1586,19 @@ impl PickerState {
         self.groups.swap(gc, target);
         self.group_cursor = target;
         self.dirty = true;
+    }
+
+    /// The message to show in place of the group-mode footer hint after a
+    /// blocked inbox-reorder attempt, or `None` the rest of the time.
+    pub fn group_reorder_blocked_warning(&self) -> Option<&'static str> {
+        self.group_reorder_blocked.then_some("Inbox can't be reordered")
+    }
+
+    /// Drop the one-shot blocked-reorder warning. Called for any group-mode
+    /// input other than `⇧J`/`⇧K`, mirroring `clear_pending_window_move`'s
+    /// clear-on-any-other-key lifecycle.
+    pub fn clear_group_reorder_warning(&mut self) {
+        self.group_reorder_blocked = false;
     }
 
     /// Insert a new empty group and begin naming it. The header color is
@@ -3193,6 +3218,7 @@ mod tests {
         st.enter_groups();
         st.group_move_cursor(2); // land on INBOX
         assert!(st.groups[st.group_cursor()].inbox);
+        assert!(st.group_reorder_blocked_warning().is_none());
         st.group_reorder(-1); // try to move it up past G2
         assert_eq!(
             st.groups.iter().map(|g| g.name.as_str()).collect::<Vec<_>>(),
@@ -3200,6 +3226,7 @@ mod tests {
             "inbox never moves, even when explicitly targeted"
         );
         assert!(!st.dirty);
+        assert_eq!(st.group_reorder_blocked_warning(), Some("Inbox can't be reordered"));
     }
 
     #[test]
@@ -3214,6 +3241,44 @@ mod tests {
             "a named group can never swap into the inbox's trailing slot"
         );
         assert!(!st.dirty);
+        assert_eq!(st.group_reorder_blocked_warning(), Some("Inbox can't be reordered"));
+    }
+
+    #[test]
+    fn group_reorder_blocked_warning_clears_on_a_successful_reorder() {
+        let mut st = grouped_state();
+        st.enter_groups();
+        st.group_move_cursor(1); // G2
+        st.group_reorder(1); // blocked: would swap into the inbox's slot
+        assert!(st.group_reorder_blocked_warning().is_some());
+        st.group_reorder(-1); // a real swap this time (G2 <-> G1)
+        assert!(st.group_reorder_blocked_warning().is_none(), "a successful reorder clears the warning");
+    }
+
+    #[test]
+    fn group_reorder_blocked_warning_clears_on_a_plain_edge_clamp() {
+        let mut st = grouped_state();
+        st.enter_groups(); // cursor on G1, index 0
+        st.group_move_cursor(1); // G2
+        st.group_reorder(1); // blocked: inbox
+        assert!(st.group_reorder_blocked_warning().is_some());
+        st.group_move_cursor(-1); // back to G1
+        st.group_reorder(-1); // plain edge clamp (already first), unrelated to the inbox
+        assert!(
+            st.group_reorder_blocked_warning().is_none(),
+            "an ordinary out-of-bounds clamp is not an inbox block"
+        );
+    }
+
+    #[test]
+    fn clear_group_reorder_warning_drops_the_flag() {
+        let mut st = grouped_state();
+        st.enter_groups();
+        st.group_move_cursor(2); // INBOX
+        st.group_reorder(-1);
+        assert!(st.group_reorder_blocked_warning().is_some());
+        st.clear_group_reorder_warning();
+        assert!(st.group_reorder_blocked_warning().is_none());
     }
 
     #[test]

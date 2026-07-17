@@ -366,6 +366,16 @@ fn draw_groups(frame: &mut Frame, state: &PickerState, inner: Rect) {
     let mut items: Vec<ListItem> = Vec::new();
     let mut selected_line: Option<usize> = None;
     for (gi, g) in state.groups.iter().enumerate() {
+        // The inbox can't be reordered (see `PickerState::group_reorder`), so
+        // once there's at least one named group to separate it from, a dim
+        // rule marks it as sitting outside the manually-ordered block. With
+        // no named groups yet, inbox is the only row and needs no divider.
+        if g.inbox && state.groups.len() > 1 {
+            items.push(ListItem::new(Line::from(Span::styled(
+                "─".repeat(list_area.width as usize),
+                Style::default().fg(DIM),
+            ))));
+        }
         let selected = gi == state.group_cursor();
         if selected { selected_line = Some(items.len()); }
         let editing = selected && state.group_editing();
@@ -400,9 +410,20 @@ fn draw_groups(frame: &mut Frame, state: &PickerState, inner: Rect) {
     frame.render_stateful_widget(list, list_area, &mut list_state);
 
     let rule = "─".repeat(footer_area.width as usize);
+    // A blocked inbox-reorder attempt takes over the hint line with a
+    // one-shot warning, same treatment as the pending window-move warning
+    // in command mode: it explains why ⇧J/⇧K visibly did nothing.
+    let hint_line = if let Some(warning) = state.group_reorder_blocked_warning() {
+        Line::from(Span::styled(
+            warning.to_string(),
+            Style::default().fg(WARNING).add_modifier(Modifier::BOLD),
+        ))
+    } else {
+        styled_hint(GROUP_FOOTER_HINT)
+    };
     let footer = Paragraph::new(vec![
         Line::from(Span::styled(rule, Style::default().fg(DIM))),
-        styled_hint(GROUP_FOOTER_HINT),
+        hint_line,
     ]);
     frame.render_widget(footer, footer_area);
 }
@@ -2640,6 +2661,70 @@ mod tests {
         assert!(text.contains("· 1"), "member count");
         assert!(text.contains("⊛ INBOX"), "inbox row renders through the normal group path");
         assert!(text.contains("Enter rename"), "group footer");
+    }
+
+    fn is_dim_rule_line(line: &str) -> bool {
+        let content: String = line.chars().skip(3).take_while(|c| *c != '│').collect();
+        !content.is_empty() && content.chars().all(|c| c == '─')
+    }
+
+    #[test]
+    fn draw_groups_shows_a_divider_above_the_inbox_when_a_named_group_exists() {
+        let text = render_to_string(&groups_view(false)); // CONFIG + INBOX
+        let lines: Vec<&str> = text.lines().collect();
+        let inbox_idx = lines.iter().position(|l| l.contains("⊛ INBOX")).expect("inbox row rendered");
+        assert!(
+            is_dim_rule_line(lines[inbox_idx - 1]),
+            "a dim rule should sit directly above the inbox row: {:?}",
+            lines[inbox_idx - 1]
+        );
+        // Exactly two dash-only rows: the divider and the footer's own rule.
+        assert_eq!(lines.iter().filter(|l| is_dim_rule_line(l)).count(), 2);
+    }
+
+    #[test]
+    fn draw_groups_hides_the_divider_when_inbox_is_the_only_group() {
+        let sessions = vec![Session {
+            id: String::new(), name: "claude".into(), activity: 30, created: 1, attached: false,
+            windows: vec![Window { index: 0, name: "w".into(), active: true }],
+        }];
+        let cfg = Config { groups: vec![], ..Default::default() }; // synthesizes INBOX alone
+        let mut st = PickerState::build(sessions, &cfg);
+        st.enter_groups();
+        let text = render_to_string(&st);
+        let lines: Vec<&str> = text.lines().collect();
+        assert!(lines.iter().any(|l| l.contains("⊛ INBOX")));
+        // Only the footer's own rule, no divider above the sole inbox row.
+        assert_eq!(lines.iter().filter(|l| is_dim_rule_line(l)).count(), 1);
+    }
+
+    #[test]
+    fn draw_groups_footer_shows_warning_after_a_blocked_inbox_reorder() {
+        let mut st = groups_view(false); // CONFIG + INBOX
+        st.group_move_cursor(1); // land on INBOX
+        st.group_reorder(-1); // blocked
+        let text = render_to_string(&st);
+        assert!(text.contains("Inbox can't be reordered"));
+        assert!(!text.contains("Enter rename"), "warning replaces the normal footer hint, not alongside it");
+    }
+
+    #[test]
+    fn draw_groups_footer_warning_is_red_not_dim() {
+        let mut st = groups_view(false);
+        st.group_move_cursor(1);
+        st.group_reorder(-1);
+        let backend = TestBackend::new(80, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| draw(f, &st)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+        let mut found_red = false;
+        for y in 0..buf.area.height {
+            let line: String = (0..buf.area.width).map(|x| buf[(x, y)].symbol()).collect();
+            if line.contains("Inbox can't be reordered") {
+                found_red = buf[(POPUP_MARGIN + 1, y)].style().fg == Some(Color::Red);
+            }
+        }
+        assert!(found_red, "blocked-reorder warning should render in WARNING red, not the dim hint color");
     }
 
     #[test]
