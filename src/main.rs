@@ -1,4 +1,5 @@
 mod debug;
+mod input;
 mod model;
 mod search;
 mod store;
@@ -15,7 +16,8 @@ use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
 use std::io::{self, stdout};
 use tmux::{apply_action, RealTmux, Tmux};
-use ui::{draw, map_group_key, map_key, map_search_key, map_settings_key, GroupInput, Input, SearchInput, SettingsInput};
+use input::{map_group_key, map_key, map_search_key, map_settings_key, GroupInput, Input, SearchInput, SettingsInput};
+use ui::draw;
 
 const HELP: &str = "\
 rolomux - a fast tmux session picker

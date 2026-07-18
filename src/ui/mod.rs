@@ -2,13 +2,14 @@ use crate::model::{
     ColorPolicy, DefaultMode, Group, Mode, NewGroupPosition, PickerState, Row, Session, SessionMetric,
     SettingsRow, Window, ALL_NAMED_COLORS,
 };
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Borders, List, ListItem, ListState, Paragraph};
 use ratatui::Frame;
 use std::time::{SystemTime, UNIX_EPOCH};
+
+mod settings;
 
 const ACCENT: Color = Color::Cyan;
 const DIM: Color = Color::DarkGray;
@@ -142,7 +143,7 @@ pub fn draw(frame: &mut Frame, state: &PickerState) {
         Mode::Command => draw_command(frame, state, content),
         Mode::Search => draw_search(frame, state, content),
         Mode::Groups => draw_groups(frame, state, content),
-        Mode::Settings => draw_settings(frame, state, content),
+        Mode::Settings => settings::draw_settings(frame, state, content),
     }
 }
 
@@ -426,253 +427,6 @@ fn draw_groups(frame: &mut Frame, state: &PickerState, inner: Rect) {
         hint_line,
     ]);
     frame.render_widget(footer, footer_area);
-}
-
-const SETTINGS_FOOTER_HINT: &str =
-    "j/k move · h/l cycle · Space toggle · c color · Esc back";
-
-fn draw_settings(frame: &mut Frame, state: &PickerState, inner: Rect) {
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Min(0), Constraint::Length(3)])
-        .split(inner);
-    let list_area = chunks[0];
-    let footer_area = chunks[1];
-
-    let rows = state.settings_visible_rows();
-    // Computed once: PaletteColor rows below index into this instead of
-    // rebuilding the 16-entry palette Vec on every iteration.
-    let palette_entries = state.settings_palette_rows();
-    let mut items: Vec<ListItem> = Vec::new();
-    let mut selected_line: Option<usize> = None;
-    for (i, row) in rows.iter().enumerate() {
-        match row {
-            SettingsRow::DefaultMode => push_settings_section_header(&mut items, "BEHAVIOR", list_area.width),
-            SettingsRow::AttachedColor => push_settings_section_header(&mut items, "APPEARANCE", list_area.width),
-            _ => {}
-        }
-        let selected = i == state.settings_cursor();
-        if selected {
-            selected_line = Some(items.len());
-        }
-        let line = match row {
-            SettingsRow::DefaultMode => {
-                settings_value_line("Default mode", default_mode_label(state.default_mode), selected)
-            }
-            SettingsRow::DormantNumbering => {
-                settings_value_line(
-                    "Number dormant sessions",
-                    dormant_numbering_label(state.number_dormant_sessions),
-                    selected,
-                )
-            }
-            SettingsRow::RememberExpanded => {
-                settings_value_line(
-                    "Remember expanded sessions",
-                    remember_expanded_label(state.remember_expanded_sessions),
-                    selected,
-                )
-            }
-            SettingsRow::SessionMetric => {
-                settings_value_line("Session metadata", session_metric_label(state.session_metric), selected)
-            }
-            SettingsRow::ClearDormantOnAttach => {
-                settings_value_line(
-                    "Clear dormant on attach",
-                    clear_dormant_on_attach_label(state.clear_dormant_on_attach),
-                    selected,
-                )
-            }
-            SettingsRow::NewGroupPosition => {
-                settings_value_line(
-                    "New group position",
-                    new_group_position_label(state.new_group_position),
-                    selected,
-                )
-            }
-            SettingsRow::AttachedColor => {
-                settings_color_line("Attached session color", &state.attached_color, state.attached_color_expanded(), selected)
-            }
-            SettingsRow::AttachedColorOption(idx) => {
-                settings_color_option_line(ALL_NAMED_COLORS[*idx], &state.attached_color, selected)
-            }
-            SettingsRow::BorderColor => {
-                settings_color_line("Border color", &state.border_color, state.border_color_expanded(), selected)
-            }
-            SettingsRow::BorderColorOption(idx) => {
-                settings_color_option_line(ALL_NAMED_COLORS[*idx], &state.border_color, selected)
-            }
-            SettingsRow::ColorPolicy => {
-                let mut spans = vec![
-                    gutter_span(),
-                    Span::raw(" "),
-                    Span::styled("New group color", Style::default().add_modifier(Modifier::BOLD)),
-                    Span::styled(
-                        format!("  {}", color_policy_label(state.new_group_color_policy)),
-                        secondary(selected),
-                    ),
-                ];
-                if state.new_group_color_policy == ColorPolicy::Static {
-                    spans.push(Span::raw("  "));
-                    spans.push(Span::styled(
-                        "██",
-                        Style::default().fg(color_from_name(&state.static_color)),
-                    ));
-                    spans.push(Span::styled(format!(" {}", state.static_color), secondary(selected)));
-                }
-                Line::from(spans)
-            }
-            SettingsRow::Palette => {
-                let glyph = if state.palette_expanded() { "▾" } else { "▸" };
-                Line::from(vec![
-                    gutter_span(),
-                    Span::styled(format!("{glyph} "), secondary(selected)),
-                    Span::styled("Color palette", Style::default().add_modifier(Modifier::BOLD)),
-                    Span::styled(
-                        format!("  {} active", state.active_palette.len()),
-                        secondary(selected),
-                    ),
-                ])
-            }
-            SettingsRow::PaletteColor(idx) => {
-                let (name, active) = &palette_entries[*idx];
-                let checkbox = if *active { "[x]" } else { "[ ]" };
-                Line::from(vec![
-                    gutter_span(),
-                    Span::raw("     "),
-                    Span::styled(checkbox.to_string(), secondary(selected)),
-                    Span::raw(" "),
-                    Span::styled("██", Style::default().fg(color_from_name(name))),
-                    Span::raw(" "),
-                    Span::raw(name.clone()),
-                ])
-            }
-        };
-        items.push(ListItem::new(line));
-    }
-
-    let list = List::new(items)
-        .highlight_style(Style::default().bg(SEL_BG).add_modifier(Modifier::BOLD));
-    let mut list_state = ListState::default();
-    list_state.select(selected_line);
-    frame.render_stateful_widget(list, list_area, &mut list_state);
-
-    let rule = "─".repeat(footer_area.width as usize);
-    let current_description = rows[state.settings_cursor().min(rows.len().saturating_sub(1))].description();
-    let footer = Paragraph::new(vec![
-        Line::from(Span::styled(rule, Style::default().fg(DIM))),
-        Line::from(Span::styled(current_description, Style::default())),
-        styled_hint(SETTINGS_FOOTER_HINT),
-    ]);
-    frame.render_widget(footer, footer_area);
-}
-
-/// The dim leading `│` every Settings row renders in its first column,
-/// tying rows visually to their section header. Unlike the main session
-/// list's per-group gutter color, every Settings row uses the same dim
-/// color — there is no per-section color coding.
-fn gutter_span() -> Span<'static> {
-    Span::styled("│", Style::default().fg(DIM))
-}
-
-fn settings_section_header_item(label: &str, width: u16) -> ListItem<'static> {
-    let rule_len = (width as usize).saturating_sub(label.chars().count() + 2);
-    ListItem::new(Line::from(vec![
-        Span::styled(label.to_string(), Style::default().fg(DIM).add_modifier(Modifier::BOLD)),
-        Span::raw(" "),
-        Span::styled("─".repeat(rule_len), Style::default().fg(DIM)),
-    ]))
-}
-
-fn push_settings_section_header(items: &mut Vec<ListItem<'static>>, label: &str, width: u16) {
-    if !items.is_empty() {
-        items.push(ListItem::new(Line::from("")));
-    }
-    items.push(settings_section_header_item(label, width));
-}
-
-fn settings_value_line(label: &str, value: &str, selected: bool) -> Line<'static> {
-    Line::from(vec![
-        gutter_span(),
-        Span::raw(" "),
-        Span::styled(label.to_string(), Style::default().add_modifier(Modifier::BOLD)),
-        Span::styled(format!("  {value}"), secondary(selected)),
-    ])
-}
-
-/// Render a collapsed single-color settings row: a gutter bar, an expand
-/// glyph, the bold label, a swatch, and the color's name. Shared by
-/// Attached session color and Border color.
-fn settings_color_line(label: &str, color_name: &str, expanded: bool, selected: bool) -> Line<'static> {
-    let glyph = if expanded { "▾" } else { "▸" };
-    Line::from(vec![
-        gutter_span(),
-        Span::styled(format!("{glyph} "), secondary(selected)),
-        Span::styled(label.to_string(), Style::default().add_modifier(Modifier::BOLD)),
-        Span::raw("  "),
-        Span::styled("██", Style::default().fg(color_from_name(color_name))),
-        Span::styled(format!(" {color_name}"), secondary(selected)),
-    ])
-}
-
-/// Render one child row of an expanded single-color picker: a gutter bar, a
-/// radio glyph (`●` if `name` is the currently selected color, `○`
-/// otherwise), a swatch, and the name. Distinct from `PaletteColor`'s
-/// `[x]`/`[ ]` checkbox glyph, which communicates "pick many" instead of
-/// "pick one."
-fn settings_color_option_line(name: &str, current: &str, selected: bool) -> Line<'static> {
-    let radio = if name == current { "●" } else { "○" };
-    Line::from(vec![
-        gutter_span(),
-        Span::raw("     "),
-        Span::styled(radio.to_string(), secondary(selected)),
-        Span::raw(" "),
-        Span::styled("██", Style::default().fg(color_from_name(name))),
-        Span::raw(" "),
-        Span::raw(name.to_string()),
-    ])
-}
-
-fn default_mode_label(m: DefaultMode) -> &'static str {
-    match m {
-        DefaultMode::Command => "Command",
-        DefaultMode::Search => "Search",
-    }
-}
-
-fn dormant_numbering_label(number_dormant_sessions: bool) -> &'static str {
-    if number_dormant_sessions { "Yes" } else { "No" }
-}
-
-fn session_metric_label(m: SessionMetric) -> &'static str {
-    match m {
-        SessionMetric::Recency => "Recency",
-        SessionMetric::Age => "Age",
-        SessionMetric::Hidden => "Hidden",
-    }
-}
-
-fn remember_expanded_label(remember_expanded_sessions: bool) -> &'static str {
-    if remember_expanded_sessions { "Yes" } else { "No" }
-}
-
-fn clear_dormant_on_attach_label(clear_dormant_on_attach: bool) -> &'static str {
-    if clear_dormant_on_attach { "Yes" } else { "No" }
-}
-
-fn new_group_position_label(p: NewGroupPosition) -> &'static str {
-    match p {
-        NewGroupPosition::Top => "Top",
-        NewGroupPosition::Bottom => "Bottom",
-    }
-}
-
-fn color_policy_label(p: ColorPolicy) -> &'static str {
-    match p {
-        ColorPolicy::Rotate => "Rotate",
-        ColorPolicy::Random => "Random",
-        ColorPolicy::Static => "Static",
-    }
 }
 
 /// Map a named color to its ANSI `Color` (never RGB, so headers follow the
@@ -986,161 +740,9 @@ fn window_item(win: &Window, last: bool, selected: bool, gutter_color: Color, do
     ]))
 }
 
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Input {
-    Up,
-    Down,
-    Expand,
-    Collapse,
-    ToggleAll,
-    Select,
-    Switch(usize),
-    EnterGroups,
-    EnterSettings,
-    MoveUp,
-    MoveDown,
-    EnterSearch,
-    ToggleDormant,
-    ToggleFocusMode,
-    Rename,
-    Quit,
-    None,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SearchInput {
-    Char(char),
-    Backspace,
-    DeleteWord,
-    Clear,
-    Up,
-    Down,
-    Select,
-    Exit,
-    None,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum GroupInput { Up, Down, MoveUp, MoveDown, New, Rename, CycleColor, Delete, Exit, None }
-
-/// Key mapping for group-management mode while NOT editing a name. During an
-/// inline rename the loop routes keys through `map_search_key` instead.
-pub fn map_group_key(key: KeyEvent) -> GroupInput {
-    let shift = key.modifiers.contains(KeyModifiers::SHIFT);
-    match key.code {
-        KeyCode::Char('J') | KeyCode::Down if shift => GroupInput::MoveDown,
-        KeyCode::Char('K') | KeyCode::Up if shift => GroupInput::MoveUp,
-        KeyCode::Char('j') | KeyCode::Down => GroupInput::Down,
-        KeyCode::Char('k') | KeyCode::Up => GroupInput::Up,
-        KeyCode::Char('n') => GroupInput::New,
-        KeyCode::Enter | KeyCode::Char('r') => GroupInput::Rename,
-        KeyCode::Char('c') => GroupInput::CycleColor,
-        KeyCode::Char('d') => GroupInput::Delete,
-        KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('g') => GroupInput::Exit,
-        _ => GroupInput::None,
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SettingsInput {
-    Up,
-    Down,
-    Left,
-    Right,
-    Activate,
-    CycleColor,
-    Exit,
-    None,
-}
-
-/// Key mapping for settings mode. `,` exits (mirroring how it also enters,
-/// same as `g` for Groups mode), alongside the usual `q`/`Esc`. The palette
-/// checklist has a fixed display order (`ALL_NAMED_COLORS` canonical order),
-/// so there is no reorder key here (unlike Groups mode's `⇧JK`).
-pub fn map_settings_key(key: KeyEvent) -> SettingsInput {
-    match key.code {
-        KeyCode::Char('j') | KeyCode::Down => SettingsInput::Down,
-        KeyCode::Char('k') | KeyCode::Up => SettingsInput::Up,
-        KeyCode::Char('l') | KeyCode::Right => SettingsInput::Right,
-        KeyCode::Char('h') | KeyCode::Left => SettingsInput::Left,
-        KeyCode::Enter | KeyCode::Char(' ') => SettingsInput::Activate,
-        KeyCode::Char('c') => SettingsInput::CycleColor,
-        KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char(',') => SettingsInput::Exit,
-        _ => SettingsInput::None,
-    }
-}
-
-/// Key mapping while in search mode. Printable characters (including digits)
-/// build the query; movement uses arrows plus the fzf/vim Ctrl pairs.
-///
-/// Note: under the legacy (non-kitty) encoding some terminals deliver Ctrl-j as
-/// Enter, in which case it selects rather than moving down. Arrows, Ctrl-n,
-/// Ctrl-p, and Ctrl-k are the reliable movement keys; Ctrl-j is mapped for
-/// terminals that can distinguish it.
-pub fn map_search_key(key: KeyEvent) -> SearchInput {
-    let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
-    let alt = key.modifiers.contains(KeyModifiers::ALT);
-    match key.code {
-        KeyCode::Esc => SearchInput::Exit,
-        KeyCode::Enter => SearchInput::Select,
-        KeyCode::Backspace if alt => SearchInput::DeleteWord,
-        KeyCode::Backspace => SearchInput::Backspace,
-        KeyCode::Up => SearchInput::Up,
-        KeyCode::Down => SearchInput::Down,
-        KeyCode::Char('w') if ctrl => SearchInput::DeleteWord,
-        KeyCode::Char('u') if ctrl => SearchInput::Clear,
-        KeyCode::Char('p') | KeyCode::Char('k') if ctrl => SearchInput::Up,
-        KeyCode::Char('n') | KeyCode::Char('j') if ctrl => SearchInput::Down,
-        KeyCode::Char(_) if ctrl => SearchInput::None,
-        KeyCode::Char(c) => SearchInput::Char(c),
-        _ => SearchInput::None,
-    }
-}
-
-pub fn map_key(key: KeyEvent) -> Input {
-    let shift = key.modifiers.contains(KeyModifiers::SHIFT);
-    let alt = key.modifiers.contains(KeyModifiers::ALT);
-    match key.code {
-        KeyCode::Char('K') | KeyCode::Up if shift => Input::MoveUp,
-        KeyCode::Char('J') | KeyCode::Down if shift => Input::MoveDown,
-        KeyCode::Char('R') if shift => Input::Rename,
-        KeyCode::Char('j') | KeyCode::Down => Input::Down,
-        KeyCode::Char('k') | KeyCode::Up => Input::Up,
-        KeyCode::Char('l') | KeyCode::Right => Input::Expand,
-        KeyCode::Left => Input::Collapse,
-        KeyCode::Char('f') => Input::ToggleFocusMode,
-        KeyCode::Char('z') => Input::ToggleAll,
-        KeyCode::Enter => Input::Select,
-        KeyCode::Char('g') => Input::EnterGroups,
-        KeyCode::Char(',') => Input::EnterSettings,
-        KeyCode::Char('/') => Input::EnterSearch,
-        KeyCode::Char('d') => Input::ToggleDormant,
-        KeyCode::Char(c @ '1'..='9') if alt => Input::Switch(10 + (c as usize - '0' as usize)),
-        KeyCode::Char('0') if alt => Input::Switch(20),
-        KeyCode::Char(c @ '1'..='9') => Input::Switch(c as usize - '0' as usize),
-        KeyCode::Char('0') => Input::Switch(10),
-        KeyCode::Char('q') | KeyCode::Esc => Input::Quit,
-        _ => Input::None,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn key(code: KeyCode) -> KeyEvent {
-        KeyEvent::new(code, KeyModifiers::NONE)
-    }
-    fn shift(code: KeyCode) -> KeyEvent {
-        KeyEvent::new(code, KeyModifiers::SHIFT)
-    }
-    fn alt(code: KeyCode) -> KeyEvent {
-        KeyEvent::new(code, KeyModifiers::ALT)
-    }
-    fn ctrl(code: KeyCode) -> KeyEvent {
-        KeyEvent::new(code, KeyModifiers::CONTROL)
-    }
 
     use crate::model::{Group, PickerState, Session, Window, WindowMove};
     use crate::store::Config;
@@ -1481,51 +1083,6 @@ mod tests {
                 }
             }
         }
-    }
-
-    #[test]
-    fn maps_navigation_and_commands() {
-        assert_eq!(map_key(key(KeyCode::Char('j'))), Input::Down);
-        assert_eq!(map_key(key(KeyCode::Down)), Input::Down);
-        assert_eq!(map_key(key(KeyCode::Char('k'))), Input::Up);
-        assert_eq!(map_key(key(KeyCode::Char('l'))), Input::Expand);
-        assert_eq!(map_key(key(KeyCode::Right)), Input::Expand);
-        assert_eq!(map_key(key(KeyCode::Left)), Input::Collapse);
-        assert_eq!(map_key(key(KeyCode::Char('h'))), Input::None, "h is retired; f replaces it");
-        assert_eq!(map_key(key(KeyCode::Char('f'))), Input::ToggleFocusMode);
-        assert_eq!(map_key(key(KeyCode::Enter)), Input::Select);
-        assert_eq!(map_key(key(KeyCode::Char('g'))), Input::EnterGroups);
-        assert_eq!(map_key(key(KeyCode::Char('p'))), Input::None);
-        assert_eq!(map_key(key(KeyCode::Char('q'))), Input::Quit);
-        assert_eq!(map_key(key(KeyCode::Esc)), Input::Quit);
-        assert_eq!(map_key(shift(KeyCode::Char('K'))), Input::MoveUp);
-        assert_eq!(map_key(shift(KeyCode::Char('J'))), Input::MoveDown);
-        assert_eq!(map_key(shift(KeyCode::Up)), Input::MoveUp);
-        assert_eq!(map_key(shift(KeyCode::Down)), Input::MoveDown);
-        assert_eq!(map_key(key(KeyCode::Char('z'))), Input::ToggleAll);
-        assert_eq!(map_key(key(KeyCode::Char('1'))), Input::Switch(1));
-        assert_eq!(map_key(key(KeyCode::Char('9'))), Input::Switch(9));
-        assert_eq!(map_key(key(KeyCode::Char('0'))), Input::Switch(10));
-        assert_eq!(map_key(key(KeyCode::Char('x'))), Input::None);
-        // Option/Alt+digit reaches the second decade of sessions (11-20).
-        assert_eq!(map_key(alt(KeyCode::Char('1'))), Input::Switch(11));
-        assert_eq!(map_key(alt(KeyCode::Char('9'))), Input::Switch(19));
-        assert_eq!(map_key(alt(KeyCode::Char('0'))), Input::Switch(20));
-    }
-
-    #[test]
-    fn maps_toggle_dormant_key() {
-        assert_eq!(map_key(key(KeyCode::Char('d'))), Input::ToggleDormant);
-    }
-
-    #[test]
-    fn map_key_shift_r_is_rename() {
-        assert_eq!(map_key(shift(KeyCode::Char('R'))), Input::Rename);
-    }
-
-    #[test]
-    fn map_key_lowercase_r_is_unmapped() {
-        assert_eq!(map_key(key(KeyCode::Char('r'))), Input::None);
     }
 
     #[test]
@@ -2306,35 +1863,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn slash_enters_search_in_command_mode() {
-        assert_eq!(map_key(key(KeyCode::Char('/'))), Input::EnterSearch);
-    }
-
-    #[test]
-    fn search_keys_map_to_query_edits_and_nav() {
-        assert_eq!(map_search_key(key(KeyCode::Char('a'))), SearchInput::Char('a'));
-        assert_eq!(map_search_key(key(KeyCode::Char('1'))), SearchInput::Char('1'));
-        assert_eq!(map_search_key(shift(KeyCode::Char('A'))), SearchInput::Char('A'));
-        assert_eq!(map_search_key(key(KeyCode::Backspace)), SearchInput::Backspace);
-        assert_eq!(map_search_key(key(KeyCode::Enter)), SearchInput::Select);
-        assert_eq!(map_search_key(key(KeyCode::Esc)), SearchInput::Exit);
-        assert_eq!(map_search_key(key(KeyCode::Up)), SearchInput::Up);
-        assert_eq!(map_search_key(key(KeyCode::Down)), SearchInput::Down);
-        assert_eq!(map_search_key(ctrl(KeyCode::Char('p'))), SearchInput::Up);
-        assert_eq!(map_search_key(ctrl(KeyCode::Char('k'))), SearchInput::Up);
-        assert_eq!(map_search_key(ctrl(KeyCode::Char('n'))), SearchInput::Down);
-        assert_eq!(map_search_key(ctrl(KeyCode::Char('j'))), SearchInput::Down);
-        // Bulk deletes: Ctrl-W / Alt-Backspace delete a word, Ctrl-U clears.
-        assert_eq!(map_search_key(ctrl(KeyCode::Char('w'))), SearchInput::DeleteWord);
-        assert_eq!(map_search_key(alt(KeyCode::Backspace)), SearchInput::DeleteWord);
-        assert_eq!(map_search_key(ctrl(KeyCode::Char('u'))), SearchInput::Clear);
-        // Plain Backspace still deletes a single char.
-        assert_eq!(map_search_key(key(KeyCode::Backspace)), SearchInput::Backspace);
-        // Ctrl-modified letters are nav/no-op, never query text.
-        assert_eq!(map_search_key(ctrl(KeyCode::Char('a'))), SearchInput::None);
-    }
-
     fn searching_state(query: &str) -> PickerState {
         let sessions = vec![
             Session { id: String::new(), name: "pr-review".into(), activity: 30, created: 1, attached: false,
@@ -2561,44 +2089,6 @@ mod tests {
 
         let text = render_to_string(&state);
         assert!(text.contains("DEV"), "group tag still renders when metric is Hidden: {text:?}");
-    }
-
-    #[test]
-    fn group_keys_map_to_ops() {
-        assert_eq!(map_group_key(key(KeyCode::Char('j'))), GroupInput::Down);
-        assert_eq!(map_group_key(key(KeyCode::Char('k'))), GroupInput::Up);
-        assert_eq!(map_group_key(shift(KeyCode::Char('J'))), GroupInput::MoveDown);
-        assert_eq!(map_group_key(shift(KeyCode::Char('K'))), GroupInput::MoveUp);
-        assert_eq!(map_group_key(shift(KeyCode::Down)), GroupInput::MoveDown);
-        assert_eq!(map_group_key(shift(KeyCode::Up)), GroupInput::MoveUp);
-        assert_eq!(map_group_key(key(KeyCode::Char('n'))), GroupInput::New);
-        assert_eq!(map_group_key(key(KeyCode::Enter)), GroupInput::Rename);
-        assert_eq!(map_group_key(key(KeyCode::Char('r'))), GroupInput::Rename);
-        assert_eq!(map_group_key(key(KeyCode::Char('c'))), GroupInput::CycleColor);
-        assert_eq!(map_group_key(key(KeyCode::Char('d'))), GroupInput::Delete);
-        assert_eq!(map_group_key(key(KeyCode::Esc)), GroupInput::Exit);
-        assert_eq!(map_group_key(key(KeyCode::Char('q'))), GroupInput::Exit);
-        assert_eq!(map_group_key(key(KeyCode::Char('g'))), GroupInput::Exit);
-        assert_eq!(map_group_key(key(KeyCode::Char('x'))), GroupInput::None);
-    }
-
-    #[test]
-    fn settings_keys_map_to_ops() {
-        assert_eq!(map_settings_key(key(KeyCode::Char('j'))), SettingsInput::Down);
-        assert_eq!(map_settings_key(key(KeyCode::Down)), SettingsInput::Down);
-        assert_eq!(map_settings_key(key(KeyCode::Char('k'))), SettingsInput::Up);
-        assert_eq!(map_settings_key(key(KeyCode::Up)), SettingsInput::Up);
-        assert_eq!(map_settings_key(key(KeyCode::Char('l'))), SettingsInput::Right);
-        assert_eq!(map_settings_key(key(KeyCode::Right)), SettingsInput::Right);
-        assert_eq!(map_settings_key(key(KeyCode::Char('h'))), SettingsInput::Left);
-        assert_eq!(map_settings_key(key(KeyCode::Left)), SettingsInput::Left);
-        assert_eq!(map_settings_key(key(KeyCode::Enter)), SettingsInput::Activate);
-        assert_eq!(map_settings_key(key(KeyCode::Char(' '))), SettingsInput::Activate);
-        assert_eq!(map_settings_key(key(KeyCode::Char('c'))), SettingsInput::CycleColor);
-        assert_eq!(map_settings_key(key(KeyCode::Esc)), SettingsInput::Exit);
-        assert_eq!(map_settings_key(key(KeyCode::Char('q'))), SettingsInput::Exit);
-        assert_eq!(map_settings_key(key(KeyCode::Char(','))), SettingsInput::Exit);
-        assert_eq!(map_settings_key(key(KeyCode::Char('x'))), SettingsInput::None);
     }
 
     #[test]
@@ -2837,11 +2327,6 @@ mod tests {
     }
 
     #[test]
-    fn comma_enters_settings_from_command_mode() {
-        assert_eq!(map_key(key(KeyCode::Char(','))), Input::EnterSettings);
-    }
-
-    #[test]
     fn draw_shows_settings_footer_hint() {
         let sessions = vec![
             Session { id: String::new(), name: "main".into(), activity: 100, created: 1, attached: false,
@@ -2887,7 +2372,7 @@ mod tests {
             .expect("description line rendered");
         let hint_idx = lines
             .iter()
-            .position(|l| l.contains(SETTINGS_FOOTER_HINT))
+            .position(|l| l.contains(settings::SETTINGS_FOOTER_HINT))
             .expect("key-hint line rendered");
         assert!(description_idx < hint_idx, "description should render above the key-hint line");
     }
@@ -3241,20 +2726,6 @@ mod tests {
             "a blank line should separate BEHAVIOR's rows from the APPEARANCE header, got: {:?}",
             prev_line
         );
-    }
-
-    #[test]
-    fn push_settings_section_header_skips_blank_line_when_list_is_empty() {
-        let mut items: Vec<ListItem> = Vec::new();
-        push_settings_section_header(&mut items, "BEHAVIOR", 40);
-        assert_eq!(items.len(), 1, "no blank spacer should precede the very first header");
-    }
-
-    #[test]
-    fn push_settings_section_header_adds_blank_line_before_subsequent_headers() {
-        let mut items: Vec<ListItem> = vec![ListItem::new(Line::from("existing row"))];
-        push_settings_section_header(&mut items, "APPEARANCE", 40);
-        assert_eq!(items.len(), 3, "a blank spacer plus the header should be appended after existing rows");
     }
 
     #[test]
