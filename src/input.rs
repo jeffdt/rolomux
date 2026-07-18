@@ -20,6 +20,7 @@ pub enum Input {
     EnterSearch,
     ToggleDormant,
     ToggleFocusMode,
+    ToggleShortcuts,
     Rename,
     Quit,
     None,
@@ -39,7 +40,7 @@ pub enum SearchInput {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum GroupInput { Up, Down, MoveUp, MoveDown, New, Rename, CycleColor, Delete, Exit, None }
+pub enum GroupInput { Up, Down, MoveUp, MoveDown, New, Rename, CycleColor, Delete, ToggleShortcuts, Exit, None }
 
 /// Key mapping for group-management mode while NOT editing a name. During an
 /// inline rename the loop routes keys through `map_search_key` instead.
@@ -54,6 +55,7 @@ pub fn map_group_key(key: KeyEvent) -> GroupInput {
         KeyCode::Enter | KeyCode::Char('r') => GroupInput::Rename,
         KeyCode::Char('c') => GroupInput::CycleColor,
         KeyCode::Char('d') => GroupInput::Delete,
+        KeyCode::Char('?') => GroupInput::ToggleShortcuts,
         KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('g') => GroupInput::Exit,
         _ => GroupInput::None,
     }
@@ -67,6 +69,7 @@ pub enum SettingsInput {
     Right,
     Activate,
     CycleColor,
+    ToggleShortcuts,
     Exit,
     None,
 }
@@ -83,6 +86,7 @@ pub fn map_settings_key(key: KeyEvent) -> SettingsInput {
         KeyCode::Char('h') | KeyCode::Left => SettingsInput::Left,
         KeyCode::Enter | KeyCode::Char(' ') => SettingsInput::Activate,
         KeyCode::Char('c') => SettingsInput::CycleColor,
+        KeyCode::Char('?') => SettingsInput::ToggleShortcuts,
         KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char(',') => SettingsInput::Exit,
         _ => SettingsInput::None,
     }
@@ -133,6 +137,7 @@ pub fn map_key(key: KeyEvent) -> Input {
         KeyCode::Char(',') => Input::EnterSettings,
         KeyCode::Char('/') => Input::EnterSearch,
         KeyCode::Char('d') => Input::ToggleDormant,
+        KeyCode::Char('?') => Input::ToggleShortcuts,
         KeyCode::Char(c @ '1'..='9') if alt => Input::Switch(10 + (c as usize - '0' as usize)),
         KeyCode::Char('0') if alt => Input::Switch(20),
         KeyCode::Char(c @ '1'..='9') => Input::Switch(c as usize - '0' as usize),
@@ -228,6 +233,13 @@ mod tests {
     #[test]
     fn maps_toggle_dormant_key() {
         assert_eq!(map_key(key(KeyCode::Char('d'))), Input::ToggleDormant);
+    }
+
+    #[test]
+    fn question_mark_toggles_shortcuts_in_command_groups_and_settings_modes() {
+        assert_eq!(map_key(key(KeyCode::Char('?'))), Input::ToggleShortcuts);
+        assert_eq!(map_group_key(key(KeyCode::Char('?'))), GroupInput::ToggleShortcuts);
+        assert_eq!(map_settings_key(key(KeyCode::Char('?'))), SettingsInput::ToggleShortcuts);
     }
 
     #[test]

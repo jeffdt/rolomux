@@ -67,6 +67,13 @@ pub(super) fn draw_settings(frame: &mut Frame, state: &PickerState, inner: Rect)
                     selected,
                 )
             }
+            SettingsRow::ShortcutVisibility => {
+                settings_value_line(
+                    "Show shortcuts",
+                    shortcut_visibility_label(state.shortcut_visibility),
+                    selected,
+                )
+            }
             SettingsRow::AttachedColor => {
                 settings_color_line("Attached session color", &state.attached_color, state.attached_color_expanded(), selected)
             }
@@ -78,6 +85,32 @@ pub(super) fn draw_settings(frame: &mut Frame, state: &PickerState, inner: Rect)
             }
             SettingsRow::BorderColorOption(idx) => {
                 settings_color_option_line(ALL_NAMED_COLORS[*idx], &state.border_color, selected)
+            }
+            SettingsRow::ShortcutColor => {
+                settings_color_line("Shortcut highlight color", &state.shortcut_color, state.shortcut_color_expanded(), selected)
+            }
+            SettingsRow::ShortcutColorOption(idx) => {
+                settings_color_option_line(ALL_NAMED_COLORS[*idx], &state.shortcut_color, selected)
+            }
+            SettingsRow::DotColorMode => {
+                let mut spans = vec![
+                    gutter_span(),
+                    Span::raw(" "),
+                    Span::styled("Active window dot color", Style::default().add_modifier(Modifier::BOLD)),
+                    Span::styled(
+                        format!("  {}", dot_color_mode_label(state.dot_color_mode)),
+                        secondary(selected),
+                    ),
+                ];
+                if state.dot_color_mode == DotColorMode::Static {
+                    spans.push(Span::raw("  "));
+                    spans.push(Span::styled(
+                        "██",
+                        Style::default().fg(color_from_name(&state.dot_color)),
+                    ));
+                    spans.push(Span::styled(format!(" {}", state.dot_color), secondary(selected)));
+                }
+                Line::from(spans)
             }
             SettingsRow::ColorPolicy => {
                 let mut spans = vec![
@@ -139,7 +172,7 @@ pub(super) fn draw_settings(frame: &mut Frame, state: &PickerState, inner: Rect)
     let footer = Paragraph::new(vec![
         Line::from(Span::styled(rule, Style::default().fg(DIM))),
         Line::from(Span::styled(current_description, Style::default())),
-        styled_hint(SETTINGS_FOOTER_HINT),
+        shortcut_hint_line(state, SETTINGS_FOOTER_HINT),
     ]);
     frame.render_widget(footer, footer_area);
 }
@@ -249,6 +282,20 @@ fn color_policy_label(p: ColorPolicy) -> &'static str {
         ColorPolicy::Rotate => "Rotate",
         ColorPolicy::Random => "Random",
         ColorPolicy::Static => "Static",
+    }
+}
+
+fn shortcut_visibility_label(v: ShortcutVisibility) -> &'static str {
+    match v {
+        ShortcutVisibility::Always => "Always",
+        ShortcutVisibility::OnDemand => "On demand (?)",
+    }
+}
+
+fn dot_color_mode_label(m: DotColorMode) -> &'static str {
+    match m {
+        DotColorMode::Static => "Static",
+        DotColorMode::Group => "Group",
     }
 }
 

@@ -159,6 +159,76 @@ impl NewGroupPosition {
     }
 }
 
+/// Governs the color of the `●` marking a session's active window
+/// (`window_item`). `Static` uses a single fixed color (`Config::dot_color`,
+/// cycled via `c` same as `attached_color`/`border_color`); `Group` inherits
+/// the color of the session's own group header instead, so the dot recolors
+/// per-section like the gutter bar already does. Only two values, so `next`
+/// covers both `h` and `l` -- same shape as `NewGroupPosition`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum DotColorMode {
+    #[default]
+    Static,
+    Group,
+}
+
+impl DotColorMode {
+    pub fn from_config_str(s: &str) -> DotColorMode {
+        match s {
+            "group" => DotColorMode::Group,
+            _ => DotColorMode::Static,
+        }
+    }
+
+    pub fn as_config_str(self) -> &'static str {
+        match self {
+            DotColorMode::Static => "static",
+            DotColorMode::Group => "group",
+        }
+    }
+
+    pub fn next(self) -> DotColorMode {
+        match self {
+            DotColorMode::Static => DotColorMode::Group,
+            DotColorMode::Group => DotColorMode::Static,
+        }
+    }
+}
+
+/// Governs whether the footer's key-shortcut legend renders on every frame
+/// or stays hidden until the transient `?` toggle (`PickerState::toggle_shortcuts`)
+/// reveals it for the rest of the current popup's lifetime. Only two values,
+/// so `next` covers both `h` and `l` -- same shape as `NewGroupPosition`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ShortcutVisibility {
+    #[default]
+    Always,
+    OnDemand,
+}
+
+impl ShortcutVisibility {
+    pub fn from_config_str(s: &str) -> ShortcutVisibility {
+        match s {
+            "on_demand" => ShortcutVisibility::OnDemand,
+            _ => ShortcutVisibility::Always,
+        }
+    }
+
+    pub fn as_config_str(self) -> &'static str {
+        match self {
+            ShortcutVisibility::Always => "always",
+            ShortcutVisibility::OnDemand => "on_demand",
+        }
+    }
+
+    pub fn next(self) -> ShortcutVisibility {
+        match self {
+            ShortcutVisibility::Always => ShortcutVisibility::OnDemand,
+            ShortcutVisibility::OnDemand => ShortcutVisibility::Always,
+        }
+    }
+}
+
 /// All 16 named ANSI terminal colors (never RGB), in a fixed canonical order.
 /// Backs the settings palette checklist and the Static-policy color cycle.
 pub const ALL_NAMED_COLORS: [&str; 16] = [
@@ -459,5 +529,37 @@ mod tests {
         assert_eq!(SessionMetric::from_config_str("recency"), SessionMetric::Recency);
         assert_eq!(SessionMetric::from_config_str("garbage"), SessionMetric::Recency);
         assert_eq!(SessionMetric::default(), SessionMetric::Recency);
+    }
+
+    #[test]
+    fn dot_color_mode_next_toggles_and_round_trips_config_str() {
+        assert_eq!(DotColorMode::Static.next(), DotColorMode::Group);
+        assert_eq!(DotColorMode::Group.next(), DotColorMode::Static);
+        assert_eq!(DotColorMode::Static.as_config_str(), "static");
+        assert_eq!(DotColorMode::Group.as_config_str(), "group");
+        assert_eq!(DotColorMode::default(), DotColorMode::Static);
+    }
+
+    #[test]
+    fn dot_color_mode_parses_with_static_fallback() {
+        assert_eq!(DotColorMode::from_config_str("group"), DotColorMode::Group);
+        assert_eq!(DotColorMode::from_config_str("static"), DotColorMode::Static);
+        assert_eq!(DotColorMode::from_config_str("garbage"), DotColorMode::Static);
+    }
+
+    #[test]
+    fn shortcut_visibility_next_toggles_and_round_trips_config_str() {
+        assert_eq!(ShortcutVisibility::Always.next(), ShortcutVisibility::OnDemand);
+        assert_eq!(ShortcutVisibility::OnDemand.next(), ShortcutVisibility::Always);
+        assert_eq!(ShortcutVisibility::Always.as_config_str(), "always");
+        assert_eq!(ShortcutVisibility::OnDemand.as_config_str(), "on_demand");
+        assert_eq!(ShortcutVisibility::default(), ShortcutVisibility::Always);
+    }
+
+    #[test]
+    fn shortcut_visibility_parses_with_always_fallback() {
+        assert_eq!(ShortcutVisibility::from_config_str("on_demand"), ShortcutVisibility::OnDemand);
+        assert_eq!(ShortcutVisibility::from_config_str("always"), ShortcutVisibility::Always);
+        assert_eq!(ShortcutVisibility::from_config_str("garbage"), ShortcutVisibility::Always);
     }
 }

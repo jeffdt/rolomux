@@ -78,6 +78,7 @@ bind C new-session \; command-prompt -I "" "rename-session '%%'" \; command-prom
 | `d` | Toggle dormant (dim) on the selected session |
 | `f` | Toggle focus mode (hide dormant sessions and empty groups) |
 | `/` | Enter search mode (type to filter, `↵` switch, `Esc` back) |
+| `?` | Reveal the footer's shortcut legend (only needed when **Show shortcuts** is set to **On demand**; works in command, group, and settings modes) |
 | `q` / `Esc` | Quit |
 
 `M-` is Meta (Option on macOS).
@@ -148,11 +149,14 @@ Press `,` to open Settings, a full-screen view of picker-wide preferences, group
 - **Clear dormant on attach.** Off by default. When on, attaching to a dormant session automatically clears its dormant flag, so you don't have to remember to press `d` yourself.
 - **New group position.** Where a newly created group is inserted: **Top** of the list, or **Bottom** (default), immediately above the inbox, which always stays last.
 - **Session metadata.** Whether the row's trailing timestamp shows time since last activity (**Recency**, default), time since the session was created (**Age**), or is omitted entirely (**Hidden**).
+- **Show shortcuts.** Whether the footer's key-shortcut legend is **Always** visible (default), or hidden until you press `?`.
 
 **Appearance**
 
 - **Attached session color.** The color used to highlight the session your tmux client is currently attached to.
 - **Border color.** rolomux's own border frame color.
+- **Shortcut highlight color.** The color used to highlight key tokens in the footer's shortcut hints.
+- **Active window dot color.** Color of the `●` marking a session's active window: a fixed **Static** color, or the session's own **Group** color.
 - **New group color.** How a newly created group picks its header color: Rotate through the palette in order, pick a Random color each time, or always use one Static color.
 - **Color palette.** Which of the 16 colors from your terminal theme are in the rotation for new group headers.
 

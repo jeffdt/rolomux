@@ -13,6 +13,7 @@ pub(super) struct SettingsUiState {
     palette_expanded: bool,
     attached_color_expanded: bool,
     border_color_expanded: bool,
+    shortcut_color_expanded: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -23,12 +24,17 @@ pub enum SettingsRow {
     SessionMetric,
     ClearDormantOnAttach,
     NewGroupPosition,
+    ShortcutVisibility,
     AttachedColor,
     /// Index into `ALL_NAMED_COLORS`.
     AttachedColorOption(usize),
     BorderColor,
     /// Index into `ALL_NAMED_COLORS`.
     BorderColorOption(usize),
+    ShortcutColor,
+    /// Index into `ALL_NAMED_COLORS`.
+    ShortcutColorOption(usize),
+    DotColorMode,
     ColorPolicy,
     Palette,
     /// Index into `PickerState::settings_palette_rows()`'s display order.
@@ -60,11 +66,20 @@ impl SettingsRow {
             SettingsRow::NewGroupPosition => {
                 "Where a newly created group is inserted: Top of the list, or Bottom (just above the inbox)."
             }
+            SettingsRow::ShortcutVisibility => {
+                "Whether the footer's key-shortcut legend is always visible, or hidden until you press ?."
+            }
             SettingsRow::AttachedColor | SettingsRow::AttachedColorOption(_) => {
                 "Highlight color for the session your tmux client is attached to."
             }
             SettingsRow::BorderColor | SettingsRow::BorderColorOption(_) => {
                 "rolomux's own border frame color."
+            }
+            SettingsRow::ShortcutColor | SettingsRow::ShortcutColorOption(_) => {
+                "Highlight color for key tokens in the footer's shortcut hints."
+            }
+            SettingsRow::DotColorMode => {
+                "Color of the \u{25cf} marking a session's active window: a fixed color, or the session's own group color."
             }
             SettingsRow::ColorPolicy => {
                 "How a new group picks its header color: Rotate, Random, or Static."
@@ -107,11 +122,16 @@ impl PickerState {
         self.settings_ui.border_color_expanded
     }
 
-    /// The flat, ordered list of settings rows currently on screen. Three
-    /// expandable sections (Attached session color, Border color, Color
-    /// palette) each splice their child rows in directly below themselves
-    /// while expanded, same shape as the original Palette/PaletteColor
-    /// pattern.
+    /// Whether the Shortcut highlight color picker is currently expanded.
+    pub fn shortcut_color_expanded(&self) -> bool {
+        self.settings_ui.shortcut_color_expanded
+    }
+
+    /// The flat, ordered list of settings rows currently on screen. Four
+    /// expandable sections (Attached session color, Border color, Shortcut
+    /// color, Color palette) each splice their child rows in directly below
+    /// themselves while expanded, same shape as the original
+    /// Palette/PaletteColor pattern.
     pub fn settings_visible_rows(&self) -> Vec<SettingsRow> {
         let mut rows = vec![
             SettingsRow::DefaultMode,
@@ -120,6 +140,7 @@ impl PickerState {
             SettingsRow::SessionMetric,
             SettingsRow::ClearDormantOnAttach,
             SettingsRow::NewGroupPosition,
+            SettingsRow::ShortcutVisibility,
             SettingsRow::AttachedColor,
         ];
         if self.settings_ui.attached_color_expanded {
@@ -133,6 +154,13 @@ impl PickerState {
                 rows.push(SettingsRow::BorderColorOption(i));
             }
         }
+        rows.push(SettingsRow::ShortcutColor);
+        if self.settings_ui.shortcut_color_expanded {
+            for i in 0..ALL_NAMED_COLORS.len() {
+                rows.push(SettingsRow::ShortcutColorOption(i));
+            }
+        }
+        rows.push(SettingsRow::DotColorMode);
         rows.push(SettingsRow::ColorPolicy);
         rows.push(SettingsRow::Palette);
         if self.settings_ui.palette_expanded {
@@ -213,6 +241,21 @@ impl PickerState {
         self.focus_settings_row(SettingsRow::BorderColor);
     }
 
+    /// Same as `expand_attached_color`, for Shortcut highlight color.
+    fn expand_shortcut_color(&mut self) {
+        self.settings_ui.shortcut_color_expanded = true;
+        let idx = ALL_NAMED_COLORS.iter().position(|c| *c == self.shortcut_color).unwrap_or(0);
+        self.focus_settings_row(SettingsRow::ShortcutColorOption(idx));
+    }
+
+    /// Same as `select_attached_color`, for Shortcut highlight color.
+    fn select_shortcut_color(&mut self, idx: usize) {
+        self.shortcut_color = ALL_NAMED_COLORS[idx].to_string();
+        self.settings_ui.shortcut_color_expanded = false;
+        self.dirty = true;
+        self.focus_settings_row(SettingsRow::ShortcutColor);
+    }
+
     fn toggle_dormant_numbering(&mut self) {
         self.number_dormant_sessions = !self.number_dormant_sessions;
         self.dirty = true;
@@ -238,6 +281,16 @@ impl PickerState {
         self.dirty = true;
     }
 
+    fn toggle_shortcut_visibility(&mut self) {
+        self.shortcut_visibility = self.shortcut_visibility.next();
+        self.dirty = true;
+    }
+
+    fn toggle_dot_color_mode(&mut self) {
+        self.dot_color_mode = self.dot_color_mode.next();
+        self.dirty = true;
+    }
+
     /// `h` on the current settings row: step Default Mode / Color Policy
     /// backward, collapse an expanded section, or (from inside an expanded
     /// section's child row) cancel -- collapse without changing the value --
@@ -253,6 +306,7 @@ impl PickerState {
             SettingsRow::SessionMetric => self.cycle_session_metric(),
             SettingsRow::ClearDormantOnAttach => self.toggle_clear_dormant_on_attach(),
             SettingsRow::NewGroupPosition => self.toggle_new_group_position(),
+            SettingsRow::ShortcutVisibility => self.toggle_shortcut_visibility(),
             SettingsRow::AttachedColor => self.settings_ui.attached_color_expanded = false,
             SettingsRow::AttachedColorOption(_) => {
                 self.settings_ui.attached_color_expanded = false;
@@ -263,6 +317,12 @@ impl PickerState {
                 self.settings_ui.border_color_expanded = false;
                 self.focus_settings_row(SettingsRow::BorderColor);
             }
+            SettingsRow::ShortcutColor => self.settings_ui.shortcut_color_expanded = false,
+            SettingsRow::ShortcutColorOption(_) => {
+                self.settings_ui.shortcut_color_expanded = false;
+                self.focus_settings_row(SettingsRow::ShortcutColor);
+            }
+            SettingsRow::DotColorMode => self.toggle_dot_color_mode(),
             SettingsRow::ColorPolicy => {
                 self.new_group_color_policy = self.new_group_color_policy.prev();
                 self.dirty = true;
@@ -291,10 +351,14 @@ impl PickerState {
             SettingsRow::SessionMetric => self.cycle_session_metric(),
             SettingsRow::ClearDormantOnAttach => self.toggle_clear_dormant_on_attach(),
             SettingsRow::NewGroupPosition => self.toggle_new_group_position(),
+            SettingsRow::ShortcutVisibility => self.toggle_shortcut_visibility(),
             SettingsRow::AttachedColor => self.expand_attached_color(),
             SettingsRow::AttachedColorOption(_) => {}
             SettingsRow::BorderColor => self.expand_border_color(),
             SettingsRow::BorderColorOption(_) => {}
+            SettingsRow::ShortcutColor => self.expand_shortcut_color(),
+            SettingsRow::ShortcutColorOption(_) => {}
+            SettingsRow::DotColorMode => self.toggle_dot_color_mode(),
             SettingsRow::ColorPolicy => {
                 self.new_group_color_policy = self.new_group_color_policy.next();
                 self.dirty = true;
@@ -317,11 +381,15 @@ impl PickerState {
             | SettingsRow::SessionMetric
             | SettingsRow::ClearDormantOnAttach
             | SettingsRow::NewGroupPosition
+            | SettingsRow::ShortcutVisibility
+            | SettingsRow::DotColorMode
             | SettingsRow::ColorPolicy => self.settings_step_right(),
             SettingsRow::AttachedColor => self.expand_attached_color(),
             SettingsRow::AttachedColorOption(idx) => self.select_attached_color(idx),
             SettingsRow::BorderColor => self.expand_border_color(),
             SettingsRow::BorderColorOption(idx) => self.select_border_color(idx),
+            SettingsRow::ShortcutColor => self.expand_shortcut_color(),
+            SettingsRow::ShortcutColorOption(idx) => self.select_shortcut_color(idx),
             SettingsRow::Palette => {}
             SettingsRow::PaletteColor(_) => self.settings_toggle_palette_color(),
         }
@@ -373,15 +441,20 @@ impl PickerState {
     }
 
     /// `c`: cycle the current row's raw color value forward through all 16
-    /// named colors. Applies to the Color Policy row only while its policy
-    /// is Static (the nested `static_color`), and to the two standalone
-    /// color rows (`attached_color`, `border_color`) whether collapsed or
-    /// expanded. A no-op everywhere else, so `c` never surprises a row that
-    /// isn't a raw color picker.
+    /// named colors. Applies to the Color Policy and Active window dot color
+    /// rows only while their mode is Static (the nested `static_color` /
+    /// `dot_color`), and to the three standalone color rows (`attached_color`,
+    /// `border_color`, `shortcut_color`) whether collapsed or expanded. A
+    /// no-op everywhere else, so `c` never surprises a row that isn't a raw
+    /// color picker.
     pub fn settings_cycle_color(&mut self) {
         match self.current_settings_row() {
             SettingsRow::ColorPolicy if self.new_group_color_policy == ColorPolicy::Static => {
                 self.static_color = Self::cycle_named_color(&self.static_color);
+                self.dirty = true;
+            }
+            SettingsRow::DotColorMode if self.dot_color_mode == DotColorMode::Static => {
+                self.dot_color = Self::cycle_named_color(&self.dot_color);
                 self.dirty = true;
             }
             SettingsRow::AttachedColor => {
@@ -390,6 +463,10 @@ impl PickerState {
             }
             SettingsRow::BorderColor => {
                 self.border_color = Self::cycle_named_color(&self.border_color);
+                self.dirty = true;
+            }
+            SettingsRow::ShortcutColor => {
+                self.shortcut_color = Self::cycle_named_color(&self.shortcut_color);
                 self.dirty = true;
             }
             _ => {}
@@ -420,7 +497,7 @@ mod tests {
     fn activate_cannot_deactivate_the_last_active_color() {
         let mut st = settings_state();
         st.active_palette = vec!["cyan".to_string()];
-        st.settings_move_cursor(9);
+        st.settings_move_cursor(12); // Palette
         st.settings_step_right();
         let cyan_idx = st.settings_palette_rows().iter().position(|(n, _)| n == "cyan").unwrap();
         st.settings_move_cursor(1 + cyan_idx as i32); // the only active color
@@ -431,34 +508,50 @@ mod tests {
     #[test]
     fn activate_on_a_border_color_option_commits_and_collapses() {
         let mut st = settings_state();
-        st.settings_move_cursor(7); // BorderColor
+        st.settings_move_cursor(8); // BorderColor
         st.settings_step_right(); // expand, cursor lands on index 2 (green)
         st.settings_move_cursor(1); // step to index 3 ("yellow")
         assert_eq!(st.settings_visible_rows()[st.settings_cursor()], SettingsRow::BorderColorOption(3));
         st.settings_activate();
         assert_eq!(st.border_color, "yellow");
         assert!(st.dirty);
-        assert_eq!(st.settings_cursor(), 7, "cursor returned to the BorderColor row");
+        assert_eq!(st.settings_cursor(), 8, "cursor returned to the BorderColor row");
     }
 
     #[test]
     fn activate_on_an_attached_color_option_commits_and_collapses() {
         let mut st = settings_state();
-        st.settings_move_cursor(6); // AttachedColor
+        st.settings_move_cursor(7); // AttachedColor
         st.settings_step_right(); // expand, cursor lands on index 2 (green)
         st.settings_move_cursor(-1); // step to index 1 ("red")
         assert_eq!(st.settings_visible_rows()[st.settings_cursor()], SettingsRow::AttachedColorOption(1));
         st.settings_activate();
         assert_eq!(st.attached_color, "red");
         assert!(st.dirty);
-        assert_eq!(st.settings_visible_rows().len(), 10, "collapsed after committing");
-        assert_eq!(st.settings_cursor(), 6, "cursor returned to the AttachedColor row");
+        assert_eq!(st.settings_visible_rows().len(), 13, "collapsed after committing");
+        assert_eq!(st.settings_cursor(), 7, "cursor returned to the AttachedColor row");
+    }
+
+    #[test]
+    fn activate_on_a_shortcut_color_option_commits_and_collapses() {
+        let mut st = settings_state();
+        st.settings_move_cursor(9); // ShortcutColor
+        st.settings_step_right(); // expand, cursor lands on the current color (gray)
+        st.settings_move_cursor(1);
+        let SettingsRow::ShortcutColorOption(idx) = st.settings_visible_rows()[st.settings_cursor()] else {
+            panic!("expected a ShortcutColorOption row");
+        };
+        st.settings_activate();
+        assert_eq!(st.shortcut_color, ALL_NAMED_COLORS[idx]);
+        assert!(st.dirty);
+        assert_eq!(st.settings_visible_rows().len(), 13, "collapsed after committing");
+        assert_eq!(st.settings_cursor(), 9, "cursor returned to the ShortcutColor row");
     }
 
     #[test]
     fn activate_reactivates_an_inactive_color_at_its_canonical_position() {
         let mut st = settings_state(); // active: cyan, green, yellow, magenta, blue, red
-        st.settings_move_cursor(9);
+        st.settings_move_cursor(12); // Palette
         st.settings_step_right();
         let black_idx = st.settings_palette_rows().iter().position(|(n, _)| n == "black").unwrap();
         st.settings_move_cursor(1 + black_idx as i32); // descend onto the "black" child row
@@ -478,7 +571,7 @@ mod tests {
     #[test]
     fn activate_toggles_a_palette_color_off() {
         let mut st = settings_state();
-        st.settings_move_cursor(9);
+        st.settings_move_cursor(12); // Palette
         st.settings_step_right(); // expand
         let cyan_idx = st.settings_palette_rows().iter().position(|(n, _)| n == "cyan").unwrap();
         st.settings_move_cursor(1 + cyan_idx as i32); // descend onto the "cyan" child row
@@ -491,42 +584,58 @@ mod tests {
     #[test]
     fn attached_color_expands_and_collapses_via_step_right_and_left() {
         let mut st = settings_state();
-        st.settings_move_cursor(6); // row 6: AttachedColor
-        assert_eq!(st.settings_visible_rows().len(), 10);
+        st.settings_move_cursor(7); // row 7: AttachedColor
+        assert_eq!(st.settings_visible_rows().len(), 13);
         st.settings_step_right();
-        assert_eq!(st.settings_visible_rows().len(), 10 + 16, "expanded into 16 options");
+        assert_eq!(st.settings_visible_rows().len(), 13 + 16, "expanded into 16 options");
         assert_eq!(
             st.settings_visible_rows()[st.settings_cursor()],
             SettingsRow::AttachedColorOption(2),
             "cursor lands on the currently selected color (green, index 2), not row 0"
         );
         st.settings_step_left();
-        assert_eq!(st.settings_visible_rows().len(), 10, "collapsed back");
-        assert_eq!(st.settings_cursor(), 6, "cursor returned to the AttachedColor row");
+        assert_eq!(st.settings_visible_rows().len(), 13, "collapsed back");
+        assert_eq!(st.settings_cursor(), 7, "cursor returned to the AttachedColor row");
     }
 
     #[test]
     fn border_color_expands_and_collapses_via_step_right_and_left() {
         let mut st = settings_state();
-        st.settings_move_cursor(7); // row 7: BorderColor
+        st.settings_move_cursor(8); // row 8: BorderColor
         st.settings_step_right();
-        assert_eq!(st.settings_visible_rows().len(), 10 + 16);
+        assert_eq!(st.settings_visible_rows().len(), 13 + 16);
         assert_eq!(
             st.settings_visible_rows()[st.settings_cursor()],
             SettingsRow::BorderColorOption(2),
             "cursor lands on the currently selected color (green, index 2)"
         );
         st.settings_step_left();
-        assert_eq!(st.settings_visible_rows().len(), 10);
-        assert_eq!(st.settings_cursor(), 7, "cursor returned to the BorderColor row");
+        assert_eq!(st.settings_visible_rows().len(), 13);
+        assert_eq!(st.settings_cursor(), 8, "cursor returned to the BorderColor row");
+    }
+
+    #[test]
+    fn shortcut_color_expands_and_collapses_via_step_right_and_left() {
+        let mut st = settings_state();
+        st.settings_move_cursor(9); // row 9: ShortcutColor
+        st.settings_step_right();
+        assert_eq!(st.settings_visible_rows().len(), 13 + 16);
+        assert_eq!(
+            st.settings_visible_rows()[st.settings_cursor()],
+            SettingsRow::ShortcutColorOption(7),
+            "cursor lands on the currently selected color (gray, index 7)"
+        );
+        st.settings_step_left();
+        assert_eq!(st.settings_visible_rows().len(), 13);
+        assert_eq!(st.settings_cursor(), 9, "cursor returned to the ShortcutColor row");
     }
 
     #[test]
     fn c_key_is_a_noop_off_a_color_row() {
         let mut st = settings_state();
-        st.settings_move_cursor(8);
+        st.settings_move_cursor(11); // ColorPolicy
         st.settings_step_right(); st.settings_step_right(); // -> Static
-        st.settings_move_cursor(-8); // back to DefaultMode row
+        st.settings_move_cursor(-11); // back to DefaultMode row
         st.settings_cycle_color();
         assert_eq!(st.static_color, "cyan", "cursor must be on a color row");
     }
@@ -534,7 +643,7 @@ mod tests {
     #[test]
     fn c_key_only_cycles_static_color_when_policy_is_static() {
         let mut st = settings_state();
-        st.settings_move_cursor(8); // ColorPolicy row, policy still Rotate
+        st.settings_move_cursor(11); // ColorPolicy row, policy still Rotate
         st.settings_cycle_color();
         assert_eq!(st.static_color, "cyan", "no-op: policy is not Static");
 
@@ -552,21 +661,46 @@ mod tests {
     #[test]
     fn c_key_quick_cycles_attached_color_without_expanding() {
         let mut st = settings_state();
-        st.settings_move_cursor(6); // AttachedColor, collapsed
+        st.settings_move_cursor(7); // AttachedColor, collapsed
         st.settings_cycle_color();
         assert_eq!(st.attached_color, "yellow", "green -> yellow, next in ALL_NAMED_COLORS");
         assert!(st.dirty);
-        assert_eq!(st.settings_visible_rows().len(), 10, "stays collapsed");
+        assert_eq!(st.settings_visible_rows().len(), 13, "stays collapsed");
     }
 
     #[test]
     fn c_key_quick_cycles_border_color_without_expanding() {
         let mut st = settings_state();
-        st.settings_move_cursor(7); // BorderColor, collapsed
+        st.settings_move_cursor(8); // BorderColor, collapsed
         st.settings_cycle_color();
         assert_eq!(st.border_color, "yellow");
         assert!(st.dirty);
-        assert_eq!(st.settings_visible_rows().len(), 10, "stays collapsed");
+        assert_eq!(st.settings_visible_rows().len(), 13, "stays collapsed");
+    }
+
+    #[test]
+    fn c_key_quick_cycles_shortcut_color_without_expanding() {
+        let mut st = settings_state();
+        st.settings_move_cursor(9); // ShortcutColor, collapsed
+        st.settings_cycle_color();
+        assert_eq!(st.shortcut_color, "darkgray", "gray -> darkgray, next in ALL_NAMED_COLORS");
+        assert!(st.dirty);
+        assert_eq!(st.settings_visible_rows().len(), 13, "stays collapsed");
+    }
+
+    #[test]
+    fn c_key_only_cycles_dot_color_when_mode_is_static() {
+        let mut st = settings_state();
+        st.settings_move_cursor(10); // DotColorMode row, mode still Static (the default)
+        st.settings_cycle_color();
+        assert_eq!(st.dot_color, "yellow", "green -> yellow, next in ALL_NAMED_COLORS");
+        assert!(st.dirty);
+
+        st.settings_step_right(); // Static -> Group
+        st.dirty = false;
+        st.settings_cycle_color();
+        assert_eq!(st.dot_color, "yellow", "no-op: mode is Group, not Static");
+        assert!(!st.dirty);
     }
 
     #[test]
@@ -582,44 +716,44 @@ mod tests {
     #[test]
     fn expanding_and_collapsing_palette_still_refocuses_correctly_with_other_sections_expanded() {
         // Regression guard for the dynamic collapse-cursor refactor: Palette's
-        // own index is no longer fixed at 2 once AttachedColor/BorderColor can
-        // also expand above it.
+        // own index is no longer fixed once AttachedColor/BorderColor/
+        // ShortcutColor can also expand above it.
         let mut st = settings_state();
-        st.settings_move_cursor(6);
-        st.settings_step_right(); // expand AttachedColor: 16 rows now sit between it and BorderColor/ColorPolicy/Palette
+        st.settings_move_cursor(7); // AttachedColor
+        st.settings_step_right(); // expand AttachedColor: 16 rows now sit between it and BorderColor/ShortcutColor/DotColorMode/ColorPolicy/Palette
         st.settings_move_cursor(-1);
-        st.settings_step_left(); // collapse AttachedColor again, back to the 10-row layout
-        assert_eq!(st.settings_visible_rows().len(), 10);
-        st.settings_move_cursor(9); // Palette, still at index 9
+        st.settings_step_left(); // collapse AttachedColor again, back to the 13-row layout
+        assert_eq!(st.settings_visible_rows().len(), 13);
+        st.settings_move_cursor(5); // AttachedColor(7) -> Palette(12)
         assert_eq!(st.settings_visible_rows()[st.settings_cursor()], SettingsRow::Palette);
         st.settings_step_right(); // expand Palette
         st.settings_move_cursor(1); // first PaletteColor child
         st.settings_step_left(); // collapse
-        assert_eq!(st.settings_cursor(), 9, "Palette collapse still lands on index 9");
+        assert_eq!(st.settings_cursor(), 12, "Palette collapse still lands on index 12");
     }
 
     #[test]
     fn h_on_an_attached_color_option_collapses_without_changing_the_value() {
         let mut st = settings_state();
-        st.settings_move_cursor(6);
+        st.settings_move_cursor(7);
         st.settings_step_right();
         st.settings_move_cursor(-1); // onto "red"
         st.settings_step_left(); // cancel, not activate
         assert_eq!(st.attached_color, "green", "unchanged: h cancels rather than commits");
-        assert_eq!(st.settings_cursor(), 6);
+        assert_eq!(st.settings_cursor(), 7);
     }
 
     #[test]
     fn palette_expands_and_collapses_via_step_right_and_left() {
         let mut st = settings_state();
-        st.settings_move_cursor(9); // row 9: Palette
+        st.settings_move_cursor(12); // row 12: Palette
         assert!(!st.palette_expanded());
         st.settings_step_right();
         assert!(st.palette_expanded());
-        assert_eq!(st.settings_visible_rows().len(), 10 + 16);
+        assert_eq!(st.settings_visible_rows().len(), 13 + 16);
         st.settings_step_left();
         assert!(!st.palette_expanded());
-        assert_eq!(st.settings_visible_rows().len(), 10);
+        assert_eq!(st.settings_visible_rows().len(), 13);
     }
 
     #[test]
@@ -643,13 +777,13 @@ mod tests {
         let mut st = settings_state();
         assert_eq!(st.settings_cursor(), 0);
         st.settings_move_cursor(-1);
-        assert_eq!(st.settings_cursor(), 9, "moving up from the top wraps to bottom");
+        assert_eq!(st.settings_cursor(), 12, "moving up from the top wraps to bottom");
         st.settings_move_cursor(1);
         assert_eq!(st.settings_cursor(), 0, "moving down from the bottom wraps to top");
         st.settings_move_cursor(1);
         assert_eq!(st.settings_cursor(), 1);
         st.settings_move_cursor(99);
-        assert_eq!(st.settings_cursor(), 9, "large jumps still land on the edge");
+        assert_eq!(st.settings_cursor(), 12, "large jumps still land on the edge");
     }
 
     #[test]
@@ -684,6 +818,38 @@ mod tests {
     }
 
     #[test]
+    fn settings_step_left_and_right_toggle_shortcut_visibility() {
+        let mut st = settings_state();
+        assert_eq!(st.shortcut_visibility, ShortcutVisibility::Always);
+        st.settings_move_cursor(6); // ShortcutVisibility row (after NewGroupPosition)
+        assert_eq!(st.current_settings_row(), SettingsRow::ShortcutVisibility);
+        st.settings_step_right();
+        assert_eq!(st.shortcut_visibility, ShortcutVisibility::OnDemand);
+        st.settings_step_right();
+        assert_eq!(st.shortcut_visibility, ShortcutVisibility::Always, "only two values, so right also wraps");
+        st.settings_step_left();
+        assert_eq!(st.shortcut_visibility, ShortcutVisibility::OnDemand);
+        assert!(st.dirty);
+    }
+
+    #[test]
+    fn settings_step_left_and_right_toggle_dot_color_mode() {
+        let mut st = settings_state();
+        assert_eq!(st.dot_color_mode, DotColorMode::Static);
+        st.settings_move_cursor(10); // DotColorMode row
+        assert_eq!(st.current_settings_row(), SettingsRow::DotColorMode);
+        st.settings_step_right();
+        assert_eq!(st.dot_color_mode, DotColorMode::Group);
+        st.settings_step_right();
+        assert_eq!(st.dot_color_mode, DotColorMode::Static, "only two values, so right also wraps");
+        st.settings_step_left();
+        assert_eq!(st.dot_color_mode, DotColorMode::Group);
+        assert!(st.dirty);
+        st.settings_activate();
+        assert_eq!(st.dot_color_mode, DotColorMode::Static, "Enter/Space also steps forward");
+    }
+
+    #[test]
     fn settings_toggle_dormant_numbering_in_either_direction() {
         let mut st = settings_state();
         st.settings_move_cursor(1); // DormantNumbering
@@ -712,7 +878,7 @@ mod tests {
     }
 
     #[test]
-    fn settings_visible_rows_collapsed_shows_ten_rows_in_order() {
+    fn settings_visible_rows_collapsed_shows_thirteen_rows_in_order() {
         let st = settings_state();
         assert_eq!(
             st.settings_visible_rows(),
@@ -723,8 +889,11 @@ mod tests {
                 SettingsRow::SessionMetric,
                 SettingsRow::ClearDormantOnAttach,
                 SettingsRow::NewGroupPosition,
+                SettingsRow::ShortcutVisibility,
                 SettingsRow::AttachedColor,
                 SettingsRow::BorderColor,
+                SettingsRow::ShortcutColor,
+                SettingsRow::DotColorMode,
                 SettingsRow::ColorPolicy,
                 SettingsRow::Palette,
             ]
@@ -734,7 +903,7 @@ mod tests {
     #[test]
     fn static_color_persists_across_policy_switches() {
         let mut st = settings_state();
-        st.settings_move_cursor(8);
+        st.settings_move_cursor(11); // ColorPolicy
         st.settings_step_right(); st.settings_step_right(); // -> Static
         st.settings_cycle_color(); // cyan -> gray
         assert_eq!(st.static_color, "gray");
@@ -747,7 +916,7 @@ mod tests {
     #[test]
     fn step_cycles_color_policy_forward_and_backward() {
         let mut st = settings_state();
-        st.settings_move_cursor(8); // row 8: ColorPolicy
+        st.settings_move_cursor(11); // row 11: ColorPolicy
         assert_eq!(st.new_group_color_policy, ColorPolicy::Rotate);
         st.settings_step_right();
         assert_eq!(st.new_group_color_policy, ColorPolicy::Random);
@@ -775,19 +944,19 @@ mod tests {
     #[test]
     fn step_left_on_a_palette_color_row_collapses_and_refocuses_the_parent() {
         let mut st = settings_state();
-        st.settings_move_cursor(9);
+        st.settings_move_cursor(12); // Palette
         st.settings_step_right(); // expand
         st.settings_move_cursor(1); // onto the first PaletteColor child
         assert_eq!(st.settings_visible_rows()[st.settings_cursor()], SettingsRow::PaletteColor(0));
         st.settings_step_left();
         assert!(!st.palette_expanded());
-        assert_eq!(st.settings_cursor(), 9, "cursor returns to the Palette row");
+        assert_eq!(st.settings_cursor(), 12, "cursor returns to the Palette row");
     }
 
     #[test]
     fn toggling_a_color_never_reorders_the_checklist() {
         let mut st = settings_state();
-        st.settings_move_cursor(9);
+        st.settings_move_cursor(12); // Palette
         st.settings_step_right(); // expand
         let before: Vec<String> =
             st.settings_palette_rows().into_iter().map(|(n, _)| n).collect();
@@ -820,6 +989,10 @@ mod tests {
             SettingsRow::PaletteColor(0).description(),
             SettingsRow::Palette.description()
         );
+        assert_eq!(
+            SettingsRow::ShortcutColorOption(0).description(),
+            SettingsRow::ShortcutColor.description()
+        );
     }
 
     #[test]
@@ -833,5 +1006,18 @@ mod tests {
         let st = settings_state();
         assert_eq!(st.attached_color, "green");
         assert_eq!(st.border_color, "green");
+    }
+
+    #[test]
+    fn dot_color_defaults_to_static_green() {
+        let st = settings_state();
+        assert_eq!(st.dot_color_mode, DotColorMode::Static);
+        assert_eq!(st.dot_color, "green");
+    }
+
+    #[test]
+    fn shortcut_color_defaults_to_gray() {
+        let st = settings_state();
+        assert_eq!(st.shortcut_color, "gray");
     }
 }

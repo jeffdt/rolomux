@@ -57,6 +57,15 @@ pub struct PickerState {
     pub active_palette: Vec<String>,
     pub attached_color: String,
     pub border_color: String,
+    pub dot_color_mode: DotColorMode,
+    pub dot_color: String,
+    pub shortcut_color: String,
+    pub shortcut_visibility: ShortcutVisibility,
+    /// One-shot `?` toggle: reveals the footer's shortcut legend for the rest
+    /// of this popup's lifetime when `shortcut_visibility` is `OnDemand`.
+    /// Never persisted -- each fresh popup starts collapsed again, same as
+    /// `remember_expanded_sessions` off. See `shortcuts_visible`.
+    show_shortcuts_now: bool,
     /// Transient per-open state for the settings overlay (see `SettingsUiState`).
     settings_ui: SettingsUiState,
 }
@@ -110,6 +119,11 @@ impl PickerState {
             active_palette: config.active_palette.clone(),
             attached_color: config.attached_color.clone(),
             border_color: config.border_color.clone(),
+            dot_color_mode: config.dot_color_mode,
+            dot_color: config.dot_color.clone(),
+            shortcut_color: config.shortcut_color.clone(),
+            shortcut_visibility: config.shortcut_visibility,
+            show_shortcuts_now: false,
             settings_ui: SettingsUiState::default(),
         };
         state.apply_clear_dormant_on_attach();
@@ -316,7 +330,25 @@ impl PickerState {
         config.remember_expanded_sessions = self.remember_expanded_sessions;
         config.clear_dormant_on_attach = self.clear_dormant_on_attach;
         config.session_metric = self.session_metric;
+        config.dot_color_mode = self.dot_color_mode;
+        config.dot_color = self.dot_color.clone();
+        config.shortcut_color = self.shortcut_color.clone();
+        config.shortcut_visibility = self.shortcut_visibility;
         config.expanded = self.expanded_list();
+    }
+
+    /// Whether the footer's key-shortcut legend should render this frame:
+    /// always when the persisted preference is `Always`, otherwise only
+    /// after `toggle_shortcuts` has revealed it for this popup (issue #107).
+    pub fn shortcuts_visible(&self) -> bool {
+        self.shortcut_visibility == ShortcutVisibility::Always || self.show_shortcuts_now
+    }
+
+    /// `?`: flip the transient reveal. Not persisted and not `dirty` -- like
+    /// the search query or an in-flight rename buffer, this is per-popup UI
+    /// state, not a saved preference.
+    pub fn toggle_shortcuts(&mut self) {
+        self.show_shortcuts_now = !self.show_shortcuts_now;
     }
 
     pub fn focus_session(&mut self, name: &str) {
@@ -896,6 +928,10 @@ mod tests {
             new_group_color_policy: ColorPolicy::Static,
             static_color: "red".to_string(),
             active_palette: vec!["red".to_string(), "white".to_string()],
+            dot_color_mode: DotColorMode::Group,
+            dot_color: "lightred".to_string(),
+            shortcut_color: "lightyellow".to_string(),
+            shortcut_visibility: ShortcutVisibility::OnDemand,
             ..Default::default()
         };
         let state = PickerState::build(sessions, &cfg);
@@ -905,6 +941,28 @@ mod tests {
         assert_eq!(state.new_group_color_policy, ColorPolicy::Static);
         assert_eq!(state.static_color, "red");
         assert_eq!(state.active_palette, vec!["red".to_string(), "white".to_string()]);
+        assert_eq!(state.dot_color_mode, DotColorMode::Group);
+        assert_eq!(state.dot_color, "lightred");
+        assert_eq!(state.shortcut_color, "lightyellow");
+        assert_eq!(state.shortcut_visibility, ShortcutVisibility::OnDemand);
+    }
+
+    #[test]
+    fn shortcuts_visible_is_always_true_by_default() {
+        let st = PickerState::build(vec![s("a", 1, 1)], &Config::default());
+        assert!(st.shortcuts_visible(), "default shortcut_visibility is Always");
+    }
+
+    #[test]
+    fn toggle_shortcuts_reveals_the_legend_when_on_demand_and_never_dirties() {
+        let cfg = Config { shortcut_visibility: ShortcutVisibility::OnDemand, ..Default::default() };
+        let mut st = PickerState::build(vec![s("a", 1, 1)], &cfg);
+        assert!(!st.shortcuts_visible(), "OnDemand starts collapsed");
+        st.toggle_shortcuts();
+        assert!(st.shortcuts_visible());
+        assert!(!st.dirty, "the transient reveal is not a persisted preference");
+        st.toggle_shortcuts();
+        assert!(!st.shortcuts_visible(), "toggles back off");
     }
 
     #[test]
@@ -972,6 +1030,10 @@ mod tests {
         st.remember_expanded_sessions = true;
         st.clear_dormant_on_attach = true;
         st.session_metric = SessionMetric::Age;
+        st.dot_color_mode = DotColorMode::Group;
+        st.dot_color = "lightblue".to_string();
+        st.shortcut_color = "lightcyan".to_string();
+        st.shortcut_visibility = ShortcutVisibility::OnDemand;
 
         st.apply_to_config(&mut cfg);
         cfg.save_to(&path).unwrap();
@@ -989,6 +1051,10 @@ mod tests {
         assert!(reloaded.remember_expanded_sessions);
         assert!(reloaded.clear_dormant_on_attach);
         assert_eq!(reloaded.session_metric, SessionMetric::Age);
+        assert_eq!(reloaded.dot_color_mode, DotColorMode::Group);
+        assert_eq!(reloaded.dot_color, "lightblue");
+        assert_eq!(reloaded.shortcut_color, "lightcyan");
+        assert_eq!(reloaded.shortcut_visibility, ShortcutVisibility::OnDemand);
         std::fs::remove_dir_all(&dir).ok();
     }
 

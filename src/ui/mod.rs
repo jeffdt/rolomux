@@ -1,6 +1,6 @@
 use crate::model::{
-    ColorPolicy, DefaultMode, Group, Mode, NewGroupPosition, PickerState, Row, Session, SessionMetric,
-    SettingsRow, Window, ALL_NAMED_COLORS,
+    ColorPolicy, DefaultMode, DotColorMode, Group, Mode, NewGroupPosition, PickerState, Row, Session,
+    SessionMetric, SettingsRow, ShortcutVisibility, Window, ALL_NAMED_COLORS,
 };
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
@@ -13,7 +13,6 @@ mod settings;
 
 const ACCENT: Color = Color::Cyan;
 const DIM: Color = Color::DarkGray;
-const DOT: Color = Color::Green;
 const WARNING: Color = Color::Red;
 const SEL_BG: Color = Color::DarkGray;
 /// Default column where a session's metadata begins, used when every visible
@@ -168,6 +167,7 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
     });
     let meta = MetaLayout::compute(session_refs, list_area.width, true);
     let attached_color = color_from_name(&state.attached_color);
+    let dot_static_color = color_from_name(&state.dot_color);
 
     let group_ids = state.ordered_group_ids();
     let mut items: Vec<ListItem> = Vec::new();
@@ -245,7 +245,11 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
                 let last = *wi + 1 == sess.windows.len();
                 let rename_buf = if selected && state.renaming() { state.rename_edit_buffer() } else { None };
                 let dormant = state.is_dormant(&sess.name);
-                items.push(window_item(&sess.windows[*wi], last, selected, current_gutter_color, dormant, rename_buf));
+                let dot_color = match state.dot_color_mode {
+                    DotColorMode::Group => current_gutter_color,
+                    DotColorMode::Static => dot_static_color,
+                };
+                items.push(window_item(&sess.windows[*wi], last, selected, current_gutter_color, dormant, rename_buf, dot_color));
             }
         }
     }
@@ -276,7 +280,7 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
             Style::default().fg(WARNING).add_modifier(Modifier::BOLD),
         ))
     } else {
-        styled_hint(&command_footer_hint(state))
+        shortcut_hint_line(state, &command_footer_hint(state))
     };
     let footer = Paragraph::new(vec![
         Line::from(Span::styled(footer_rule(footer_area.width, state), Style::default().fg(DIM))),
@@ -349,7 +353,7 @@ fn draw_search(frame: &mut Frame, state: &PickerState, inner: Rect) {
 
     let footer = Paragraph::new(vec![
         Line::from(Span::styled(footer_rule(chunks[2].width, state), Style::default().fg(DIM))),
-        styled_hint(&search_footer_hint(state)),
+        shortcut_hint_line(state, &search_footer_hint(state)),
     ]);
     frame.render_widget(footer, chunks[2]);
 }
@@ -420,7 +424,7 @@ fn draw_groups(frame: &mut Frame, state: &PickerState, inner: Rect) {
             Style::default().fg(WARNING).add_modifier(Modifier::BOLD),
         ))
     } else {
-        styled_hint(GROUP_FOOTER_HINT)
+        shortcut_hint_line(state, GROUP_FOOTER_HINT)
     };
     let footer = Paragraph::new(vec![
         Line::from(Span::styled(rule, Style::default().fg(DIM))),
@@ -584,12 +588,13 @@ fn search_footer_hint(_state: &PickerState) -> String {
 }
 
 /// Style a `"key desc · key desc"` hint line so each segment's leading key
-/// token renders in Gray, a step brighter than its DarkGray description,
-/// giving shortcut areas contrast against the rest of the dim chrome (issue
-/// #86). Gray without Bold reads as a gentle nudge rather than a shout: an
-/// earlier version used Bold with the plain default fg and was too bright.
-/// Shared by all four footer-hint render sites.
-fn styled_hint(text: &str) -> Line<'static> {
+/// token renders in `key_color` (the configured shortcut highlight color,
+/// issue #106; Gray by default), a step brighter than its DarkGray
+/// description, giving shortcut areas contrast against the rest of the dim
+/// chrome (issue #86). Without Bold it reads as a gentle nudge rather than a
+/// shout: an earlier version used Bold with the plain default fg and was too
+/// bright. Shared by all four footer-hint render sites.
+fn styled_hint(text: &str, key_color: Color) -> Line<'static> {
     let mut spans = Vec::new();
     for (i, segment) in text.split(" · ").enumerate() {
         if i > 0 {
@@ -597,13 +602,24 @@ fn styled_hint(text: &str) -> Line<'static> {
         }
         match segment.split_once(' ') {
             Some((key, desc)) => {
-                spans.push(Span::styled(key.to_string(), Style::default().fg(Color::Gray)));
+                spans.push(Span::styled(key.to_string(), Style::default().fg(key_color)));
                 spans.push(Span::styled(format!(" {desc}"), Style::default().fg(DIM)));
             }
             None => spans.push(Span::styled(segment.to_string(), Style::default().fg(DIM))),
         }
     }
     Line::from(spans)
+}
+
+/// The footer's key-shortcut legend, or -- when `shortcut_visibility` is
+/// `OnDemand` and the transient `?` toggle hasn't revealed it yet this popup
+/// -- a minimal nudge naming the key that reveals it (issue #107).
+fn shortcut_hint_line(state: &PickerState, text: &str) -> Line<'static> {
+    if state.shortcuts_visible() {
+        styled_hint(text, color_from_name(&state.shortcut_color))
+    } else {
+        Line::from(Span::styled("? shortcuts", Style::default().fg(DIM)))
+    }
 }
 
 /// Shared geometry for the metadata block, computed once per render so every
@@ -718,16 +734,25 @@ fn session_item(
     ListItem::new(Line::from(spans))
 }
 
-fn window_item(win: &Window, last: bool, selected: bool, gutter_color: Color, dormant: bool, rename_buf: Option<&str>) -> ListItem<'static> {
+#[allow(clippy::too_many_arguments)]
+fn window_item(
+    win: &Window,
+    last: bool,
+    selected: bool,
+    gutter_color: Color,
+    dormant: bool,
+    rename_buf: Option<&str>,
+    dot_color: Color,
+) -> ListItem<'static> {
     let connector = if last { "  └─" } else { "  ├─" };
     let dot = if win.active { "●" } else { " " };
-    let dot_style = if dormant { dormant_session(selected) } else { Style::default().fg(DOT) };
+    let dot_style = if dormant { dormant_session(selected) } else { Style::default().fg(dot_color) };
     let name_style = if dormant { dormant_session(selected) } else { Style::default() };
     if let Some(buf) = rename_buf {
         return ListItem::new(Line::from(vec![
             Span::styled("│", Style::default().fg(gutter_color)),
             Span::styled(connector.to_string(), secondary(selected)),
-            Span::styled(format!("{dot} "), Style::default().fg(DOT)),
+            Span::styled(format!("{dot} "), Style::default().fg(dot_color)),
             Span::styled(buf.to_string(), Style::default().add_modifier(Modifier::BOLD)),
             Span::raw("▏"),
         ]));
@@ -1523,7 +1548,7 @@ mod tests {
 
     #[test]
     fn styled_hint_brightens_key_and_dims_description() {
-        let line = styled_hint("R rename · Esc back");
+        let line = styled_hint("R rename · Esc back", Color::Gray);
         let spans: Vec<(String, Style)> =
             line.spans.iter().map(|s| (s.content.to_string(), s.style)).collect();
         assert_eq!(
@@ -2401,11 +2426,12 @@ mod tests {
 
     #[test]
     fn draw_settings_shows_rows_and_footer() {
-        // Taller than the usual 80x20 for two stacking reasons: the added
+        // Taller than the usual 80x20 for several stacking reasons: the added
         // Session metadata row pushes later rows down (mirrors the palette
-        // tests), and the footer grew from 2 to 3 rows (rule, key-hint,
-        // description), consuming one more row of the list area.
-        let text = render_to_string_sized(&settings_view(), 80, 25);
+        // tests), so do the added Show shortcuts/Shortcut color/Active window
+        // dot color rows, and the footer grew from 2 to 3 rows (rule,
+        // key-hint, description), consuming one more row of the list area.
+        let text = render_to_string_sized(&settings_view(), 80, 28);
         assert!(text.contains("Default mode"));
         assert!(text.contains("Command"));
         assert!(text.contains("Number dormant sessions"));
@@ -2509,19 +2535,20 @@ mod tests {
 
     #[test]
     fn draw_settings_shows_attached_and_border_color_rows() {
-        // Taller than the usual 80x20: the added New group position row
-        // pushes Border color further down the list.
-        let text = render_to_string_sized(&settings_view(), 80, 21);
+        // Taller than the usual 80x20: the added New group position and
+        // Show shortcuts rows push Border color further down the list.
+        let text = render_to_string_sized(&settings_view(), 80, 22);
         assert!(text.contains("Attached session color"));
         assert!(text.contains("Border color"));
         // Both default to green and render collapsed with a swatch + name.
+        // (Shortcut/Active-window-dot color rows sit further down, out of view here.)
         assert_eq!(text.matches("green").count(), 2, "one swatch label per collapsed color row");
     }
 
     #[test]
     fn draw_settings_expanded_attached_color_shows_radio_glyphs() {
         let mut st = settings_view();
-        st.settings_move_cursor(6); // AttachedColor
+        st.settings_move_cursor(7); // AttachedColor
         st.settings_step_right(); // expand
         let text = render_to_string(&st);
         assert!(text.contains("●"), "the currently selected color is marked filled");
@@ -2537,7 +2564,7 @@ mod tests {
     #[test]
     fn draw_settings_expanded_border_color_shows_radio_glyphs() {
         let mut st = settings_view();
-        st.settings_move_cursor(7); // BorderColor
+        st.settings_move_cursor(8); // BorderColor
         st.settings_step_right();
         let text = render_to_string(&st);
         assert!(text.contains("●"));
@@ -2547,12 +2574,13 @@ mod tests {
     #[test]
     fn draw_settings_expanded_palette_shows_swatches_and_checkboxes() {
         let mut st = settings_view();
-        st.settings_move_cursor(9); // Palette
+        st.settings_move_cursor(12); // Palette
         st.settings_step_right(); // expand
-        // Taller than the usual 80x20: section headers and the New group
-        // position row now push the palette rows further down than the
-        // default viewport reveals.
-        let text = render_to_string_sized(&st, 80, 25);
+        // Taller than the usual 80x20: section headers and the added
+        // Show shortcuts/Shortcut color/Active window dot color rows now
+        // push the palette rows further down than the default viewport
+        // reveals.
+        let text = render_to_string_sized(&st, 80, 28);
         assert!(text.contains("[x]"), "active color checked");
         assert!(text.contains("[ ]"), "inactive color unchecked");
         assert!(text.contains("green"));
@@ -2562,7 +2590,7 @@ mod tests {
     #[test]
     fn draw_settings_shows_static_color_value_when_policy_is_static() {
         let mut st = settings_view();
-        st.settings_move_cursor(8); // ColorPolicy row
+        st.settings_move_cursor(11); // ColorPolicy row
         st.settings_step_right(); // Rotate -> Random
         st.settings_step_right(); // Random -> Static
         st.static_color = "magenta".to_string();
@@ -2573,18 +2601,20 @@ mod tests {
 
     #[test]
     fn draw_settings_does_not_show_a_color_value_for_rotate_or_random() {
-        // Taller than the default 80x20: the Session metadata row and the
-        // 3-row footer both push "New group color" further down the list.
-        let text = render_to_string_sized(&settings_view(), 80, 22); // default policy is Rotate
+        // Taller than the default 80x20: the Session metadata row, the added
+        // Show shortcuts/Shortcut color/Active window dot color rows, and the
+        // 3-row footer all push "New group color" further down the list.
+        let text = render_to_string_sized(&settings_view(), 80, 25); // default policy is Rotate
         // "Rotate" itself is on screen, but no color name should follow it
-        // since Rotate has no single fixed color to show. The only two
-        // swatches on screen are the always-present Attached/Border color
-        // rows; Rotate/Random must not add a third for the policy row.
+        // since Rotate has no single fixed color to show. The four swatches on
+        // screen are the always-present Attached/Border/Shortcut color rows
+        // plus Active window dot color (Static by default); Rotate/Random
+        // must not add a fifth for the policy row itself.
         assert!(text.contains("Rotate"));
         assert_eq!(
             text.matches("██").count(),
-            2,
-            "no extra swatch for Rotate/Random policies beyond the Attached/Border color rows"
+            4,
+            "no extra swatch for Rotate/Random policies beyond the other four color rows"
         );
     }
 
@@ -2625,7 +2655,7 @@ mod tests {
     #[test]
     fn draw_settings_gutter_bar_continues_through_expanded_color_options() {
         let mut st = settings_view();
-        st.settings_move_cursor(6); // AttachedColor
+        st.settings_move_cursor(7); // AttachedColor
         st.settings_step_right(); // expand
         let text = render_to_string(&st);
         let row = text
@@ -2640,11 +2670,12 @@ mod tests {
     #[test]
     fn draw_settings_gutter_bar_continues_through_expanded_palette_rows() {
         let mut st = settings_view();
-        st.settings_move_cursor(9); // Palette
+        st.settings_move_cursor(12); // Palette
         st.settings_step_right(); // expand
-        // Taller than the usual 80x20: section headers now push the palette
-        // rows further down than the default viewport reveals.
-        let text = render_to_string_sized(&st, 80, 24);
+        // Taller than the usual 80x20: section headers and the added Show
+        // shortcuts/Shortcut color/Active window dot color rows now push the
+        // palette rows further down than the default viewport reveals.
+        let text = render_to_string_sized(&st, 80, 27);
         let row = text
             .lines()
             .find(|line| line.contains("[ ]"))
@@ -2656,9 +2687,10 @@ mod tests {
 
     #[test]
     fn draw_settings_color_policy_row_continues_the_gutter_bar() {
-        // Taller than the default 80x20: the Session metadata row and the
-        // 3-row footer both push "New group color" further down the list.
-        let text = render_to_string_sized(&settings_view(), 80, 22);
+        // Taller than the default 80x20: the Session metadata row, the added
+        // Show shortcuts/Shortcut color/Active window dot color rows, and the
+        // 3-row footer all push "New group color" further down the list.
+        let text = render_to_string_sized(&settings_view(), 80, 25);
         let row = text
             .lines()
             .find(|line| line.contains("New group color"))
@@ -2686,7 +2718,10 @@ mod tests {
 
     #[test]
     fn draw_settings_appearance_header_precedes_attached_color_row() {
-        let text = render_to_string(&settings_view());
+        // One row taller than the default 80x20: the added Show shortcuts
+        // row pushes Attached session color one row further down than the
+        // default viewport reveals.
+        let text = render_to_string_sized(&settings_view(), 80, 21);
         let lines: Vec<&str> = text.lines().collect();
         let header_idx = lines.iter().position(|l| l.contains("APPEARANCE")).expect("APPEARANCE header rendered");
         let row_idx = lines.iter().position(|l| l.contains("Attached session color")).expect("Attached session color row rendered");
@@ -2969,5 +3004,88 @@ mod tests {
         state.search_push('s');
         let text = render_to_string(&state);
         assert!(text.contains("TRIAGE"), "search result shows the inbox group's tag, no carve-out");
+    }
+
+    /// Shared setup for the active-window-dot-color tests (issue #53): one
+    /// expanded session with an active window, filed in a "magenta" group so
+    /// Group mode's inherited color is unambiguous against the Static default.
+    fn dot_color_test_state(cfg_overrides: Config) -> PickerState {
+        let sessions = vec![
+            Session { id: String::new(), name: "claude".into(), activity: 30, created: 1, attached: false,
+                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+        ];
+        let cfg = Config {
+            groups: vec![Group { name: "tools".into(), members: vec!["claude".into()], color: "magenta".into(), ..Default::default() }],
+            ..cfg_overrides
+        };
+        let mut state = PickerState::build(sessions, &cfg);
+        state.expand_session("claude");
+        state
+    }
+
+    fn find_dot_color(buf: &ratatui::buffer::Buffer) -> Option<Color> {
+        for y in 0..buf.area.height {
+            for x in 0..buf.area.width {
+                if buf[(x, y)].symbol() == "●" {
+                    return buf[(x, y)].style().fg;
+                }
+            }
+        }
+        None
+    }
+
+    #[test]
+    fn dot_color_static_mode_uses_the_configured_color_not_the_group_color() {
+        let state = dot_color_test_state(Config { dot_color: "lightblue".to_string(), ..Default::default() });
+        assert_eq!(state.dot_color_mode, DotColorMode::Static, "default mode is Static");
+        let backend = TestBackend::new(80, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| draw(f, &state)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+        assert_eq!(find_dot_color(&buf), Some(Color::LightBlue), "Static mode ignores the group color");
+    }
+
+    #[test]
+    fn dot_color_group_mode_inherits_the_sessions_group_color() {
+        let state = dot_color_test_state(Config { dot_color_mode: DotColorMode::Group, ..Default::default() });
+        let backend = TestBackend::new(80, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| draw(f, &state)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+        assert_eq!(find_dot_color(&buf), Some(Color::Magenta), "Group mode picks up the tools group's color");
+    }
+
+    #[test]
+    fn shortcut_color_setting_changes_the_footer_key_token_color() {
+        let sessions = vec![Session { id: String::new(), name: "a".into(), activity: 1, created: 1, attached: false, windows: vec![] }];
+        let cfg = Config { shortcut_color: "magenta".to_string(), ..Default::default() };
+        let state = PickerState::build(sessions, &cfg);
+        let backend = TestBackend::new(84, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| draw(f, &state)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+        let mut checked = false;
+        for y in 0..buf.area.height {
+            if let Some(x) = find_text_x(&buf, y, "rename") {
+                let key_style = buf[(x - 2, y)].style(); // the "R" in "R rename"
+                assert_eq!(key_style.fg, Some(Color::Magenta), "key token follows the configured shortcut_color");
+                checked = true;
+            }
+        }
+        assert!(checked, "expected to find the rename hint in the command-mode footer");
+    }
+
+    #[test]
+    fn shortcuts_on_demand_hides_the_legend_until_toggled() {
+        let sessions = vec![Session { id: String::new(), name: "a".into(), activity: 1, created: 1, attached: false, windows: vec![] }];
+        let cfg = Config { shortcut_visibility: ShortcutVisibility::OnDemand, ..Default::default() };
+        let mut state = PickerState::build(sessions, &cfg);
+        let text = render_to_string_sized(&state, 84, 20);
+        assert!(!text.contains("rename"), "legend stays hidden until the ? toggle reveals it");
+        assert!(text.contains("? shortcuts"), "a minimal nudge names the reveal key");
+
+        state.toggle_shortcuts();
+        let text = render_to_string_sized(&state, 84, 20);
+        assert!(text.contains("rename"), "legend renders once toggled on");
     }
 }
