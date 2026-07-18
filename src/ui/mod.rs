@@ -194,6 +194,7 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
                             &state.groups[next_group],
                             list_area.width,
                             state.focus_mode(),
+                            &state.inbox_icon,
                         );
                         next_group += 1;
                     }
@@ -201,7 +202,7 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
                     if show_create_group_hint && state.groups[section].inbox {
                         push_create_group_hint(&mut items);
                     }
-                    push_section_header(&mut items, &state.groups[section], list_area.width, color);
+                    push_section_header(&mut items, &state.groups[section], list_area.width, color, &state.inbox_icon);
                     current_gutter_color = color;
                     next_group = section + 1;
                     last_section = Some(section);
@@ -256,6 +257,7 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
             &state.groups[next_group],
             list_area.width,
             state.focus_mode(),
+            &state.inbox_icon,
         );
         next_group += 1;
     }
@@ -384,7 +386,7 @@ fn draw_groups(frame: &mut Frame, state: &PickerState, inner: Rect) {
             let buf = state.group_edit_buffer().unwrap_or("");
             let mut spans = Vec::new();
             if g.inbox {
-                spans.push(Span::raw(INBOX_GLYPH.to_string()));
+                spans.push(Span::raw(format!("{} ", state.inbox_icon)));
             }
             spans.push(Span::styled(
                 buf.to_uppercase(),
@@ -398,7 +400,7 @@ fn draw_groups(frame: &mut Frame, state: &PickerState, inner: Rect) {
             // with the DarkGray selection bar and render the name invisible
             // (issue #14).
             let name_color = group_color(g, gi, &state.active_palette);
-            let mut spans = group_label_spans(g, true, name_color);
+            let mut spans = group_label_spans(g, true, name_color, &state.inbox_icon);
             spans.push(Span::styled(format!("  · {}", state.group_session_count(gi)), secondary(selected)));
             Line::from(spans)
         };
@@ -473,11 +475,11 @@ fn group_color(group: &Group, index: usize, active_palette: &[String]) -> Color 
 
 /// Push a section header, preceding it with a blank spacer unless it is the very
 /// first item in the list.
-fn push_section_header(items: &mut Vec<ListItem<'static>>, g: &Group, width: u16, color: Color) {
+fn push_section_header(items: &mut Vec<ListItem<'static>>, g: &Group, width: u16, color: Color, icon: &str) {
     if !items.is_empty() {
         items.push(ListItem::new(Line::from("")));
     }
-    items.push(header_item(g, width, color));
+    items.push(header_item(g, width, color, icon));
 }
 
 fn push_create_group_hint(items: &mut Vec<ListItem<'static>>) {
@@ -488,8 +490,8 @@ fn push_create_group_hint(items: &mut Vec<ListItem<'static>>) {
 }
 
 /// Push a bare, dimmed header for an empty named group (a labeled shelf to fill).
-fn push_empty_group_header(items: &mut Vec<ListItem<'static>>, g: &Group, width: u16) {
-    push_section_header(items, g, width, DIM);
+fn push_empty_group_header(items: &mut Vec<ListItem<'static>>, g: &Group, width: u16, icon: &str) {
+    push_section_header(items, g, width, DIM, icon);
 }
 
 /// Same as `push_empty_group_header`, but skipped entirely in focus mode. Every
@@ -501,33 +503,32 @@ fn push_empty_group_header_unless_focused(
     g: &Group,
     width: u16,
     focus_mode: bool,
+    icon: &str,
 ) {
     if !focus_mode {
-        push_empty_group_header(items, g, width);
+        push_empty_group_header(items, g, width, icon);
     }
 }
-
-const INBOX_GLYPH: &str = "⊛ ";
 
 fn group_name(g: &Group, upper: bool) -> String {
     if upper { g.name.to_uppercase() } else { g.name.clone() }
 }
 
-/// Prefixes a group's display label with the inbox glyph when it's the
+/// Prefixes a group's display label with the inbox icon when it's the
 /// inbox group. Used anywhere plain text needs to match the rendered label.
-fn group_label(g: &Group, upper: bool) -> String {
+fn group_label(g: &Group, upper: bool, icon: &str) -> String {
     let name = group_name(g, upper);
-    if g.inbox { format!("{INBOX_GLYPH}{name}") } else { name }
+    if g.inbox { format!("{icon} {name}") } else { name }
 }
 
-fn group_label_width(g: &Group, upper: bool) -> usize {
-    group_label(g, upper).chars().count()
+fn group_label_width(g: &Group, upper: bool, icon: &str) -> usize {
+    group_label(g, upper, icon).chars().count()
 }
 
-fn group_label_spans(g: &Group, upper: bool, color: Color) -> Vec<Span<'static>> {
+fn group_label_spans(g: &Group, upper: bool, color: Color, icon: &str) -> Vec<Span<'static>> {
     let mut spans = Vec::new();
     if g.inbox {
-        spans.push(Span::styled(INBOX_GLYPH.to_string(), Style::default().fg(color)));
+        spans.push(Span::styled(format!("{icon} "), Style::default().fg(color)));
     }
     spans.push(Span::styled(
         group_name(g, upper),
@@ -536,9 +537,9 @@ fn group_label_spans(g: &Group, upper: bool, color: Color) -> Vec<Span<'static>>
     spans
 }
 
-fn header_item(g: &Group, width: u16, color: Color) -> ListItem<'static> {
-    let rule_len = (width as usize).saturating_sub(group_label_width(g, true) + 2);
-    let mut spans = group_label_spans(g, true, color);
+fn header_item(g: &Group, width: u16, color: Color, icon: &str) -> ListItem<'static> {
+    let rule_len = (width as usize).saturating_sub(group_label_width(g, true, icon) + 2);
+    let mut spans = group_label_spans(g, true, color, icon);
     spans.push(Span::raw(" "));
     spans.push(Span::styled("─".repeat(rule_len), Style::default().fg(color)));
     ListItem::new(Line::from(spans))
@@ -879,6 +880,21 @@ mod tests {
             }
         }
         assert!(checked, "inbox row was rendered");
+    }
+
+    #[test]
+    fn inbox_header_renders_the_configured_icon_not_the_old_hardcoded_default() {
+        let sessions = vec![
+            Session { id: String::new(), name: "a".into(), activity: 1, created: 1, attached: false, windows: vec![] },
+        ];
+        let cfg = Config::default();
+        let mut state = PickerState::build(sessions, &cfg);
+        state.inbox_icon = "♧".to_string();
+
+        let text = render_to_string(&state);
+
+        assert!(text.contains("♧ INBOX"), "configured icon should prefix the inbox header");
+        assert!(!text.contains("⊛ INBOX"), "old hardcoded default should no longer appear");
     }
 
     #[test]
