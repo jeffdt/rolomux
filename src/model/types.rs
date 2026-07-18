@@ -237,11 +237,6 @@ pub const HEADER_COLORS: [&str; 6] = ["cyan", "green", "yellow", "magenta", "blu
 /// property to confirm single-column rendering (the fixed-width header-rule
 /// padding in `ui::group_label_width`/`header_item` assumes one column per
 /// `char`), and against emoji-presentation to keep this app emoji-free.
-///
-/// Unused until the cycle helper and default-render path land (tracked
-/// separately); the allow keeps that intentional lag from tripping the
-/// dead-code lint.
-#[allow(dead_code)]
 pub const INBOX_ICONS: [&str; 22] = [
     "⊛", "☆", "❆", "❁", "❃", "❋", "❦", "⟡", "⌂", "⌀", "⌖", "⍟", "⎈", "⦿", "∆",
     "⊕", "∅", "⧉", "♤", "♡", "♢", "♧",

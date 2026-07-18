@@ -25,7 +25,7 @@ pub(super) fn draw_settings(frame: &mut Frame, state: &PickerState, inner: Rect)
     for (i, row) in rows.iter().enumerate() {
         match row {
             SettingsRow::DefaultMode => push_settings_section_header(&mut items, "BEHAVIOR", list_area.width),
-            SettingsRow::AttachedColor => push_settings_section_header(&mut items, "APPEARANCE", list_area.width),
+            SettingsRow::InboxIcon => push_settings_section_header(&mut items, "APPEARANCE", list_area.width),
             _ => {}
         }
         let selected = i == state.settings_cursor();
@@ -66,6 +66,9 @@ pub(super) fn draw_settings(frame: &mut Frame, state: &PickerState, inner: Rect)
                     new_group_position_label(state.new_group_position),
                     selected,
                 )
+            }
+            SettingsRow::InboxIcon => {
+                settings_value_line("Inbox icon", &state.inbox_icon, selected)
             }
             SettingsRow::AttachedColor => {
                 settings_color_line("Attached session color", &state.attached_color, state.attached_color_expanded(), selected)

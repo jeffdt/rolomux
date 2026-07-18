@@ -2509,9 +2509,9 @@ mod tests {
 
     #[test]
     fn draw_settings_shows_attached_and_border_color_rows() {
-        // Taller than the usual 80x20: the added New group position row
-        // pushes Border color further down the list.
-        let text = render_to_string_sized(&settings_view(), 80, 21);
+        // Taller than the usual 80x20: the New group position and Inbox icon
+        // rows push Border color further down the list.
+        let text = render_to_string_sized(&settings_view(), 80, 22);
         assert!(text.contains("Attached session color"));
         assert!(text.contains("Border color"));
         // Both default to green and render collapsed with a swatch + name.
@@ -2521,7 +2521,7 @@ mod tests {
     #[test]
     fn draw_settings_expanded_attached_color_shows_radio_glyphs() {
         let mut st = settings_view();
-        st.settings_move_cursor(6); // AttachedColor
+        st.settings_move_cursor(7); // AttachedColor
         st.settings_step_right(); // expand
         let text = render_to_string(&st);
         assert!(text.contains("●"), "the currently selected color is marked filled");
@@ -2537,7 +2537,7 @@ mod tests {
     #[test]
     fn draw_settings_expanded_border_color_shows_radio_glyphs() {
         let mut st = settings_view();
-        st.settings_move_cursor(7); // BorderColor
+        st.settings_move_cursor(8); // BorderColor
         st.settings_step_right();
         let text = render_to_string(&st);
         assert!(text.contains("●"));
@@ -2547,12 +2547,12 @@ mod tests {
     #[test]
     fn draw_settings_expanded_palette_shows_swatches_and_checkboxes() {
         let mut st = settings_view();
-        st.settings_move_cursor(9); // Palette
+        st.settings_move_cursor(10); // Palette
         st.settings_step_right(); // expand
-        // Taller than the usual 80x20: section headers and the New group
-        // position row now push the palette rows further down than the
-        // default viewport reveals.
-        let text = render_to_string_sized(&st, 80, 25);
+        // Taller than the usual 80x20: section headers, the New group
+        // position row, and the Inbox icon row all push the palette rows
+        // further down than the default viewport reveals.
+        let text = render_to_string_sized(&st, 80, 26);
         assert!(text.contains("[x]"), "active color checked");
         assert!(text.contains("[ ]"), "inactive color unchecked");
         assert!(text.contains("green"));
@@ -2562,7 +2562,7 @@ mod tests {
     #[test]
     fn draw_settings_shows_static_color_value_when_policy_is_static() {
         let mut st = settings_view();
-        st.settings_move_cursor(8); // ColorPolicy row
+        st.settings_move_cursor(9); // ColorPolicy row
         st.settings_step_right(); // Rotate -> Random
         st.settings_step_right(); // Random -> Static
         st.static_color = "magenta".to_string();
@@ -2573,9 +2573,10 @@ mod tests {
 
     #[test]
     fn draw_settings_does_not_show_a_color_value_for_rotate_or_random() {
-        // Taller than the default 80x20: the Session metadata row and the
-        // 3-row footer both push "New group color" further down the list.
-        let text = render_to_string_sized(&settings_view(), 80, 22); // default policy is Rotate
+        // Taller than the default 80x20: the Session metadata, New group
+        // position, and Inbox icon rows plus the 3-row footer all push "New
+        // group color" further down the list.
+        let text = render_to_string_sized(&settings_view(), 80, 23); // default policy is Rotate
         // "Rotate" itself is on screen, but no color name should follow it
         // since Rotate has no single fixed color to show. The only two
         // swatches on screen are the always-present Attached/Border color
@@ -2625,7 +2626,7 @@ mod tests {
     #[test]
     fn draw_settings_gutter_bar_continues_through_expanded_color_options() {
         let mut st = settings_view();
-        st.settings_move_cursor(6); // AttachedColor
+        st.settings_move_cursor(7); // AttachedColor
         st.settings_step_right(); // expand
         let text = render_to_string(&st);
         let row = text
@@ -2640,11 +2641,12 @@ mod tests {
     #[test]
     fn draw_settings_gutter_bar_continues_through_expanded_palette_rows() {
         let mut st = settings_view();
-        st.settings_move_cursor(9); // Palette
+        st.settings_move_cursor(10); // Palette
         st.settings_step_right(); // expand
-        // Taller than the usual 80x20: section headers now push the palette
-        // rows further down than the default viewport reveals.
-        let text = render_to_string_sized(&st, 80, 24);
+        // Taller than the usual 80x20: section headers and the Inbox icon
+        // row now push the palette rows further down than the default
+        // viewport reveals.
+        let text = render_to_string_sized(&st, 80, 25);
         let row = text
             .lines()
             .find(|line| line.contains("[ ]"))
@@ -2656,9 +2658,10 @@ mod tests {
 
     #[test]
     fn draw_settings_color_policy_row_continues_the_gutter_bar() {
-        // Taller than the default 80x20: the Session metadata row and the
-        // 3-row footer both push "New group color" further down the list.
-        let text = render_to_string_sized(&settings_view(), 80, 22);
+        // Taller than the default 80x20: the Session metadata, New group
+        // position, and Inbox icon rows plus the 3-row footer all push "New
+        // group color" further down the list.
+        let text = render_to_string_sized(&settings_view(), 80, 23);
         let row = text
             .lines()
             .find(|line| line.contains("New group color"))
@@ -2686,7 +2689,9 @@ mod tests {
 
     #[test]
     fn draw_settings_appearance_header_precedes_attached_color_row() {
-        let text = render_to_string(&settings_view());
+        // Taller than the default 80x20: the New group position and Inbox
+        // icon rows push Attached session color further down the list.
+        let text = render_to_string_sized(&settings_view(), 80, 21);
         let lines: Vec<&str> = text.lines().collect();
         let header_idx = lines.iter().position(|l| l.contains("APPEARANCE")).expect("APPEARANCE header rendered");
         let row_idx = lines.iter().position(|l| l.contains("Attached session color")).expect("Attached session color row rendered");

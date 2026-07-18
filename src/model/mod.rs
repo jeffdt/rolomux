@@ -57,6 +57,7 @@ pub struct PickerState {
     pub active_palette: Vec<String>,
     pub attached_color: String,
     pub border_color: String,
+    pub inbox_icon: String,
     /// Transient per-open state for the settings overlay (see `SettingsUiState`).
     settings_ui: SettingsUiState,
 }
@@ -110,6 +111,7 @@ impl PickerState {
             active_palette: config.active_palette.clone(),
             attached_color: config.attached_color.clone(),
             border_color: config.border_color.clone(),
+            inbox_icon: config.inbox_icon.clone(),
             settings_ui: SettingsUiState::default(),
         };
         state.apply_clear_dormant_on_attach();
@@ -313,6 +315,7 @@ impl PickerState {
         config.active_palette = self.active_palette.clone();
         config.attached_color = self.attached_color.clone();
         config.border_color = self.border_color.clone();
+        config.inbox_icon = self.inbox_icon.clone();
         config.remember_expanded_sessions = self.remember_expanded_sessions;
         config.clear_dormant_on_attach = self.clear_dormant_on_attach;
         config.session_metric = self.session_metric;
