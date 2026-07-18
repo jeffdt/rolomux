@@ -401,4 +401,63 @@ mod tests {
         ensure_inbox_last(&mut groups); // no flagged group to relocate
         assert_eq!(groups[0].name, "WORK");
     }
+
+    #[test]
+    fn color_policy_cycles_forward_and_backward() {
+        assert_eq!(ColorPolicy::Rotate.next(), ColorPolicy::Random);
+        assert_eq!(ColorPolicy::Random.next(), ColorPolicy::Static);
+        assert_eq!(ColorPolicy::Static.next(), ColorPolicy::Rotate);
+        assert_eq!(ColorPolicy::Rotate.prev(), ColorPolicy::Static);
+        assert_eq!(ColorPolicy::Static.prev(), ColorPolicy::Random);
+        assert_eq!(ColorPolicy::Random.prev(), ColorPolicy::Rotate);
+        assert_eq!(ColorPolicy::Rotate.as_config_str(), "rotate");
+        assert_eq!(ColorPolicy::Random.as_config_str(), "random");
+        assert_eq!(ColorPolicy::Static.as_config_str(), "static");
+    }
+
+    #[test]
+    fn color_policy_parses_with_rotate_fallback() {
+        assert_eq!(ColorPolicy::from_config_str("random"), ColorPolicy::Random);
+        assert_eq!(ColorPolicy::from_config_str("static"), ColorPolicy::Static);
+        assert_eq!(ColorPolicy::from_config_str("rotate"), ColorPolicy::Rotate);
+        assert_eq!(ColorPolicy::from_config_str("garbage"), ColorPolicy::Rotate);
+        assert_eq!(ColorPolicy::default(), ColorPolicy::Rotate);
+    }
+
+    #[test]
+    fn default_mode_next_toggles_and_maps_to_mode() {
+        assert_eq!(DefaultMode::Command.next(), DefaultMode::Search);
+        assert_eq!(DefaultMode::Search.next(), DefaultMode::Command);
+        assert_eq!(DefaultMode::Command.as_mode(), Mode::Command);
+        assert_eq!(DefaultMode::Search.as_mode(), Mode::Search);
+        assert_eq!(DefaultMode::Command.as_config_str(), "command");
+        assert_eq!(DefaultMode::Search.as_config_str(), "search");
+    }
+
+    #[test]
+    fn default_mode_parses_with_command_fallback() {
+        assert_eq!(DefaultMode::from_config_str("search"), DefaultMode::Search);
+        assert_eq!(DefaultMode::from_config_str("command"), DefaultMode::Command);
+        assert_eq!(DefaultMode::from_config_str("garbage"), DefaultMode::Command);
+        assert_eq!(DefaultMode::default(), DefaultMode::Command);
+    }
+
+    #[test]
+    fn session_metric_next_cycles_through_all_three_and_wraps() {
+        assert_eq!(SessionMetric::Recency.next(), SessionMetric::Age);
+        assert_eq!(SessionMetric::Age.next(), SessionMetric::Hidden);
+        assert_eq!(SessionMetric::Hidden.next(), SessionMetric::Recency);
+        assert_eq!(SessionMetric::Recency.as_config_str(), "recency");
+        assert_eq!(SessionMetric::Age.as_config_str(), "age");
+        assert_eq!(SessionMetric::Hidden.as_config_str(), "hidden");
+    }
+
+    #[test]
+    fn session_metric_parses_with_recency_fallback() {
+        assert_eq!(SessionMetric::from_config_str("age"), SessionMetric::Age);
+        assert_eq!(SessionMetric::from_config_str("hidden"), SessionMetric::Hidden);
+        assert_eq!(SessionMetric::from_config_str("recency"), SessionMetric::Recency);
+        assert_eq!(SessionMetric::from_config_str("garbage"), SessionMetric::Recency);
+        assert_eq!(SessionMetric::default(), SessionMetric::Recency);
+    }
 }
