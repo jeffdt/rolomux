@@ -4,6 +4,17 @@
 
 use super::*;
 
+/// Transient per-open UI state for the settings overlay: the cursor row and
+/// which of the three color sub-lists are currently expanded. Rebuilt on every
+/// open (never persisted), so it starts at its `Default`.
+#[derive(Default)]
+pub(super) struct SettingsUiState {
+    cursor: usize,
+    palette_expanded: bool,
+    attached_color_expanded: bool,
+    border_color_expanded: bool,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SettingsRow {
     DefaultMode,
@@ -78,22 +89,22 @@ impl PickerState {
 
     /// The current cursor position within the settings rows (Task 4).
     pub fn settings_cursor(&self) -> usize {
-        self.settings_cursor
+        self.settings_ui.cursor
     }
 
     /// Whether the color-palette checklist is currently expanded (Task 4).
     pub fn palette_expanded(&self) -> bool {
-        self.palette_expanded
+        self.settings_ui.palette_expanded
     }
 
     /// Whether the Attached session color picker is currently expanded.
     pub fn attached_color_expanded(&self) -> bool {
-        self.attached_color_expanded
+        self.settings_ui.attached_color_expanded
     }
 
     /// Whether the Border color picker is currently expanded.
     pub fn border_color_expanded(&self) -> bool {
-        self.border_color_expanded
+        self.settings_ui.border_color_expanded
     }
 
     /// The flat, ordered list of settings rows currently on screen. Three
@@ -111,20 +122,20 @@ impl PickerState {
             SettingsRow::NewGroupPosition,
             SettingsRow::AttachedColor,
         ];
-        if self.attached_color_expanded {
+        if self.settings_ui.attached_color_expanded {
             for i in 0..ALL_NAMED_COLORS.len() {
                 rows.push(SettingsRow::AttachedColorOption(i));
             }
         }
         rows.push(SettingsRow::BorderColor);
-        if self.border_color_expanded {
+        if self.settings_ui.border_color_expanded {
             for i in 0..ALL_NAMED_COLORS.len() {
                 rows.push(SettingsRow::BorderColorOption(i));
             }
         }
         rows.push(SettingsRow::ColorPolicy);
         rows.push(SettingsRow::Palette);
-        if self.palette_expanded {
+        if self.settings_ui.palette_expanded {
             for i in 0..ALL_NAMED_COLORS.len() {
                 rows.push(SettingsRow::PaletteColor(i));
             }
@@ -145,8 +156,8 @@ impl PickerState {
 
     /// Move the settings cursor by `delta`, wrapping between the first and last row.
     pub fn settings_move_cursor(&mut self, delta: i32) {
-        self.settings_cursor = move_index_with_edge_wrap(
-            self.settings_cursor,
+        self.settings_ui.cursor = move_index_with_edge_wrap(
+            self.settings_ui.cursor,
             delta,
             self.settings_visible_rows().len(),
         );
@@ -155,7 +166,7 @@ impl PickerState {
     /// The settings row the cursor currently sits on.
     fn current_settings_row(&self) -> SettingsRow {
         let rows = self.settings_visible_rows();
-        rows[self.settings_cursor.min(rows.len().saturating_sub(1))]
+        rows[self.settings_ui.cursor.min(rows.len().saturating_sub(1))]
     }
 
     /// Place the cursor on `target`, found by scanning a freshly rebuilt
@@ -166,21 +177,21 @@ impl PickerState {
     /// any caller here, but never panics).
     fn focus_settings_row(&mut self, target: SettingsRow) {
         let rows = self.settings_visible_rows();
-        self.settings_cursor = rows.iter().position(|r| *r == target).unwrap_or(0);
+        self.settings_ui.cursor = rows.iter().position(|r| *r == target).unwrap_or(0);
     }
 
     /// Expand the Attached session color picker with the cursor starting on
     /// the currently selected color, not row 0 -- opening the picker always
     /// lands on the current value, like a standard radio picker.
     fn expand_attached_color(&mut self) {
-        self.attached_color_expanded = true;
+        self.settings_ui.attached_color_expanded = true;
         let idx = ALL_NAMED_COLORS.iter().position(|c| *c == self.attached_color).unwrap_or(0);
         self.focus_settings_row(SettingsRow::AttachedColorOption(idx));
     }
 
     /// Same as `expand_attached_color`, for Border color.
     fn expand_border_color(&mut self) {
-        self.border_color_expanded = true;
+        self.settings_ui.border_color_expanded = true;
         let idx = ALL_NAMED_COLORS.iter().position(|c| *c == self.border_color).unwrap_or(0);
         self.focus_settings_row(SettingsRow::BorderColorOption(idx));
     }
@@ -189,7 +200,7 @@ impl PickerState {
     /// the cursor to the parent row.
     fn select_attached_color(&mut self, idx: usize) {
         self.attached_color = ALL_NAMED_COLORS[idx].to_string();
-        self.attached_color_expanded = false;
+        self.settings_ui.attached_color_expanded = false;
         self.dirty = true;
         self.focus_settings_row(SettingsRow::AttachedColor);
     }
@@ -197,7 +208,7 @@ impl PickerState {
     /// Same as `select_attached_color`, for Border color.
     fn select_border_color(&mut self, idx: usize) {
         self.border_color = ALL_NAMED_COLORS[idx].to_string();
-        self.border_color_expanded = false;
+        self.settings_ui.border_color_expanded = false;
         self.dirty = true;
         self.focus_settings_row(SettingsRow::BorderColor);
     }
@@ -242,23 +253,23 @@ impl PickerState {
             SettingsRow::SessionMetric => self.cycle_session_metric(),
             SettingsRow::ClearDormantOnAttach => self.toggle_clear_dormant_on_attach(),
             SettingsRow::NewGroupPosition => self.toggle_new_group_position(),
-            SettingsRow::AttachedColor => self.attached_color_expanded = false,
+            SettingsRow::AttachedColor => self.settings_ui.attached_color_expanded = false,
             SettingsRow::AttachedColorOption(_) => {
-                self.attached_color_expanded = false;
+                self.settings_ui.attached_color_expanded = false;
                 self.focus_settings_row(SettingsRow::AttachedColor);
             }
-            SettingsRow::BorderColor => self.border_color_expanded = false,
+            SettingsRow::BorderColor => self.settings_ui.border_color_expanded = false,
             SettingsRow::BorderColorOption(_) => {
-                self.border_color_expanded = false;
+                self.settings_ui.border_color_expanded = false;
                 self.focus_settings_row(SettingsRow::BorderColor);
             }
             SettingsRow::ColorPolicy => {
                 self.new_group_color_policy = self.new_group_color_policy.prev();
                 self.dirty = true;
             }
-            SettingsRow::Palette => self.palette_expanded = false,
+            SettingsRow::Palette => self.settings_ui.palette_expanded = false,
             SettingsRow::PaletteColor(_) => {
-                self.palette_expanded = false;
+                self.settings_ui.palette_expanded = false;
                 self.focus_settings_row(SettingsRow::Palette);
             }
         }
@@ -288,7 +299,7 @@ impl PickerState {
                 self.new_group_color_policy = self.new_group_color_policy.next();
                 self.dirty = true;
             }
-            SettingsRow::Palette => self.palette_expanded = true,
+            SettingsRow::Palette => self.settings_ui.palette_expanded = true,
             SettingsRow::PaletteColor(_) => {}
         }
     }

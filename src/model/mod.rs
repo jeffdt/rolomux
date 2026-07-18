@@ -10,6 +10,7 @@ pub use rename::{PendingRename, RenameTarget};
 
 mod settings;
 pub use settings::SettingsRow;
+use settings::SettingsUiState;
 
 mod groups;
 
@@ -56,10 +57,8 @@ pub struct PickerState {
     pub active_palette: Vec<String>,
     pub attached_color: String,
     pub border_color: String,
-    settings_cursor: usize,
-    palette_expanded: bool,
-    attached_color_expanded: bool,
-    border_color_expanded: bool,
+    /// Transient per-open state for the settings overlay (see `SettingsUiState`).
+    settings_ui: SettingsUiState,
 }
 
 impl PickerState {
@@ -111,10 +110,7 @@ impl PickerState {
             active_palette: config.active_palette.clone(),
             attached_color: config.attached_color.clone(),
             border_color: config.border_color.clone(),
-            settings_cursor: 0,
-            palette_expanded: false,
-            attached_color_expanded: false,
-            border_color_expanded: false,
+            settings_ui: SettingsUiState::default(),
         };
         state.apply_clear_dormant_on_attach();
         state.apply_initial_focus(focus, current);
