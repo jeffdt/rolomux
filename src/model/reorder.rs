@@ -133,6 +133,12 @@ impl PickerState {
         })
     }
 
+    /// Move the session under the cursor by `delta` rows, crossing group
+    /// boundaries into the group above/below when at an edge -- the inbox
+    /// group included, since it's just another entry in `self.groups` now.
+    /// Wraps around at the very top and bottom of the whole list (top wraps
+    /// to the end of the last group, bottom wraps to the front of the first
+    /// group) rather than clamping.
     pub fn move_row(&mut self, delta: i32) {
         let name = match self.cursor_session_name() { Some(n) => n, None => return };
         let gi = match self.group_index_of(&name) { Some(g) => g, None => return };
@@ -269,6 +275,7 @@ mod tests {
             Some(WindowMove::SwapWithin { session: "work".into(), a_index: 2, b_index: 1 })
         );
     }
+
     #[test]
     fn plan_window_move_swaps_with_next_window_in_same_session() {
         let sessions = vec![session_with_windows("work", 1, vec![win(0, "a"), win(1, "b"), win(2, "c")])];
@@ -282,6 +289,7 @@ mod tests {
             Some(WindowMove::SwapWithin { session: "work".into(), a_index: 0, b_index: 1 })
         );
     }
+
     #[test]
     fn plan_window_move_up_from_first_window_crosses_into_session_above_last_slot() {
         let sessions = vec![
@@ -314,6 +322,7 @@ mod tests {
             })
         );
     }
+
     #[test]
     fn plan_window_move_down_from_last_window_crosses_into_session_below_first_slot() {
         let sessions = vec![
@@ -346,6 +355,7 @@ mod tests {
             })
         );
     }
+
     #[test]
     fn plan_window_move_wraps_from_first_session_up_to_last_session_last_slot() {
         let sessions = vec![
@@ -378,6 +388,7 @@ mod tests {
             })
         );
     }
+
     #[test]
     fn plan_window_move_is_none_when_only_one_session_with_one_window() {
         let sessions = vec![session_with_windows("solo", 1, vec![win(0, "only")])];
@@ -389,6 +400,7 @@ mod tests {
         assert_eq!(st.plan_window_move(-1), None);
         assert_eq!(st.plan_window_move(1), None);
     }
+
     #[test]
     fn plan_window_move_is_none_when_cursor_is_on_a_session_row() {
         let sessions = vec![session_with_windows("solo", 1, vec![win(0, "only"), win(1, "other")])];
@@ -396,6 +408,7 @@ mod tests {
         let st = PickerState::build(sessions, &cfg); // cursor defaults onto the session row
         assert_eq!(st.plan_window_move(-1), None);
     }
+
     #[test]
     fn arm_and_take_confirmed_window_move_round_trips_on_matching_direction() {
         let sessions = vec![s("a", 1, 1)];
@@ -409,6 +422,7 @@ mod tests {
         assert_eq!(st.take_confirmed_window_move(-1), Some(mv), "matching direction confirms and consumes it");
         assert!(st.pending_window_move_warning().is_none());
     }
+
     #[test]
     fn clear_pending_window_move_drops_the_arm() {
         let sessions = vec![s("a", 1, 1)];
@@ -420,6 +434,7 @@ mod tests {
         assert!(st.pending_window_move_warning().is_none());
         assert_eq!(st.take_confirmed_window_move(-1), None);
     }
+
     #[test]
     fn move_row_unpinned_in_manual_freezes_then_swaps_and_dirties() {
         // Manual + empty list => base order is created asc: a(1), b(2), c(3).
@@ -447,6 +462,7 @@ mod tests {
         assert_eq!(state.cursor_session_name().as_deref(), Some("b"));
         assert!(state.dirty);
     }
+
     #[test]
     fn move_row_unpinned_at_residual_bottom_wraps_to_front() {
         let sessions = vec![s("a", 30, 1), s("b", 20, 2)];
@@ -460,6 +476,7 @@ mod tests {
             vec!["b".to_string(), "a".to_string()]
         );
     }
+
     #[test]
     fn move_row_on_pinned_reorders_pins_in_any_mode() {
         let sessions = vec![s("a", 30, 1), s("b", 20, 2)];
@@ -473,6 +490,7 @@ mod tests {
         assert_eq!(state.groups[0].members, vec!["b".to_string(), "a".to_string()]);
         assert!(state.dirty);
     }
+
     #[test]
     fn move_row_skips_hidden_dormant_sessions() {
         let sessions = vec![s("alpha", 1, 1), s("beta", 1, 2), s("gamma", 1, 3)];
@@ -497,6 +515,7 @@ mod tests {
         let all_members = &state.groups[state.inbox_index().unwrap()].members;
         assert_eq!(all_members, &vec!["gamma".to_string(), "beta".to_string(), "alpha".to_string()]);
     }
+
     #[test]
     fn move_up_from_group_top_joins_end_of_group_above() {
         let mut st = state_with_two_groups();
@@ -507,6 +526,7 @@ mod tests {
         assert_eq!(st.cursor_session_name().as_deref(), Some("c"));
         assert!(st.dirty);
     }
+
     #[test]
     fn move_up_within_group_swaps() {
         let mut st = state_with_two_groups();
@@ -514,6 +534,7 @@ mod tests {
         st.move_row(-1);
         assert_eq!(st.groups[0].members, vec!["b".to_string(), "a".to_string()]);
     }
+
     #[test]
     fn move_up_at_very_top_wraps_to_last_group_end() {
         let mut st = state_with_two_groups();
@@ -532,6 +553,7 @@ mod tests {
         assert_eq!(st.cursor_session_name().as_deref(), Some("a"));
         assert!(st.dirty);
     }
+
     #[test]
     fn move_down_from_group_bottom_joins_front_of_group_below() {
         let mut st = state_with_two_groups();
@@ -540,6 +562,7 @@ mod tests {
         assert_eq!(st.groups[0].members, vec!["a".to_string()]);
         assert_eq!(st.groups[1].members, vec!["b".to_string(), "c".to_string()]);
     }
+
     #[test]
     fn move_down_from_last_group_bottom_drops_into_residual() {
         let mut st = state_with_two_groups();
@@ -548,6 +571,7 @@ mod tests {
         assert_eq!(st.groups[1].members, Vec::<String>::new());
         assert_eq!(st.group_index_of("c"), st.inbox_index());
     }
+
     #[test]
     fn move_up_from_residual_top_joins_last_group() {
         let mut st = state_with_two_groups();
@@ -556,6 +580,7 @@ mod tests {
         assert_eq!(st.groups[1].members, vec!["c".to_string(), "d".to_string()]);
         assert_ne!(st.group_index_of("d"), st.inbox_index());
     }
+
     #[test]
     fn move_down_at_residual_bottom_wraps_to_first_group_front() {
         let mut st = state_with_two_groups();
