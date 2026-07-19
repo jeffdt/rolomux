@@ -130,7 +130,7 @@ pub fn draw(frame: &mut Frame, state: &PickerState) {
     let area = inset(frame.area(), POPUP_MARGIN);
     let border_color = color_from_name(&state.border_color);
     let border_style = Style::default().fg(border_color);
-    let block = Block::default()
+    let mut block = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
         .border_style(border_style)
@@ -138,6 +138,12 @@ pub fn draw(frame: &mut Frame, state: &PickerState) {
             Span::styled("─", border_style),
             Span::styled("‹ rolomux ›", border_style.add_modifier(Modifier::BOLD | Modifier::ITALIC)),
         ]));
+    if state.mode == Mode::Settings {
+        block = block.title_bottom(
+            Line::from(Span::styled(format!(" {} ", app_version()), Style::default().fg(DIM)))
+                .right_aligned(),
+        );
+    }
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
@@ -2581,30 +2587,45 @@ mod tests {
     }
 
     #[test]
-    fn draw_settings_shows_about_section_with_version() {
-        // Generous height: the full collapsed settings list (14 rows plus
-        // two section headers and their spacers) plus the new ABOUT
-        // section needs about 30 rows total to render without scrolling;
-        // 40 gives comfortable slack.
-        let text = render_to_string_sized(&settings_view(), 80, 40);
-        assert!(text.contains("ABOUT"), "About section header should render: {text:?}");
+    fn draw_settings_shows_dimmed_version_right_aligned_in_bottom_border() {
+        let backend = TestBackend::new(80, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| draw(f, &settings_view())).unwrap();
+        let buf = terminal.backend().buffer().clone();
+
+        let bottom_border_row = buf.area.height - 1 - POPUP_MARGIN;
+        // Cell-indexed, not byte-indexed: the row is mostly multi-byte box-
+        // drawing glyphs, so a plain `String::find` offset wouldn't line up
+        // with the buffer's `x` coordinates.
+        let cells: Vec<&str> = (0..buf.area.width).map(|x| buf[(x, bottom_border_row)].symbol()).collect();
+        let version = app_version();
+        let version_len = version.chars().count();
+        let x = (0..=cells.len().saturating_sub(version_len))
+            .find(|&i| cells[i..i + version_len].concat() == version)
+            .unwrap_or_else(|| panic!("version should render in the bottom border row: {cells:?}"));
         assert!(
-            text.contains(&format!("rolomux {}", app_version())),
-            "About line should show the app version: {text:?}"
+            x as u16 > buf.area.width / 2,
+            "version should sit in the right half of the bottom border, found at x={x}: {cells:?}"
+        );
+        assert_eq!(
+            buf[(x as u16, bottom_border_row)].style().fg,
+            Some(DIM),
+            "version text should render dim, not in the border's accent color"
         );
     }
 
     #[test]
-    fn draw_settings_about_line_is_not_a_selectable_row() {
-        // The ABOUT line must not be part of settings_visible_rows(), so
-        // moving the cursor to the last real row and stepping further
-        // doesn't land on it or crash.
-        let mut st = settings_view();
-        let count = st.settings_visible_rows().len() as i32 - 1;
-        st.settings_move_cursor(count);
-        st.settings_step_right(); // may expand the last row (e.g. Palette); must not panic either way
-        let text = render_to_string_sized(&st, 80, 50);
-        assert!(text.contains("ABOUT"), "About section still renders: {text:?}");
+    fn draw_command_mode_does_not_show_the_version() {
+        // The version footer is a Settings-only affordance; Command mode's
+        // border stays clean.
+        let sessions = vec![Session { id: String::new(), name: "a".into(), activity: 1, created: 1, attached: false,
+                                       windows: vec![] }];
+        let state = PickerState::build(sessions, &Config::default());
+        let text = render_to_string(&state);
+        assert!(
+            !text.contains(app_version()),
+            "version should not render outside Settings mode: {text:?}"
+        );
     }
 
     #[test]
