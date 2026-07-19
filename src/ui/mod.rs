@@ -140,7 +140,7 @@ pub fn draw(frame: &mut Frame, state: &PickerState) {
         ]));
     if state.mode == Mode::Settings {
         block = block.title_bottom(
-            Line::from(Span::styled(format!(" {} ", app_version()), Style::default().fg(DIM)))
+            Line::from(Span::styled(format!(" ‹ {} › ", app_version()), Style::default().fg(DIM)))
                 .right_aligned(),
         );
     }
