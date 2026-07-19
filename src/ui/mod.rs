@@ -140,8 +140,14 @@ pub fn draw(frame: &mut Frame, state: &PickerState) {
         ]));
     if state.mode == Mode::Settings {
         block = block.title_bottom(
-            Line::from(Span::styled(format!(" ‹ {} › ", app_version()), Style::default().fg(DIM)))
-                .right_aligned(),
+            Line::from(vec![
+                Span::styled(
+                    format!("‹ {} ›", app_version()),
+                    border_style.add_modifier(Modifier::BOLD | Modifier::ITALIC),
+                ),
+                Span::styled("─", border_style),
+            ])
+            .right_aligned(),
         );
     }
     let inner = block.inner(area);
@@ -2587,10 +2593,15 @@ mod tests {
     }
 
     #[test]
-    fn draw_settings_shows_dimmed_version_right_aligned_in_bottom_border() {
+    fn draw_settings_shows_version_right_aligned_in_border_color_in_the_bottom_border() {
+        let sessions = vec![Session { id: String::new(), name: "a".into(), activity: 1, created: 1, attached: false,
+                                       windows: vec![] }];
+        let cfg = Config { border_color: "magenta".to_string(), ..Default::default() };
+        let mut st = PickerState::build(sessions, &cfg);
+        st.enter_settings();
         let backend = TestBackend::new(80, 20);
         let mut terminal = Terminal::new(backend).unwrap();
-        terminal.draw(|f| draw(f, &settings_view())).unwrap();
+        terminal.draw(|f| draw(f, &st)).unwrap();
         let buf = terminal.backend().buffer().clone();
 
         let bottom_border_row = buf.area.height - 1 - POPUP_MARGIN;
@@ -2609,8 +2620,17 @@ mod tests {
         );
         assert_eq!(
             buf[(x as u16, bottom_border_row)].style().fg,
-            Some(DIM),
-            "version text should render dim, not in the border's accent color"
+            Some(Color::Magenta),
+            "version text should mirror the configured border color, same as the top title"
+        );
+        // Flush against the corner: the very last content cell before the
+        // right border corner is the connecting "─", same shape as the top
+        // title's leading dash.
+        let corner_x = buf.area.width - 1 - POPUP_MARGIN;
+        assert_eq!(
+            buf[(corner_x - 1, bottom_border_row)].symbol(),
+            "─",
+            "a connecting dash should sit flush between the version title and the corner"
         );
     }
 
