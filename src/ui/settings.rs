@@ -164,6 +164,13 @@ pub(super) fn draw_settings(frame: &mut Frame, state: &PickerState, inner: Rect)
         items.push(ListItem::new(line));
     }
 
+    push_settings_section_header(&mut items, "ABOUT", list_area.width);
+    items.push(ListItem::new(Line::from(vec![
+        gutter_span(),
+        Span::raw(" "),
+        Span::styled(format!("rolomux {}", app_version()), Style::default().fg(DIM)),
+    ])));
+
     let list = List::new(items)
         .highlight_style(Style::default().bg(SEL_BG).add_modifier(Modifier::BOLD));
     let mut list_state = ListState::default();

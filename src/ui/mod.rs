@@ -47,6 +47,15 @@ const CREATE_GROUP_HINT: &str =
 
 const SEARCH_FOOTER_HINT: &str = "↑↓ move · ⌃W word · ⌃U clear · Esc back";
 
+/// The running binary's version, as `git describe --tags --dirty` saw it at
+/// build time (e.g. `v0.27.0` on a clean tagged release, `v0.27.0-3-gabc1234`
+/// on a local dev build, `-dirty` appended if the tree had uncommitted
+/// changes). Falls back to `v{CARGO_PKG_VERSION}` if git/tags weren't
+/// available at build time (see `build.rs`).
+fn app_version() -> &'static str {
+    env!("ROLOMUX_VERSION")
+}
+
 /// Style for secondary text (expand glyph, metadata, tree connectors). On the
 /// selected row it drops to the default foreground so it matches the session
 /// name and stays visible against the DarkGray selection bar; otherwise it is
@@ -803,6 +812,15 @@ mod tests {
         (0..=width - needle.len())
             .find(|x| needle.iter().enumerate().all(|(i, c)| buf[((*x + i) as u16, y)].symbol() == c))
             .map(|x| x as u16)
+    }
+
+    #[test]
+    fn app_version_is_a_v_prefixed_string() {
+        assert!(
+            app_version().starts_with('v'),
+            "expected a v-prefixed version string, got {:?}",
+            app_version()
+        );
     }
 
     #[test]
@@ -2560,6 +2578,33 @@ mod tests {
         // Both default to green and render collapsed with a swatch + name.
         // (Shortcut/Active-window-dot color rows sit further down, out of view here.)
         assert_eq!(text.matches("green").count(), 2, "one swatch label per collapsed color row");
+    }
+
+    #[test]
+    fn draw_settings_shows_about_section_with_version() {
+        // Generous height: the full collapsed settings list (14 rows plus
+        // two section headers and their spacers) plus the new ABOUT
+        // section needs about 30 rows total to render without scrolling;
+        // 40 gives comfortable slack.
+        let text = render_to_string_sized(&settings_view(), 80, 40);
+        assert!(text.contains("ABOUT"), "About section header should render: {text:?}");
+        assert!(
+            text.contains(&format!("rolomux {}", app_version())),
+            "About line should show the app version: {text:?}"
+        );
+    }
+
+    #[test]
+    fn draw_settings_about_line_is_not_a_selectable_row() {
+        // The ABOUT line must not be part of settings_visible_rows(), so
+        // moving the cursor to the last real row and stepping further
+        // doesn't land on it or crash.
+        let mut st = settings_view();
+        let count = st.settings_visible_rows().len() as i32 - 1;
+        st.settings_move_cursor(count);
+        st.settings_step_right(); // may expand the last row (e.g. Palette); must not panic either way
+        let text = render_to_string_sized(&st, 80, 50);
+        assert!(text.contains("ABOUT"), "About section still renders: {text:?}");
     }
 
     #[test]
