@@ -299,6 +299,19 @@ pub struct Session {
 /// RGB) so headers inherit the user's terminal theme.
 pub const HEADER_COLORS: [&str; 6] = ["cyan", "green", "yellow", "magenta", "blue", "red"];
 
+/// The curated set of glyphs a user can cycle the inbox group's header icon
+/// through (`PickerState::settings_step_left`/`settings_step_right` on the
+/// `SettingsRow::InboxIcon` row). Index 0 is the historical hardcoded
+/// default, kept first so upgrading users see no visual change until they
+/// opt in. Every glyph was checked against Unicode's East Asian Width
+/// property to confirm single-column rendering (the fixed-width header-rule
+/// padding in `ui::group_label_width`/`header_item` assumes one column per
+/// `char`), and against emoji-presentation to keep this app emoji-free.
+pub const INBOX_ICONS: [&str; 21] = [
+    "⊛", "☆", "❆", "❁", "❃", "❋", "❦", "⟡", "⌂", "⌖", "⍟", "⎈", "⦿", "∆",
+    "⊕", "∅", "⧉", "♤", "♡", "♢", "♧",
+];
+
 /// A user-named, ordered collection of sessions that renders as its own
 /// section. One group is always the inbox (see `inbox` below), which
 /// receives sessions not explicitly listed anywhere else. Groups are

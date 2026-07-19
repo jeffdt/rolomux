@@ -233,6 +233,14 @@ and updating `scripts/release.sh`'s asset handling.
   and a broken build that neither session noticed until Jeff asked about it.
   A worktree per feature branch is what makes concurrent or resumed sessions
   safe; the main checkout should stay clean and always reflect `origin/main`.
+- **When pulling an issue from GitHub to work on, check the other open issues
+  for ones that would make sense to bundle into the same PR** (`gh issue
+  list --state open`) before starting. Look for genuine overlap, e.g. same
+  code area, same setting/UI surface, or one is a natural extension of the
+  other, not just a shared label like `small` or `visual`. If a good bundle
+  candidate turns up, confirm with Jeff before folding it in rather than
+  assuming; if nothing overlaps, note briefly that none were found and move
+  on with just the requested issue.
 - Build/test loop: `RUSTFLAGS="-D warnings" cargo test`, then
   `cargo build --release`.
 - **Leave a live preview when a feature is done.** Once a feature is

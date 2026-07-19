@@ -194,6 +194,7 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
                             &state.groups[next_group],
                             list_area.width,
                             state.focus_mode(),
+                            &state.inbox_icon,
                         );
                         next_group += 1;
                     }
@@ -201,7 +202,7 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
                     if show_create_group_hint && state.groups[section].inbox {
                         push_create_group_hint(&mut items);
                     }
-                    push_section_header(&mut items, &state.groups[section], list_area.width, color);
+                    push_section_header(&mut items, &state.groups[section], list_area.width, color, &state.inbox_icon);
                     current_gutter_color = color;
                     next_group = section + 1;
                     last_section = Some(section);
@@ -260,6 +261,7 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
             &state.groups[next_group],
             list_area.width,
             state.focus_mode(),
+            &state.inbox_icon,
         );
         next_group += 1;
     }
@@ -388,7 +390,7 @@ fn draw_groups(frame: &mut Frame, state: &PickerState, inner: Rect) {
             let buf = state.group_edit_buffer().unwrap_or("");
             let mut spans = Vec::new();
             if g.inbox {
-                spans.push(Span::raw(INBOX_GLYPH.to_string()));
+                spans.push(Span::raw(format!("{} ", state.inbox_icon)));
             }
             spans.push(Span::styled(
                 buf.to_uppercase(),
@@ -402,7 +404,7 @@ fn draw_groups(frame: &mut Frame, state: &PickerState, inner: Rect) {
             // with the DarkGray selection bar and render the name invisible
             // (issue #14).
             let name_color = group_color(g, gi, &state.active_palette);
-            let mut spans = group_label_spans(g, true, name_color);
+            let mut spans = group_label_spans(g, true, name_color, &state.inbox_icon);
             spans.push(Span::styled(format!("  · {}", state.group_session_count(gi)), secondary(selected)));
             Line::from(spans)
         };
@@ -477,11 +479,11 @@ fn group_color(group: &Group, index: usize, active_palette: &[String]) -> Color 
 
 /// Push a section header, preceding it with a blank spacer unless it is the very
 /// first item in the list.
-fn push_section_header(items: &mut Vec<ListItem<'static>>, g: &Group, width: u16, color: Color) {
+fn push_section_header(items: &mut Vec<ListItem<'static>>, g: &Group, width: u16, color: Color, icon: &str) {
     if !items.is_empty() {
         items.push(ListItem::new(Line::from("")));
     }
-    items.push(header_item(g, width, color));
+    items.push(header_item(g, width, color, icon));
 }
 
 fn push_create_group_hint(items: &mut Vec<ListItem<'static>>) {
@@ -492,8 +494,8 @@ fn push_create_group_hint(items: &mut Vec<ListItem<'static>>) {
 }
 
 /// Push a bare, dimmed header for an empty named group (a labeled shelf to fill).
-fn push_empty_group_header(items: &mut Vec<ListItem<'static>>, g: &Group, width: u16) {
-    push_section_header(items, g, width, DIM);
+fn push_empty_group_header(items: &mut Vec<ListItem<'static>>, g: &Group, width: u16, icon: &str) {
+    push_section_header(items, g, width, DIM, icon);
 }
 
 /// Same as `push_empty_group_header`, but skipped entirely in focus mode. Every
@@ -505,33 +507,32 @@ fn push_empty_group_header_unless_focused(
     g: &Group,
     width: u16,
     focus_mode: bool,
+    icon: &str,
 ) {
     if !focus_mode {
-        push_empty_group_header(items, g, width);
+        push_empty_group_header(items, g, width, icon);
     }
 }
-
-const INBOX_GLYPH: &str = "⊛ ";
 
 fn group_name(g: &Group, upper: bool) -> String {
     if upper { g.name.to_uppercase() } else { g.name.clone() }
 }
 
-/// Prefixes a group's display label with the inbox glyph when it's the
+/// Prefixes a group's display label with the inbox icon when it's the
 /// inbox group. Used anywhere plain text needs to match the rendered label.
-fn group_label(g: &Group, upper: bool) -> String {
+fn group_label(g: &Group, upper: bool, icon: &str) -> String {
     let name = group_name(g, upper);
-    if g.inbox { format!("{INBOX_GLYPH}{name}") } else { name }
+    if g.inbox { format!("{icon} {name}") } else { name }
 }
 
-fn group_label_width(g: &Group, upper: bool) -> usize {
-    group_label(g, upper).chars().count()
+fn group_label_width(g: &Group, upper: bool, icon: &str) -> usize {
+    group_label(g, upper, icon).chars().count()
 }
 
-fn group_label_spans(g: &Group, upper: bool, color: Color) -> Vec<Span<'static>> {
+fn group_label_spans(g: &Group, upper: bool, color: Color, icon: &str) -> Vec<Span<'static>> {
     let mut spans = Vec::new();
     if g.inbox {
-        spans.push(Span::styled(INBOX_GLYPH.to_string(), Style::default().fg(color)));
+        spans.push(Span::styled(format!("{icon} "), Style::default().fg(color)));
     }
     spans.push(Span::styled(
         group_name(g, upper),
@@ -540,9 +541,9 @@ fn group_label_spans(g: &Group, upper: bool, color: Color) -> Vec<Span<'static>>
     spans
 }
 
-fn header_item(g: &Group, width: u16, color: Color) -> ListItem<'static> {
-    let rule_len = (width as usize).saturating_sub(group_label_width(g, true) + 2);
-    let mut spans = group_label_spans(g, true, color);
+fn header_item(g: &Group, width: u16, color: Color, icon: &str) -> ListItem<'static> {
+    let rule_len = (width as usize).saturating_sub(group_label_width(g, true, icon) + 2);
+    let mut spans = group_label_spans(g, true, color, icon);
     spans.push(Span::raw(" "));
     spans.push(Span::styled("─".repeat(rule_len), Style::default().fg(color)));
     ListItem::new(Line::from(spans))
@@ -904,6 +905,21 @@ mod tests {
             }
         }
         assert!(checked, "inbox row was rendered");
+    }
+
+    #[test]
+    fn inbox_header_renders_the_configured_icon_not_the_old_hardcoded_default() {
+        let sessions = vec![
+            Session { id: String::new(), name: "a".into(), activity: 1, created: 1, attached: false, windows: vec![] },
+        ];
+        let cfg = Config::default();
+        let mut state = PickerState::build(sessions, &cfg);
+        state.inbox_icon = "♧".to_string();
+
+        let text = render_to_string(&state);
+
+        assert!(text.contains("♧ INBOX"), "configured icon should prefix the inbox header");
+        assert!(!text.contains("⊛ INBOX"), "old hardcoded default should no longer appear");
     }
 
     #[test]
@@ -2535,9 +2551,10 @@ mod tests {
 
     #[test]
     fn draw_settings_shows_attached_and_border_color_rows() {
-        // Taller than the usual 80x20: the added New group position and
-        // Show shortcuts rows push Border color further down the list.
-        let text = render_to_string_sized(&settings_view(), 80, 22);
+        // Taller than the usual 80x20: the New group position, Show
+        // shortcuts, and Inbox icon rows push Border color further down the
+        // list.
+        let text = render_to_string_sized(&settings_view(), 80, 24);
         assert!(text.contains("Attached session color"));
         assert!(text.contains("Border color"));
         // Both default to green and render collapsed with a swatch + name.
@@ -2548,7 +2565,7 @@ mod tests {
     #[test]
     fn draw_settings_expanded_attached_color_shows_radio_glyphs() {
         let mut st = settings_view();
-        st.settings_move_cursor(7); // AttachedColor
+        st.settings_move_cursor(8); // AttachedColor
         st.settings_step_right(); // expand
         let text = render_to_string(&st);
         assert!(text.contains("●"), "the currently selected color is marked filled");
@@ -2564,7 +2581,7 @@ mod tests {
     #[test]
     fn draw_settings_expanded_border_color_shows_radio_glyphs() {
         let mut st = settings_view();
-        st.settings_move_cursor(8); // BorderColor
+        st.settings_move_cursor(9); // BorderColor
         st.settings_step_right();
         let text = render_to_string(&st);
         assert!(text.contains("●"));
@@ -2574,13 +2591,13 @@ mod tests {
     #[test]
     fn draw_settings_expanded_palette_shows_swatches_and_checkboxes() {
         let mut st = settings_view();
-        st.settings_move_cursor(12); // Palette
+        st.settings_move_cursor(13); // Palette
         st.settings_step_right(); // expand
-        // Taller than the usual 80x20: section headers and the added
-        // Show shortcuts/Shortcut color/Active window dot color rows now
-        // push the palette rows further down than the default viewport
+        // Taller than the usual 80x20: section headers and the added Show
+        // shortcuts/Shortcut color/Active window dot color/Inbox icon rows
+        // now push the palette rows further down than the default viewport
         // reveals.
-        let text = render_to_string_sized(&st, 80, 28);
+        let text = render_to_string_sized(&st, 80, 30);
         assert!(text.contains("[x]"), "active color checked");
         assert!(text.contains("[ ]"), "inactive color unchecked");
         assert!(text.contains("green"));
@@ -2590,7 +2607,7 @@ mod tests {
     #[test]
     fn draw_settings_shows_static_color_value_when_policy_is_static() {
         let mut st = settings_view();
-        st.settings_move_cursor(11); // ColorPolicy row
+        st.settings_move_cursor(12); // ColorPolicy row
         st.settings_step_right(); // Rotate -> Random
         st.settings_step_right(); // Random -> Static
         st.static_color = "magenta".to_string();
@@ -2601,10 +2618,11 @@ mod tests {
 
     #[test]
     fn draw_settings_does_not_show_a_color_value_for_rotate_or_random() {
-        // Taller than the default 80x20: the Session metadata row, the added
-        // Show shortcuts/Shortcut color/Active window dot color rows, and the
-        // 3-row footer all push "New group color" further down the list.
-        let text = render_to_string_sized(&settings_view(), 80, 25); // default policy is Rotate
+        // Taller than the default 80x20: the Session metadata, New group
+        // position, Show shortcuts, Shortcut color/Active window dot color,
+        // and Inbox icon rows plus the 3-row footer all push "New group
+        // color" further down the list.
+        let text = render_to_string_sized(&settings_view(), 80, 27); // default policy is Rotate
         // "Rotate" itself is on screen, but no color name should follow it
         // since Rotate has no single fixed color to show. The four swatches on
         // screen are the always-present Attached/Border/Shortcut color rows
@@ -2655,7 +2673,7 @@ mod tests {
     #[test]
     fn draw_settings_gutter_bar_continues_through_expanded_color_options() {
         let mut st = settings_view();
-        st.settings_move_cursor(7); // AttachedColor
+        st.settings_move_cursor(8); // AttachedColor
         st.settings_step_right(); // expand
         let text = render_to_string(&st);
         let row = text
@@ -2670,12 +2688,13 @@ mod tests {
     #[test]
     fn draw_settings_gutter_bar_continues_through_expanded_palette_rows() {
         let mut st = settings_view();
-        st.settings_move_cursor(12); // Palette
+        st.settings_move_cursor(13); // Palette
         st.settings_step_right(); // expand
         // Taller than the usual 80x20: section headers and the added Show
-        // shortcuts/Shortcut color/Active window dot color rows now push the
-        // palette rows further down than the default viewport reveals.
-        let text = render_to_string_sized(&st, 80, 27);
+        // shortcuts/Shortcut color/Active window dot color/Inbox icon rows
+        // now push the palette rows further down than the default viewport
+        // reveals.
+        let text = render_to_string_sized(&st, 80, 29);
         let row = text
             .lines()
             .find(|line| line.contains("[ ]"))
@@ -2687,10 +2706,11 @@ mod tests {
 
     #[test]
     fn draw_settings_color_policy_row_continues_the_gutter_bar() {
-        // Taller than the default 80x20: the Session metadata row, the added
-        // Show shortcuts/Shortcut color/Active window dot color rows, and the
-        // 3-row footer all push "New group color" further down the list.
-        let text = render_to_string_sized(&settings_view(), 80, 25);
+        // Taller than the default 80x20: the Session metadata, New group
+        // position, Show shortcuts, Shortcut color/Active window dot color,
+        // and Inbox icon rows plus the 3-row footer all push "New group
+        // color" further down the list.
+        let text = render_to_string_sized(&settings_view(), 80, 27);
         let row = text
             .lines()
             .find(|line| line.contains("New group color"))
@@ -2718,10 +2738,10 @@ mod tests {
 
     #[test]
     fn draw_settings_appearance_header_precedes_attached_color_row() {
-        // One row taller than the default 80x20: the added Show shortcuts
-        // row pushes Attached session color one row further down than the
-        // default viewport reveals.
-        let text = render_to_string_sized(&settings_view(), 80, 21);
+        // Taller than the default 80x20: the New group position, Show
+        // shortcuts, and Inbox icon rows push Attached session color further
+        // down the list.
+        let text = render_to_string_sized(&settings_view(), 80, 22);
         let lines: Vec<&str> = text.lines().collect();
         let header_idx = lines.iter().position(|l| l.contains("APPEARANCE")).expect("APPEARANCE header rendered");
         let row_idx = lines.iter().position(|l| l.contains("Attached session color")).expect("Attached session color row rendered");

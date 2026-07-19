@@ -66,6 +66,7 @@ pub struct PickerState {
     /// Never persisted -- each fresh popup starts collapsed again, same as
     /// `remember_expanded_sessions` off. See `shortcuts_visible`.
     show_shortcuts_now: bool,
+    pub inbox_icon: String,
     /// Transient per-open state for the settings overlay (see `SettingsUiState`).
     settings_ui: SettingsUiState,
 }
@@ -124,6 +125,7 @@ impl PickerState {
             shortcut_color: config.shortcut_color.clone(),
             shortcut_visibility: config.shortcut_visibility,
             show_shortcuts_now: false,
+            inbox_icon: config.inbox_icon.clone(),
             settings_ui: SettingsUiState::default(),
         };
         state.apply_clear_dormant_on_attach();
@@ -327,6 +329,7 @@ impl PickerState {
         config.active_palette = self.active_palette.clone();
         config.attached_color = self.attached_color.clone();
         config.border_color = self.border_color.clone();
+        config.inbox_icon = self.inbox_icon.clone();
         config.remember_expanded_sessions = self.remember_expanded_sessions;
         config.clear_dormant_on_attach = self.clear_dormant_on_attach;
         config.session_metric = self.session_metric;
