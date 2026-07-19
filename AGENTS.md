@@ -230,7 +230,7 @@ and updating `scripts/release.sh`'s asset handling.
   sessions once edited the shared main checkout at the same time with no
   worktree isolation, producing one entangled uncommitted diff (an unrelated
   cosmetic tweak and a mid-flight model refactor mixed into the same files)
-  and a broken build that neither session noticed until Jeff asked about it.
+  and a broken build that neither session noticed until the user asked about it.
   A worktree per feature branch is what makes concurrent or resumed sessions
   safe; the main checkout should stay clean and always reflect `origin/main`.
 - **When pulling an issue from GitHub to work on, check the other open issues
@@ -238,7 +238,7 @@ and updating `scripts/release.sh`'s asset handling.
   list --state open`) before starting. Look for genuine overlap, e.g. same
   code area, same setting/UI surface, or one is a natural extension of the
   other, not just a shared label like `small` or `visual`. If a good bundle
-  candidate turns up, confirm with Jeff before folding it in rather than
+  candidate turns up, confirm with the user before folding it in rather than
   assuming; if nothing overlaps, note briefly that none were found and move
   on with just the requested issue.
 - Build/test loop: `RUSTFLAGS="-D warnings" cargo test`, then
@@ -260,7 +260,7 @@ and updating `scripts/release.sh`'s asset handling.
   touched; `--cmd` alone runs it as a plain foreground command in a fresh
   shell, so `remain-on-exit` can keep the window open afterward. This is for
   unattended runs: the picker sits at its prompt waiting for input, so when
-  Jeff returns to the session the feature is previewable straight from the
+  the user returns to the session the feature is previewable straight from the
   command line. rolomux detects the current session normally in a plain pane
   (`$TMUX` is set), so no popup is required.
 
@@ -275,9 +275,19 @@ and updating `scripts/release.sh`'s asset handling.
   `tmux list-windows -a -F '#{window_id} #{window_name} #{pane_current_command}
   #{pane_current_path}'`.
 
+  If the feature touches anything that persists to config (a settings row, group
+  edits, the dormant list), isolate the preview from the real
+  `~/.config/rolomux/config.toml` by pointing `XDG_CONFIG_HOME` at a scratch
+  directory inside the worktree, folded into the same `--cmd` string:
+  `--cmd "XDG_CONFIG_HOME=$preview_dir/.preview-config
+  $preview_dir/target/release/rolomux"`. rolomux has no built-in isolation flag,
+  so without this any poking during verification (toggling a row, cycling a
+  color) silently mutates the user's live config. Skip it only for changes with no
+  config-writing surface at all.
+
   Once the preview window is confirmed live, report back a one-sentence
   summary of the problem being solved and a one-sentence description of how
-  to test it (which keys to press, what to look for) -- so Jeff can jump
+  to test it (which keys to press, what to look for) -- so the user can jump
   straight to trying it without re-deriving context from the conversation.
 
   A prior version of this note told agents to run bare
@@ -292,16 +302,16 @@ and updating `scripts/release.sh`'s asset handling.
 - **Mock up visual/rendering changes before writing the spec.** When a design
   discussion touches how something renders (colors, layout, new glyphs/columns),
   don't rely on a text description alone — render an ANSI mockup (never the
-  real binary) so Jeff can look at it before design gets locked in. See the
+  real binary) so the user can look at it before design gets locked in. See the
   `mockup` skill for the standardized construction method, dimensions, color
   constraints, window naming, and cleanup rules. Skip this for changes with no
   visual surface (model/logic-only work).
 - Specs live in `specs/`, plans in `plans/`, the build ledger in
   `.superpowers/`; all three are git-ignored scratch, not part of the package.
 - **Review gate is the plan, not the spec.** When brainstorming a feature
-  (the `brainstorming` skill's normal flow asks Jeff to review the written
+  (the `brainstorming` skill's normal flow asks the user to review the written
   spec before moving to `writing-plans`), skip that spec review step here —
-  Jeff cares about requirements and scope, not the technical rationale a
+  the user cares about requirements and scope, not the technical rationale a
   spec captures. Write the spec as usual (it's still useful working
   material and the reference implementers/reviewers read), but treat the
   **implementation plan** as the actual review gate: present that for his
@@ -326,7 +336,7 @@ and updating `scripts/release.sh`'s asset handling.
   config, dependency bumps) with no user-facing surface.
 - **Changes land via pull request.** Work on a feature branch named
   `jeffdt/<domain>-<brief-kebab-desc>` (the global convention applies here). When
-  Jeff clears a change to go live, open a PR and then merge it yourself (squash,
+  the user clears a change to go live, open a PR and then merge it yourself (squash,
   to keep `main` linear) purely for the audit trail; this is a solo project with
   no human review gate, so the PR exists for history, not approval. Release tags
   are cut on `main` after the merge (see "Cutting a release"). The version bump
