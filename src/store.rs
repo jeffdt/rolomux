@@ -1,6 +1,6 @@
 use crate::model::{
-    ColorPolicy, DefaultMode, Group, HEADER_COLORS, NewGroupPosition, SessionMetric, ensure_inbox_last,
-    ensure_single_inbox,
+    ColorPolicy, DefaultMode, DotColorMode, Group, HEADER_COLORS, NewGroupPosition, SessionMetric,
+    ShortcutVisibility, ensure_inbox_last, ensure_single_inbox,
 };
 use serde::Deserialize;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -42,6 +42,10 @@ pub struct Config {
     pub remember_expanded_sessions: bool,
     pub expanded: Vec<String>,
     pub session_metric: SessionMetric,
+    pub dot_color_mode: DotColorMode,
+    pub dot_color: String,
+    pub shortcut_color: String,
+    pub shortcut_visibility: ShortcutVisibility,
     /// Last-known tmux `session_id` (e.g. `"$3"`) for every name currently
     /// tracked in a group's `members`, in `dormant`, or in `expanded`. Used
     /// by `reconcile` to recover tracking across a plain tmux rename
@@ -75,6 +79,10 @@ impl Default for Config {
             remember_expanded_sessions: false,
             expanded: Vec::new(),
             session_metric: SessionMetric::default(),
+            dot_color_mode: DotColorMode::default(),
+            dot_color: "green".to_string(),
+            shortcut_color: "gray".to_string(),
+            shortcut_visibility: ShortcutVisibility::default(),
             session_ids: HashMap::new(),
         }
     }
@@ -117,6 +125,14 @@ struct RawSettings {
     remember_expanded_sessions: Option<bool>,
     #[serde(default)]
     session_metric: Option<String>,
+    #[serde(default)]
+    dot_color_mode: Option<String>,
+    #[serde(default)]
+    dot_color: Option<String>,
+    #[serde(default)]
+    shortcut_color: Option<String>,
+    #[serde(default)]
+    shortcut_visibility: Option<String>,
 }
 
 #[derive(serde::Serialize)]
@@ -133,6 +149,10 @@ struct OutSettings {
     inbox_icon: String,
     remember_expanded_sessions: bool,
     session_metric: String,
+    dot_color_mode: String,
+    dot_color: String,
+    shortcut_color: String,
+    shortcut_visibility: String,
 }
 
 #[derive(Deserialize, Default)]
@@ -256,6 +276,20 @@ impl Config {
             .as_deref()
             .map(SessionMetric::from_config_str)
             .unwrap_or_default();
+        let dot_color_mode = raw
+            .settings
+            .dot_color_mode
+            .as_deref()
+            .map(DotColorMode::from_config_str)
+            .unwrap_or_default();
+        let dot_color = raw.settings.dot_color.unwrap_or_else(|| "green".to_string());
+        let shortcut_color = raw.settings.shortcut_color.unwrap_or_else(|| "gray".to_string());
+        let shortcut_visibility = raw
+            .settings
+            .shortcut_visibility
+            .as_deref()
+            .map(ShortcutVisibility::from_config_str)
+            .unwrap_or_default();
         let focus_mode = if raw.config_version < 4 { raw.hide_dormant } else { raw.focus_mode };
         Config {
             groups,
@@ -274,6 +308,10 @@ impl Config {
             remember_expanded_sessions: raw.settings.remember_expanded_sessions.unwrap_or(false),
             expanded: raw.expanded,
             session_metric,
+            dot_color_mode,
+            dot_color,
+            shortcut_color,
+            shortcut_visibility,
             session_ids: raw.session_ids,
         }
     }
@@ -315,6 +353,10 @@ impl Config {
                 inbox_icon: self.inbox_icon.clone(),
                 remember_expanded_sessions: self.remember_expanded_sessions,
                 session_metric: self.session_metric.as_config_str().to_string(),
+                dot_color_mode: self.dot_color_mode.as_config_str().to_string(),
+                dot_color: self.dot_color.clone(),
+                shortcut_color: self.shortcut_color.clone(),
+                shortcut_visibility: self.shortcut_visibility.as_config_str().to_string(),
             },
             expanded,
             session_ids,

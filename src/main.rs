@@ -320,6 +320,7 @@ fn event_loop(
                             Input::EnterSearch => state.enter_search(),
                             Input::ToggleDormant => state.toggle_dormant(),
                             Input::ToggleFocusMode => state.toggle_focus_mode(),
+                            Input::ToggleShortcuts => state.toggle_shortcuts(),
                             Input::Rename => state.start_rename(),
                             Input::Select => return Ok(state.selected_action()),
                             Input::Switch(n) => {
@@ -383,6 +384,7 @@ fn event_loop(
                             GroupInput::Rename => state.group_start_rename(),
                             GroupInput::CycleColor => state.group_cycle_color(),
                             GroupInput::Delete => state.group_delete(),
+                            GroupInput::ToggleShortcuts => state.toggle_shortcuts(),
                             GroupInput::Exit => state.exit_groups(),
                             GroupInput::None => {}
                         }
@@ -395,6 +397,7 @@ fn event_loop(
                     SettingsInput::Right => state.settings_step_right(),
                     SettingsInput::Activate => state.settings_activate(),
                     SettingsInput::CycleColor => state.settings_cycle_color(),
+                    SettingsInput::ToggleShortcuts => state.toggle_shortcuts(),
                     SettingsInput::Exit => state.exit_settings(),
                     SettingsInput::None => {}
                 },
