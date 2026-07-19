@@ -47,6 +47,15 @@ const CREATE_GROUP_HINT: &str =
 
 const SEARCH_FOOTER_HINT: &str = "↑↓ move · ⌃W word · ⌃U clear · Esc back";
 
+/// The running binary's version, as `git describe --tags --dirty` saw it at
+/// build time (e.g. `v0.27.0` on a clean tagged release, `v0.27.0-3-gabc1234`
+/// on a local dev build, `-dirty` appended if the tree had uncommitted
+/// changes). Falls back to `v{CARGO_PKG_VERSION}` if git/tags weren't
+/// available at build time (see `build.rs`).
+fn app_version() -> &'static str {
+    env!("ROLOMUX_VERSION")
+}
+
 /// Style for secondary text (expand glyph, metadata, tree connectors). On the
 /// selected row it drops to the default foreground so it matches the session
 /// name and stays visible against the DarkGray selection bar; otherwise it is
@@ -121,7 +130,7 @@ pub fn draw(frame: &mut Frame, state: &PickerState) {
     let area = inset(frame.area(), POPUP_MARGIN);
     let border_color = color_from_name(&state.border_color);
     let border_style = Style::default().fg(border_color);
-    let block = Block::default()
+    let mut block = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
         .border_style(border_style)
@@ -129,6 +138,18 @@ pub fn draw(frame: &mut Frame, state: &PickerState) {
             Span::styled("─", border_style),
             Span::styled("‹ rolomux ›", border_style.add_modifier(Modifier::BOLD | Modifier::ITALIC)),
         ]));
+    if state.mode == Mode::Settings {
+        block = block.title_bottom(
+            Line::from(vec![
+                Span::styled(
+                    format!("‹ {} ›", app_version()),
+                    border_style.add_modifier(Modifier::BOLD | Modifier::ITALIC),
+                ),
+                Span::styled("─", border_style),
+            ])
+            .right_aligned(),
+        );
+    }
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
@@ -803,6 +824,15 @@ mod tests {
         (0..=width - needle.len())
             .find(|x| needle.iter().enumerate().all(|(i, c)| buf[((*x + i) as u16, y)].symbol() == c))
             .map(|x| x as u16)
+    }
+
+    #[test]
+    fn app_version_is_a_v_prefixed_string() {
+        assert!(
+            app_version().starts_with('v'),
+            "expected a v-prefixed version string, got {:?}",
+            app_version()
+        );
     }
 
     #[test]
@@ -2560,6 +2590,62 @@ mod tests {
         // Both default to green and render collapsed with a swatch + name.
         // (Shortcut/Active-window-dot color rows sit further down, out of view here.)
         assert_eq!(text.matches("green").count(), 2, "one swatch label per collapsed color row");
+    }
+
+    #[test]
+    fn draw_settings_shows_version_right_aligned_in_border_color_in_the_bottom_border() {
+        let sessions = vec![Session { id: String::new(), name: "a".into(), activity: 1, created: 1, attached: false,
+                                       windows: vec![] }];
+        let cfg = Config { border_color: "magenta".to_string(), ..Default::default() };
+        let mut st = PickerState::build(sessions, &cfg);
+        st.enter_settings();
+        let backend = TestBackend::new(80, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| draw(f, &st)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+
+        let bottom_border_row = buf.area.height - 1 - POPUP_MARGIN;
+        // Cell-indexed, not byte-indexed: the row is mostly multi-byte box-
+        // drawing glyphs, so a plain `String::find` offset wouldn't line up
+        // with the buffer's `x` coordinates.
+        let cells: Vec<&str> = (0..buf.area.width).map(|x| buf[(x, bottom_border_row)].symbol()).collect();
+        let version = app_version();
+        let version_len = version.chars().count();
+        let x = (0..=cells.len().saturating_sub(version_len))
+            .find(|&i| cells[i..i + version_len].concat() == version)
+            .unwrap_or_else(|| panic!("version should render in the bottom border row: {cells:?}"));
+        assert!(
+            x as u16 > buf.area.width / 2,
+            "version should sit in the right half of the bottom border, found at x={x}: {cells:?}"
+        );
+        assert_eq!(
+            buf[(x as u16, bottom_border_row)].style().fg,
+            Some(Color::Magenta),
+            "version text should mirror the configured border color, same as the top title"
+        );
+        // Flush against the corner: the very last content cell before the
+        // right border corner is the connecting "─", same shape as the top
+        // title's leading dash.
+        let corner_x = buf.area.width - 1 - POPUP_MARGIN;
+        assert_eq!(
+            buf[(corner_x - 1, bottom_border_row)].symbol(),
+            "─",
+            "a connecting dash should sit flush between the version title and the corner"
+        );
+    }
+
+    #[test]
+    fn draw_command_mode_does_not_show_the_version() {
+        // The version footer is a Settings-only affordance; Command mode's
+        // border stays clean.
+        let sessions = vec![Session { id: String::new(), name: "a".into(), activity: 1, created: 1, attached: false,
+                                       windows: vec![] }];
+        let state = PickerState::build(sessions, &Config::default());
+        let text = render_to_string(&state);
+        assert!(
+            !text.contains(app_version()),
+            "version should not render outside Settings mode: {text:?}"
+        );
     }
 
     #[test]
