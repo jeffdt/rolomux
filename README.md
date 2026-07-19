@@ -151,6 +151,7 @@ Press `,` to open Settings, a full-screen view of picker-wide preferences, group
 
 **Appearance**
 
+- **Inbox icon.** The glyph shown before the inbox group's header. Cycle through a curated set with `h`/`l`.
 - **Attached session color.** The color used to highlight the session your tmux client is currently attached to.
 - **Border color.** rolomux's own border frame color.
 - **New group color.** How a newly created group picks its header color: Rotate through the palette in order, pick a Random color each time, or always use one Static color.

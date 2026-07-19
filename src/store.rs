@@ -38,6 +38,7 @@ pub struct Config {
     pub active_palette: Vec<String>,
     pub attached_color: String,
     pub border_color: String,
+    pub inbox_icon: String,
     pub remember_expanded_sessions: bool,
     pub expanded: Vec<String>,
     pub session_metric: SessionMetric,
@@ -70,6 +71,7 @@ impl Default for Config {
             active_palette: default_active_palette(),
             attached_color: "green".to_string(),
             border_color: "green".to_string(),
+            inbox_icon: "⊛".to_string(),
             remember_expanded_sessions: false,
             expanded: Vec::new(),
             session_metric: SessionMetric::default(),
@@ -110,6 +112,8 @@ struct RawSettings {
     #[serde(default)]
     border_color: Option<String>,
     #[serde(default)]
+    inbox_icon: Option<String>,
+    #[serde(default)]
     remember_expanded_sessions: Option<bool>,
     #[serde(default)]
     session_metric: Option<String>,
@@ -126,6 +130,7 @@ struct OutSettings {
     active_palette: Vec<String>,
     attached_color: String,
     border_color: String,
+    inbox_icon: String,
     remember_expanded_sessions: bool,
     session_metric: String,
 }
@@ -239,6 +244,7 @@ impl Config {
         let static_color = raw.settings.static_color.unwrap_or_else(|| "cyan".to_string());
         let attached_color = raw.settings.attached_color.unwrap_or_else(|| "green".to_string());
         let border_color = raw.settings.border_color.unwrap_or_else(|| "green".to_string());
+        let inbox_icon = raw.settings.inbox_icon.unwrap_or_else(|| "⊛".to_string());
         let active_palette = raw
             .settings
             .active_palette
@@ -264,6 +270,7 @@ impl Config {
             active_palette,
             attached_color,
             border_color,
+            inbox_icon,
             remember_expanded_sessions: raw.settings.remember_expanded_sessions.unwrap_or(false),
             expanded: raw.expanded,
             session_metric,
@@ -305,6 +312,7 @@ impl Config {
                 active_palette: self.active_palette.clone(),
                 attached_color: self.attached_color.clone(),
                 border_color: self.border_color.clone(),
+                inbox_icon: self.inbox_icon.clone(),
                 remember_expanded_sessions: self.remember_expanded_sessions,
                 session_metric: self.session_metric.as_config_str().to_string(),
             },
@@ -917,6 +925,7 @@ inbox = true
         assert_eq!(reloaded.static_color, "magenta");
         assert_eq!(reloaded.attached_color, "lightgreen");
         assert_eq!(reloaded.border_color, "yellow");
+        assert_eq!(reloaded.inbox_icon, "⊛");
         assert_eq!(
             reloaded.active_palette,
             vec!["magenta".to_string(), "white".to_string()]
@@ -976,6 +985,24 @@ inbox = true
         cfg.save_to(&path).unwrap();
         let reloaded = Config::load_from(&path);
         assert!(reloaded.clear_dormant_on_attach);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn default_config_has_inbox_icon_of_circled_asterisk() {
+        let cfg = Config::default();
+        assert_eq!(cfg.inbox_icon, "⊛");
+    }
+
+    #[test]
+    fn round_trips_inbox_icon() {
+        let dir = std::env::temp_dir().join(format!("rolomux-inbox-icon-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.toml");
+        let cfg = Config { inbox_icon: "♧".to_string(), ..Default::default() };
+        cfg.save_to(&path).unwrap();
+        let reloaded = Config::load_from(&path);
+        assert_eq!(reloaded.inbox_icon, "♧");
         std::fs::remove_dir_all(&dir).ok();
     }
 
