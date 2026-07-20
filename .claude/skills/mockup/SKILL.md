@@ -1,17 +1,17 @@
 ---
 name: mockup
 description: >-
-  Use when building a terminal/ANSI mockup for a rolomux design discussion,
-  before locking in a visual or rendering change (AGENTS.md's "mock up
+  Use when building a terminal/ANSI mockup for a design discussion, before
+  locking in a visual or rendering change (AGENTS.md's "mock up
   visual/rendering changes before writing the spec" step). Triggers include
   "mock this up", "show me a mockup", "render this as ANSI", "let's compare
   a couple of layouts". Do NOT use for the separate live-binary-preview
-  workflow (launching the real compiled rolomux binary via `mux spawn --cmd
-  target/release/rolomux`), since that already runs real code and has no
+  workflow (launching the real compiled binary via `mux spawn --cmd
+  target/release/<binary>`), since that already runs real code and has no
   quality-consistency problem to fix.
 ---
 
-# rolomux terminal mockup
+# Terminal mockup
 
 Standardizes how fake (not-real-binary) ANSI terminal mockups get built for
 design discussions, so they no longer vary in quality by construction
@@ -74,8 +74,8 @@ def row(content: str, width: int, left='│', right='│') -> str:
 
 `visible_width` always measures the ANSI-stripped string, so the right
 border lands in the same column on every row regardless of how many color
-codes are embedded earlier in that row. `wcwidth` is unnecessary: rolomux's
-UI is plain ASCII box-drawing, no wide characters.
+codes are embedded earlier in that row. `wcwidth` is unnecessary as long as
+the project's UI is plain ASCII box-drawing with no wide characters.
 
 Example full mockup (an 84-col card with a 2-cell margin, one colored
 header row):
@@ -101,7 +101,7 @@ if __name__ == "__main__":
 
 ## 4. Escalation: ratatui-rendered mockups
 
-Write a throwaway `examples/mockup.rs` in the rolomux repo, always this
+Write a throwaway `examples/mockup.rs` in the project repo, always this
 exact filename (one standing `.gitignore` entry, never a new name per
 mockup). It builds the screen from real `ratatui` widgets using
 `CrosstermBackend<Vec<u8>>`, which captures the actual SGR/cursor bytes
@@ -177,9 +177,9 @@ fn main() -> std::io::Result<()> {
 }
 ```
 
-Run via `cargo run --example mockup --quiet`. The crate is bin-only (no lib
-target), so the example uses `ratatui::style::Color`'s named variants
-directly rather than importing rolomux's internal `HEADER_COLORS`.
+Run via `cargo run --example mockup --quiet`. If the crate is bin-only (no
+lib target), the example uses `ratatui::style::Color`'s named variants
+directly rather than importing the app's own internal color constants.
 
 Note: crossterm serializes ratatui's named colors as `\x1b[38;5;0`
 through `\x1b[38;5;15` (an indexed SGR form), not the classic
