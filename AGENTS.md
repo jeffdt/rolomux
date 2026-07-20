@@ -330,9 +330,10 @@ and updating `scripts/release.sh`'s asset handling.
   the implementation mechanism (how it renders, which internal function
   backs it, what it looked like mid-iteration).
   A change to the picker's visual appearance (colors, layout, new UI element) needs a
-  refreshed `docs/images/screenshot.png` showing it live, using the same
-  live-preview step above to get a real running picker on screen before
-  capturing it. Skip both for internal-only changes (specs and plans, CI
+  refreshed `docs/images/organize.gif` and/or `docs/images/search.gif`
+  showing it live -- see the `vhs-tmux-recording` skill and
+  `docs/demo/organize.tape` / `docs/demo/search.tape` for the recording
+  setup. Skip both for internal-only changes (specs and plans, CI
   config, dependency bumps) with no user-facing surface.
 - **Changes land via pull request.** Work on a feature branch named
   `jeffdt/<domain>-<brief-kebab-desc>` (the global convention applies here). When
