@@ -12,7 +12,7 @@ A tidy workshop is easier to work in. Give every session a home, keep active pro
 
 It's useful from the moment you launch it but easily shapes to your workflow.
 
-![rolomux session picker](docs/images/screenshot.png)
+![rolomux session picker: sorting a session into place, expanding its windows, and jumping directly into one](docs/images/organize.gif)
 
 ## Install
 
@@ -108,7 +108,7 @@ The inbox can be renamed and recolored like any other group, but it always stays
 
 ### Search
 
-![rolomux fuzzy search](docs/images/search.png)
+![rolomux fuzzy search: typing a partial match narrows and re-ranks results live](docs/images/search.gif)
 
 Press `/` to enter search mode.
 Type any part of a session name; results are ranked best-match-first, with the top result auto-selected as you type.
