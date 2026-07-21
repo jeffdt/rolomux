@@ -15,6 +15,7 @@ use model::{Mode, PendingRename, PickerState, RenameTarget, Row, WindowMove};
 use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
 use std::io::{self, stdout};
+use std::time::Duration;
 use tmux::{apply_action, RealTmux, Tmux};
 use input::{map_group_key, map_key, map_search_key, map_settings_key, GroupInput, Input, SearchInput, SettingsInput};
 use ui::draw;
@@ -29,6 +30,10 @@ Usage:
 
 Bind it in ~/.tmux.conf, e.g.:
   bind S display-popup -E -B -w 84 -h 60% \"exec rolomux\"";
+
+/// Poll interval used only while a swap-flash indicator is in flight (see
+/// `event_loop`), so the bright-to-dim fade redraws without a keypress.
+const SWAP_INDICATOR_TICK: Duration = Duration::from_millis(50);
 
 fn main() -> io::Result<()> {
     if let Some(arg) = std::env::args().nth(1) {
@@ -281,7 +286,21 @@ fn event_loop(
 ) -> io::Result<Option<model::Action>> {
     loop {
         terminal.draw(|f| draw(f, state))?;
-        if let Event::Key(key) = event::read()? {
+
+        // While a swap-flash indicator is in flight, wake up on a short
+        // tick instead of blocking forever on the next keypress, so the
+        // bright-to-dim fade (and eventual disappearance) redraws on its
+        // own. Once it clears, this reverts to a plain blocking read --
+        // zero idle CPU cost outside the ~1s window after a ⇧J/⇧K press.
+        let event = if state.swap_indicator_active() {
+            if event::poll(SWAP_INDICATOR_TICK)? { Some(event::read()?) } else { None }
+        } else {
+            Some(event::read()?)
+        };
+        state.tick_swap_indicator();
+        let Some(event) = event else { continue };
+
+        if let Event::Key(key) = event {
             if key.kind != event::KeyEventKind::Press {
                 continue;
             }
