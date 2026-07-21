@@ -27,6 +27,26 @@ impl PickerState {
             .collect()
     }
 
+    /// Flatten the current search results into session/window rows, the
+    /// search-mode counterpart to `visible_rows()`. A session's own row
+    /// always precedes its window rows, so index 0 is always a
+    /// `Row::Session` -- this is what lets `search_push`'s unconditional
+    /// `search_cursor = 0` reset keep landing on a session even with window
+    /// rows in the mix.
+    pub fn search_rows(&self) -> Vec<Row> {
+        let results = self.search_results();
+        let mut rows = Vec::new();
+        for (si, sess) in results.iter().enumerate() {
+            rows.push(Row::Session(si));
+            if self.expanded.contains(&sess.name) {
+                for wi in 0..sess.windows.len() {
+                    rows.push(Row::Window(si, wi));
+                }
+            }
+        }
+        rows
+    }
+
     pub fn enter_search(&mut self) {
         self.mode = Mode::Search;
         self.query.clear();
@@ -255,6 +275,34 @@ mod tests {
         assert_eq!(names.first().copied(), Some("pr-review"), "strong match first");
         assert!(!names.contains(&"scratch"), "non-match omitted");
         assert!(!names.contains(&"provision"), "non-matching session excluded");
+    }
+
+    #[test]
+    fn search_rows_are_flat_when_nothing_is_expanded() {
+        let sessions = vec![s("alpha", 1, 1), s("beta", 1, 2)];
+        let cfg = Config { groups: vec![], ..Default::default() };
+        let mut state = PickerState::build(sessions, &cfg);
+        state.enter_search();
+        assert_eq!(state.search_rows().len(), 2, "one row per session, nothing expanded");
+        assert!(matches!(state.search_rows()[0], Row::Session(0)));
+        assert!(matches!(state.search_rows()[1], Row::Session(1)));
+    }
+
+    #[test]
+    fn search_rows_include_windows_only_for_expanded_sessions() {
+        let mut sessions = vec![s("alpha", 1, 1), s("beta", 1, 2)];
+        sessions[0].windows = vec![win(0, "e"), win(1, "l")];
+        let cfg = Config { groups: vec![], ..Default::default() };
+        let mut state = PickerState::build(sessions, &cfg);
+        state.enter_search();
+        state.expand_session("alpha");
+
+        let rows = state.search_rows();
+        assert_eq!(rows.len(), 4, "alpha (1) + its two windows + beta (1)");
+        assert!(matches!(rows[0], Row::Session(_)));
+        assert!(matches!(rows[1], Row::Window(0, 0)));
+        assert!(matches!(rows[2], Row::Window(0, 1)));
+        assert!(matches!(rows[3], Row::Session(_)));
     }
 
     #[test]
