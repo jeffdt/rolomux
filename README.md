@@ -87,6 +87,8 @@ On Linux it is automatic.
 
 When a session is at the top of its group, `⇧K` jumps it up to the group above it; when it's at the bottom, `⇧J` drops it into the group below it. The same idea applies one level down: expand a session and put the cursor on a window, and `⇧J`/`⇧K` reorders that window within its session, crossing into the neighboring session's last/first slot at the edge. Moving a session's very last window would destroy that session, so rolomux only ever does that automatically when it's provably safe (no attached client, or one that tmux will gracefully switch elsewhere via `detach-on-destroy off`); otherwise it asks you to press the same key again to confirm, or -- if confirming would eject someone's attached client -- quietly leaves a placeholder window behind instead of destroying the session at all.
 
+Every `⇧J`/`⇧K` press also flashes a brief `▲`/`▼` next to whichever row(s) just moved (sessions, windows, and groups alike) -- right before a session's metadata, or after a window's or group's name -- fading out after about a second.
+
 ### Groups
 
 Press `g` to open group-management mode, a full-screen view of your current groups.

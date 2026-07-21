@@ -18,6 +18,10 @@ mod search;
 
 mod dormant;
 
+mod swap_indicator;
+pub use swap_indicator::SwapDirection;
+use swap_indicator::SwapIndicator;
+
 use crate::store::Config;
 use std::collections::HashSet;
 
@@ -42,6 +46,10 @@ pub struct PickerState {
     /// a session; `Some` until the same-direction key repeats it or any
     /// other key clears it.
     pending_window_move: Option<PendingWindowMove>,
+    /// The brief post-⇧J/⇧K directional flash (issue #130): `Some` for about
+    /// a second after a session/window/group reorder, then cleared by
+    /// `tick_swap_indicator`.
+    swap_indicator: Option<SwapIndicator>,
     /// One-shot flag set when `group_reorder` refuses to move the inbox;
     /// cleared by any other group-mode input, mirroring
     /// `pending_window_move`'s clear-on-any-other-key lifecycle.
@@ -108,6 +116,7 @@ impl PickerState {
             group_edit: None,
             rename_edit: None,
             pending_window_move: None,
+            swap_indicator: None,
             group_reorder_blocked: false,
             default_mode: config.default_mode,
             number_dormant_sessions: config.number_dormant_sessions,

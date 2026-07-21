@@ -15,6 +15,7 @@ use model::{Mode, PendingRename, PickerState, RenameTarget, Row, WindowMove};
 use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
 use std::io::{self, stdout};
+use std::time::Duration;
 use tmux::{apply_action, RealTmux, Tmux};
 use input::{map_group_key, map_key, map_search_key, map_settings_key, GroupInput, Input, SearchInput, SettingsInput};
 use ui::draw;
@@ -29,6 +30,10 @@ Usage:
 
 Bind it in ~/.tmux.conf, e.g.:
   bind S display-popup -E -B -w 84 -h 60% \"exec rolomux\"";
+
+/// Poll interval used only while a swap-flash indicator is in flight (see
+/// `event_loop`), so the bright-to-dim fade redraws without a keypress.
+const SWAP_INDICATOR_TICK: Duration = Duration::from_millis(50);
 
 fn main() -> io::Result<()> {
     if let Some(arg) = std::env::args().nth(1) {
@@ -176,7 +181,7 @@ fn handle_move(
     path: &std::path::Path,
 ) {
     if let Some(mv) = state.take_confirmed_window_move(delta) {
-        commit_window_move(mv, false, tmux, config, path, state);
+        commit_window_move(mv, false, delta, tmux, config, path, state);
         return;
     }
 
@@ -189,10 +194,10 @@ fn handle_move(
                     WindowMove::CrossSession { kills_source: true, src_session, src_attached, .. } => {
                         match last_window_risk(tmux, src_session, *src_attached) {
                             LastWindowRisk::Safe => state.arm_window_move(mv, delta),
-                            LastWindowRisk::Ejects => commit_window_move(mv, true, tmux, config, path, state),
+                            LastWindowRisk::Ejects => commit_window_move(mv, true, delta, tmux, config, path, state),
                         }
                     }
-                    _ => commit_window_move(mv, false, tmux, config, path, state),
+                    _ => commit_window_move(mv, false, delta, tmux, config, path, state),
                 }
             }
         }
@@ -203,10 +208,13 @@ fn handle_move(
 /// Apply a planned window move: flush pending config changes, issue the
 /// tmux mutation(s) (a placeholder window first when `with_placeholder` is
 /// true), re-gather, reconcile, rebuild state, and refocus -- the same
-/// shape as `commit_rename`.
+/// shape as `commit_rename`. `delta` is the triggering `⇧J`/`⇧K` press,
+/// needed only to flash the swap indicator in the right direction after the
+/// state rebuild below (see `PickerState::set_window_swap`).
 fn commit_window_move(
     mv: WindowMove,
     with_placeholder: bool,
+    delta: i32,
     tmux: &dyn Tmux,
     config: &mut store::Config,
     path: &std::path::Path,
@@ -260,7 +268,10 @@ fn commit_window_move(
     match &mv {
         // swap-window exchanges the two indices, so the window that was
         // under the cursor (originally at a_index) now lives at b_index.
-        WindowMove::SwapWithin { session, b_index, .. } => state.focus_window(session, *b_index),
+        WindowMove::SwapWithin { session, a_index, b_index } => {
+            state.focus_window(session, *b_index);
+            state.set_window_swap(session, *b_index, *a_index, delta);
+        }
         // move-window -b/-a place the incoming window at the anchor's own
         // index (before) or one past it (after); it never keeps its
         // original source index.
@@ -268,6 +279,7 @@ fn commit_window_move(
             let new_index = if *before { *dst_anchor_index } else { dst_anchor_index + 1 };
             state.expand_session(dst_session);
             state.focus_window(dst_session, new_index);
+            state.set_window_cross(dst_session, new_index, delta);
         }
     }
 }
@@ -281,7 +293,21 @@ fn event_loop(
 ) -> io::Result<Option<model::Action>> {
     loop {
         terminal.draw(|f| draw(f, state))?;
-        if let Event::Key(key) = event::read()? {
+
+        // While a swap-flash indicator is in flight, wake up on a short
+        // tick instead of blocking forever on the next keypress, so the
+        // bright-to-dim fade (and eventual disappearance) redraws on its
+        // own. Once it clears, this reverts to a plain blocking read --
+        // zero idle CPU cost outside the ~1s window after a ⇧J/⇧K press.
+        let event = if state.swap_indicator_active() {
+            if event::poll(SWAP_INDICATOR_TICK)? { Some(event::read()?) } else { None }
+        } else {
+            Some(event::read()?)
+        };
+        state.tick_swap_indicator();
+        let Some(event) = event else { continue };
+
+        if let Event::Key(key) = event {
             if key.kind != event::KeyEventKind::Press {
                 continue;
             }
@@ -572,6 +598,16 @@ mod tests {
 
         assert_eq!(*tmux.calls.borrow(), vec!["swap-window:work:1:0".to_string()]);
         assert_eq!(state.selected_action(), Some(crate::model::Action::SwitchWindow("work".into(), 0)));
+        assert_eq!(
+            state.window_swap_marker("work", 0),
+            Some((crate::model::SwapDirection::Up, true)),
+            "the moved window (now at 0) flashes up"
+        );
+        assert_eq!(
+            state.window_swap_marker("work", 1),
+            Some((crate::model::SwapDirection::Down, true)),
+            "the bumped neighbor (now at 1) flashes down"
+        );
 
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -726,6 +762,11 @@ mod tests {
         assert_eq!(*tmux.calls.borrow(), vec!["move-window:alpha:1:beta:0:before".to_string()]);
         assert!(state.is_expanded("beta"));
         assert_eq!(state.selected_action(), Some(crate::model::Action::SwitchWindow("beta".into(), 0)));
+        assert_eq!(
+            state.window_swap_marker("beta", 0),
+            Some((crate::model::SwapDirection::Down, true)),
+            "the window that crossed into beta flashes down"
+        );
 
         let _ = std::fs::remove_dir_all(&dir);
     }

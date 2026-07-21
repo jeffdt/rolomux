@@ -223,6 +223,9 @@ impl PickerState {
         self.groups[dest_gi].members = dest_order;
         self.dirty = true;
         self.focus_session(name);
+        // `append` is true exactly when this came from `move_up` (landing at
+        // the far end of the group above, i.e. `name` moved up).
+        self.set_session_cross(name, append);
     }
 
     fn previous_visible_position(&self, order: &[String], pos: usize) -> Option<usize> {
@@ -249,10 +252,19 @@ impl PickerState {
     /// inbox, this is also what "freezes" any never-touched fallback
     /// members into a concrete, persisted order on first touch.
     fn commit_swap(&mut self, gi: usize, mut order: Vec<String>, a: usize, b: usize, name: &str) {
+        let other = order[b].clone();
         order.swap(a, b);
         self.groups[gi].members = order;
         self.dirty = true;
         self.focus_session(name);
+        // `order` indices run top-to-bottom, so a smaller index is higher on
+        // screen: b < a means `name` moved up (toward index 0), taking
+        // `other`'s old slot while `other` drops into `name`'s old slot.
+        if b < a {
+            self.set_session_swap(name, &other);
+        } else {
+            self.set_session_swap(&other, name);
+        }
     }
 }
 
@@ -533,6 +545,42 @@ mod tests {
         st.focus_session("b");
         st.move_row(-1);
         assert_eq!(st.groups[0].members, vec!["b".to_string(), "a".to_string()]);
+    }
+
+    #[test]
+    fn move_up_within_group_swap_marks_the_moved_row_up_and_its_neighbor_down() {
+        let mut st = state_with_two_groups();
+        st.focus_session("b");
+        st.move_row(-1); // b moves up past a
+        assert_eq!(st.session_swap_marker("b"), Some((SwapDirection::Up, true)));
+        assert_eq!(st.session_swap_marker("a"), Some((SwapDirection::Down, true)));
+    }
+
+    #[test]
+    fn move_down_within_group_swap_marks_the_moved_row_down_and_its_neighbor_up() {
+        let mut st = state_with_two_groups();
+        st.focus_session("a");
+        st.move_row(1); // a moves down past b (both still in G1)
+        assert_eq!(st.session_swap_marker("a"), Some((SwapDirection::Down, true)));
+        assert_eq!(st.session_swap_marker("b"), Some((SwapDirection::Up, true)));
+    }
+
+    #[test]
+    fn move_up_from_group_top_cross_marks_only_the_moved_session_up() {
+        let mut st = state_with_two_groups();
+        st.focus_session("c"); // top (only) of G2
+        st.move_row(-1); // joins end of G1, no partner
+        assert_eq!(st.session_swap_marker("c"), Some((SwapDirection::Up, true)));
+        assert_eq!(st.session_swap_marker("b"), None, "no swap partner on a boundary cross");
+    }
+
+    #[test]
+    fn move_down_from_group_bottom_cross_marks_only_the_moved_session_down() {
+        let mut st = state_with_two_groups();
+        st.focus_session("b"); // bottom of G1
+        st.move_row(1); // joins front of G2, no partner
+        assert_eq!(st.session_swap_marker("b"), Some((SwapDirection::Down, true)));
+        assert_eq!(st.session_swap_marker("c"), None);
     }
 
     #[test]
