@@ -100,14 +100,12 @@ impl PickerState {
     /// Whether a swap indicator is currently in flight -- `main`'s event
     /// loop uses this to decide whether to poll on a short tick instead of
     /// blocking on the next keypress.
-    #[allow(dead_code)]
     pub fn swap_indicator_active(&self) -> bool {
         self.swap_indicator.is_some()
     }
 
     /// Clear the indicator once `SWAP_INDICATOR_TOTAL` has elapsed. A no-op
     /// otherwise, including when there's no active indicator.
-    #[allow(dead_code)]
     pub fn tick_swap_indicator(&mut self) {
         if matches!(&self.swap_indicator, Some(ind) if ind.started.elapsed() >= SWAP_INDICATOR_TOTAL) {
             self.swap_indicator = None;
