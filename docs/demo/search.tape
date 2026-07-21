@@ -21,9 +21,18 @@
 # whole word would defeat the point of fuzzy search, so only "p" "e" "r"
 # "f" get typed, one at a time with a real pause between each, showing
 # the two matches re-rank live rather than jumping straight to a single
-# result. `↵` switches into the top match (`performance-review`) and
-# closes -- that session has a staged, fake `hyperfine` transcript
-# already on screen (see seed-demo.sh) so landing there looks like
+# result.
+#
+# The query is then cleared (`⌃U`) and retyped as "db" to bring up
+# `db-migration` -- issue #105's payoff. `→` expands its window tree in
+# place (the same three windows organize.tape's command-mode demo shows:
+# `alembic`, `docker-config`, `pgsql`), `↓` twice moves off the session
+# row past `alembic` (seed-demo.sh's active window) onto `docker-config`,
+# and `↵` switches directly to that specific window -- a real
+# `switch-client` + `select-window`, not just landing on whatever the
+# session's active window already was -- and closes, revealing
+# `docker-config`'s staged, deterministic `docker compose up -d` /
+# `docker ps` transcript (see seed-demo.sh) so landing there reads as
 # resuming real, in-progress work instead of a blank shell.
 
 Output "docs/images/search.gif"
@@ -35,7 +44,7 @@ Set Height 1000
 Set Theme "GruvboxDark"
 
 Hide
-Type "unset TMUX; export XDG_CONFIG_HOME=$(mktemp -d); ROLOMUX_REPO=$PWD; $ROLOMUX_REPO/docs/demo/seed-demo.sh rolomux-demo-search-gif $XDG_CONFIG_HOME $ROLOMUX_REPO/docs/demo/demo.tmux.conf; tmux -L rolomux-demo-search-gif set-environment -g XDG_CONFIG_HOME $XDG_CONFIG_HOME; tmux -L rolomux-demo-search-gif attach -t db-migration"
+Type "unset TMUX; export XDG_CONFIG_HOME=$(mktemp -d); ROLOMUX_REPO=$PWD; export PATH=$ROLOMUX_REPO/target/release:$PATH; $ROLOMUX_REPO/docs/demo/seed-demo.sh rolomux-demo-search-gif $XDG_CONFIG_HOME $ROLOMUX_REPO/docs/demo/demo.tmux.conf; tmux -L rolomux-demo-search-gif set-environment -g XDG_CONFIG_HOME $XDG_CONFIG_HOME; tmux -L rolomux-demo-search-gif set-environment -g PATH $PATH; tmux -L rolomux-demo-search-gif attach -t db-migration"
 Enter
 Sleep 2s
 Ctrl+B
@@ -55,6 +64,20 @@ Type "r"
 Sleep 400ms
 Type "f"
 Sleep 1200ms
+
+Ctrl+U
+Sleep 400ms
+Type "d"
+Sleep 400ms
+Type "b"
+Sleep 900ms
+
+Right
+Sleep 1000ms
+Down
+Sleep 500ms
+Down
+Sleep 900ms
 
 Enter
 Sleep 1800ms
