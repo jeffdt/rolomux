@@ -32,6 +32,8 @@ pub enum SearchInput {
     Backspace,
     DeleteWord,
     Clear,
+    Expand,
+    Collapse,
     Up,
     Down,
     Select,
@@ -94,6 +96,12 @@ pub fn map_settings_key(key: KeyEvent) -> SettingsInput {
 
 /// Key mapping while in search mode. Printable characters (including digits)
 /// build the query; movement uses arrows plus the fzf/vim Ctrl pairs.
+/// Expand/collapse reuse the arrow keys (`→`/`←`) plus `Ctrl-l`/`Ctrl-h` as a
+/// vim-style alias -- bare `l`/`h` stay query text, since they're ordinary
+/// letters someone might be typing to filter. Confirmed via a throwaway
+/// crossterm probe that `Ctrl-h` arrives as `Char('h')`+`CONTROL`, distinct
+/// from a plain `Backspace` keypress (no modifiers) -- no collision, unlike
+/// the digit case documented in AGENTS.md.
 ///
 /// Note: under the legacy (non-kitty) encoding some terminals deliver Ctrl-j as
 /// Enter, in which case it selects rather than moving down. Arrows, Ctrl-n,
@@ -107,10 +115,14 @@ pub fn map_search_key(key: KeyEvent) -> SearchInput {
         KeyCode::Enter => SearchInput::Select,
         KeyCode::Backspace if alt => SearchInput::DeleteWord,
         KeyCode::Backspace => SearchInput::Backspace,
+        KeyCode::Right => SearchInput::Expand,
+        KeyCode::Left => SearchInput::Collapse,
         KeyCode::Up => SearchInput::Up,
         KeyCode::Down => SearchInput::Down,
         KeyCode::Char('w') if ctrl => SearchInput::DeleteWord,
         KeyCode::Char('u') if ctrl => SearchInput::Clear,
+        KeyCode::Char('l') if ctrl => SearchInput::Expand,
+        KeyCode::Char('h') if ctrl => SearchInput::Collapse,
         KeyCode::Char('p') | KeyCode::Char('k') if ctrl => SearchInput::Up,
         KeyCode::Char('n') | KeyCode::Char('j') if ctrl => SearchInput::Down,
         KeyCode::Char(_) if ctrl => SearchInput::None,
@@ -283,6 +295,17 @@ mod tests {
         assert_eq!(map_settings_key(key(KeyCode::Char('q'))), SettingsInput::Exit);
         assert_eq!(map_settings_key(key(KeyCode::Char(','))), SettingsInput::Exit);
         assert_eq!(map_settings_key(key(KeyCode::Char('x'))), SettingsInput::None);
+    }
+
+    #[test]
+    fn search_expand_collapse_keys_map_correctly() {
+        assert_eq!(map_search_key(key(KeyCode::Right)), SearchInput::Expand);
+        assert_eq!(map_search_key(key(KeyCode::Left)), SearchInput::Collapse);
+        assert_eq!(map_search_key(ctrl(KeyCode::Char('l'))), SearchInput::Expand);
+        assert_eq!(map_search_key(ctrl(KeyCode::Char('h'))), SearchInput::Collapse);
+        // Bare l/h stay query text -- only the arrow/Ctrl forms drive the tree.
+        assert_eq!(map_search_key(key(KeyCode::Char('l'))), SearchInput::Char('l'));
+        assert_eq!(map_search_key(key(KeyCode::Char('h'))), SearchInput::Char('h'));
     }
 
     #[test]

@@ -299,7 +299,7 @@ fn event_loop(
                                 }
                             }
                             SearchInput::Exit => state.cancel_rename(),
-                            SearchInput::Up | SearchInput::Down | SearchInput::None => {}
+                            SearchInput::Up | SearchInput::Down | SearchInput::Expand | SearchInput::Collapse | SearchInput::None => {}
                         }
                     } else {
                         let input = map_key(key);
@@ -349,6 +349,8 @@ fn event_loop(
                     SearchInput::Backspace => state.search_backspace(),
                     SearchInput::DeleteWord => state.search_delete_word(),
                     SearchInput::Clear => state.search_clear(),
+                    SearchInput::Expand => state.search_expand(),
+                    SearchInput::Collapse => state.search_collapse(),
                     SearchInput::Up => state.search_move(-1),
                     SearchInput::Down => state.search_move(1),
                     SearchInput::Select => {
@@ -368,7 +370,7 @@ fn event_loop(
                             SearchInput::Clear => state.group_edit_clear(),
                             SearchInput::Select => state.group_commit_rename(),
                             SearchInput::Exit => state.group_cancel_rename(),
-                            SearchInput::Up | SearchInput::Down | SearchInput::None => {}
+                            SearchInput::Up | SearchInput::Down | SearchInput::Expand | SearchInput::Collapse | SearchInput::None => {}
                         }
                     } else {
                         let input = map_group_key(key);

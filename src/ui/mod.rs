@@ -271,7 +271,7 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
                     DotColorMode::Group => current_gutter_color,
                     DotColorMode::Static => dot_static_color,
                 };
-                items.push(window_item(&sess.windows[*wi], last, selected, current_gutter_color, dormant, rename_buf, dot_color));
+                items.push(window_item(&sess.windows[*wi], last, selected, Some(current_gutter_color), dormant, rename_buf, dot_color));
             }
         }
     }
@@ -330,6 +330,8 @@ fn draw_search(frame: &mut Frame, state: &PickerState, inner: Rect) {
     frame.render_widget(Paragraph::new(prompt), chunks[0]);
 
     let results = state.search_results();
+    let rows = state.search_rows();
+    let cursor_row = rows.get(state.search_cursor()).copied();
     let mut items: Vec<ListItem> = Vec::new();
     let mut selected_line: Option<usize> = None;
     if results.is_empty() {
@@ -340,6 +342,7 @@ fn draw_search(frame: &mut Frame, state: &PickerState, inner: Rect) {
     } else {
         let meta = MetaLayout::compute(results.iter().copied(), chunks[1].width, false);
         let attached_color = color_from_name(&state.attached_color);
+        let dot_static_color = color_from_name(&state.dot_color);
         // Widest age string among tagged rows, so every tag in this render
         // starts at the same column regardless of its own row's age width.
         // Degenerates to 0 when `session_metric` is Hidden (every row's
@@ -352,20 +355,41 @@ fn draw_search(frame: &mut Frame, state: &PickerState, inner: Rect) {
             .map(|ts| activity_age(ts).chars().count())
             .max()
             .unwrap_or(0);
-        for (i, sess) in results.iter().enumerate() {
-            let selected = i == state.search_cursor();
-            if selected {
-                selected_line = Some(items.len());
+        for row in rows.iter() {
+            match row {
+                Row::Session(si) => {
+                    let sess = results[*si];
+                    let selected = Some(*row) == cursor_row;
+                    if selected {
+                        selected_line = Some(items.len());
+                    }
+                    let group_tag = state.group_index_of(&sess.name).map(|gi| {
+                        let this_age_width = session_metric_timestamp(sess, state.session_metric)
+                            .map(|ts| activity_age(ts).chars().count())
+                            .unwrap_or(0);
+                        let age_pad = age_width.saturating_sub(this_age_width);
+                        (state.groups[gi].name.clone(), group_color(&state.groups[gi], gi, &state.active_palette), age_pad)
+                    });
+                    items.push(session_item(sess, state.is_expanded(&sess.name), selected, None, meta, state.is_dormant(&sess.name), attached_color, group_tag, None, state.session_metric, None));
+                }
+                Row::Window(si, wi) => {
+                    let sess = results[*si];
+                    let selected = Some(*row) == cursor_row;
+                    if selected {
+                        selected_line = Some(items.len());
+                    }
+                    let last = *wi + 1 == sess.windows.len();
+                    let dormant = state.is_dormant(&sess.name);
+                    let dot_color = match state.dot_color_mode {
+                        DotColorMode::Group => state
+                            .group_index_of(&sess.name)
+                            .map(|gi| group_color(&state.groups[gi], gi, &state.active_palette))
+                            .unwrap_or(dot_static_color),
+                        DotColorMode::Static => dot_static_color,
+                    };
+                    items.push(window_item(&sess.windows[*wi], last, selected, None, dormant, None, dot_color));
+                }
             }
-            let group_tag = state.group_index_of(&sess.name).map(|gi| {
-                let this_age_width = session_metric_timestamp(sess, state.session_metric)
-                    .map(|ts| activity_age(ts).chars().count())
-                    .unwrap_or(0);
-                let age_pad = age_width.saturating_sub(this_age_width);
-                (state.groups[gi].name.clone(), group_color(&state.groups[gi], gi, &state.active_palette), age_pad)
-            });
-            // Flat, collapsed, no jump number (None), normal metadata.
-            items.push(session_item(sess, false, selected, None, meta, state.is_dormant(&sess.name), attached_color, group_tag, None, state.session_metric, None));
         }
     }
     let list = List::new(items)
@@ -761,7 +785,7 @@ fn window_item(
     win: &Window,
     last: bool,
     selected: bool,
-    gutter_color: Color,
+    gutter: Option<Color>,
     dormant: bool,
     rename_buf: Option<&str>,
     dot_color: Color,
@@ -771,27 +795,31 @@ fn window_item(
     let dot_style = if dormant { dormant_session(selected) } else { Style::default().fg(dot_color) };
     let name_style = if dormant { dormant_session(selected) } else { Style::default() };
     if let Some(buf) = rename_buf {
-        return ListItem::new(Line::from(vec![
-            Span::styled("│", Style::default().fg(gutter_color)),
-            Span::styled(connector.to_string(), secondary(selected)),
-            Span::styled(format!("{dot} "), Style::default().fg(dot_color)),
-            Span::styled(buf.to_string(), Style::default().add_modifier(Modifier::BOLD)),
-            Span::raw("▏"),
-        ]));
+        let mut spans = Vec::new();
+        if let Some(color) = gutter {
+            spans.push(Span::styled("│", Style::default().fg(color)));
+        }
+        spans.push(Span::styled(connector.to_string(), secondary(selected)));
+        spans.push(Span::styled(format!("{dot} "), Style::default().fg(dot_color)));
+        spans.push(Span::styled(buf.to_string(), Style::default().add_modifier(Modifier::BOLD)));
+        spans.push(Span::raw("▏"));
+        return ListItem::new(Line::from(spans));
     }
-    ListItem::new(Line::from(vec![
-        Span::styled("│", Style::default().fg(gutter_color)),
-        Span::styled(connector.to_string(), secondary(selected)),
-        Span::styled(format!("{dot} "), dot_style),
-        Span::styled(win.name.clone(), name_style),
-    ]))
+    let mut spans = Vec::new();
+    if let Some(color) = gutter {
+        spans.push(Span::styled("│", Style::default().fg(color)));
+    }
+    spans.push(Span::styled(connector.to_string(), secondary(selected)));
+    spans.push(Span::styled(format!("{dot} "), dot_style));
+    spans.push(Span::styled(win.name.clone(), name_style));
+    ListItem::new(Line::from(spans))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    use crate::model::{Group, PickerState, Session, Window, WindowMove};
+    use crate::model::{Action, Group, PickerState, Session, Window, WindowMove};
     use crate::store::Config;
     use ratatui::backend::TestBackend;
     use ratatui::Terminal;
@@ -3062,6 +3090,79 @@ mod tests {
             }
         }
         assert!(!found_gutter_before_session, "search mode should not render a gutter bar before session names");
+    }
+
+    #[test]
+    fn draw_search_shows_window_rows_when_session_is_expanded() {
+        let mut state = searching_state("pr");
+        state.search_expand();
+        let text = render_to_string(&state);
+        assert!(text.contains("└─"), "expanded session's single window row renders its tree connector");
+    }
+
+    #[test]
+    fn draw_search_expanded_window_name_indents_one_step_past_session_name() {
+        let sessions = vec![
+            Session { id: String::new(), name: "claude".into(), activity: 30, created: 1, attached: false,
+                      windows: vec![Window { index: 0, name: "editor".into(), active: true }] },
+        ];
+        let cfg = Config::default();
+        let mut state = PickerState::build(sessions, &cfg);
+        state.enter_search();
+        state.search_expand();
+
+        let backend = TestBackend::new(80, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| draw(f, &state)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+
+        let session_x = (0..buf.area.height).find_map(|y| find_text_x(&buf, y, "claude")).unwrap();
+        let window_x = (0..buf.area.height).find_map(|y| find_text_x(&buf, y, "editor")).unwrap();
+        assert_eq!(window_x, session_x + 2, "search's expanded window name indents one step, same as command mode");
+    }
+
+    #[test]
+    fn draw_search_expanded_window_rows_have_no_gutter_bar() {
+        let sessions = vec![
+            Session { id: String::new(), name: "claude".into(), activity: 30, created: 1, attached: false,
+                      windows: vec![Window { index: 0, name: "editor".into(), active: true }] },
+        ];
+        let cfg = Config {
+            groups: vec![Group { name: "tools".into(), members: vec!["claude".into()], color: "magenta".into(), ..Default::default() }],
+            ..Default::default()
+        };
+        let mut state = PickerState::build(sessions, &cfg);
+        state.enter_search();
+        state.search_expand();
+
+        let backend = TestBackend::new(80, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| draw(f, &state)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+
+        let mut found_gutter_before_window = false;
+        for y in 0..buf.area.height {
+            let line: String = (0..buf.area.width).map(|x| buf[(x, y)].symbol()).collect();
+            if let Some(name_x) = line.find("editor") {
+                for x in (POPUP_MARGIN + 1)..(name_x as u16) {
+                    if buf[(x, y)].symbol() == "│" {
+                        found_gutter_before_window = true;
+                    }
+                }
+            }
+        }
+        assert!(!found_gutter_before_window, "search's expanded window rows must not render command mode's colored gutter bar");
+    }
+
+    #[test]
+    fn search_enter_on_a_window_row_switches_to_that_window() {
+        let mut state = searching_state("pr");
+        state.search_expand();
+        state.search_move(1); // onto pr-review's single window row
+        assert_eq!(
+            state.search_selected_action(),
+            Some(Action::SwitchWindow("pr-review".into(), 0))
+        );
     }
 
     #[test]

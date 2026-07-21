@@ -27,21 +27,46 @@ impl PickerState {
             .collect()
     }
 
+    /// Flatten the current search results into session/window rows, the
+    /// search-mode counterpart to `visible_rows()`. A session's own row
+    /// always precedes its window rows, so index 0 is always a
+    /// `Row::Session` -- this is what lets `search_push`'s unconditional
+    /// `search_cursor = 0` reset keep landing on a session even with window
+    /// rows in the mix.
+    pub fn search_rows(&self) -> Vec<Row> {
+        let results = self.search_results();
+        let mut rows = Vec::new();
+        for (si, sess) in results.iter().enumerate() {
+            rows.push(Row::Session(si));
+            if self.expanded.contains(&sess.name) {
+                for wi in 0..sess.windows.len() {
+                    rows.push(Row::Window(si, wi));
+                }
+            }
+        }
+        rows
+    }
+
     pub fn enter_search(&mut self) {
         self.mode = Mode::Search;
         self.query.clear();
         self.search_cursor = 0;
     }
 
-    /// Leave search for command mode, parking the command cursor on whatever match
-    /// was highlighted so command verbs (sort, reorder) act on it.
+    /// Leave search for command mode. If the search cursor was on a window
+    /// row, the command-mode cursor lands on that exact window (via
+    /// `focus_window`) rather than just its parent session -- continuity of
+    /// what was highlighted, not just which session it belongs to.
     pub fn exit_search(&mut self) {
-        let landing = self.search_cursor_name();
+        let landing = self.search_cursor_target();
         self.mode = Mode::Command;
         self.query.clear();
         self.search_cursor = 0;
-        if let Some(name) = landing {
-            self.focus_session(&name);
+        if let Some((name, window_index)) = landing {
+            match window_index {
+                Some(idx) => self.focus_window(&name, idx),
+                None => self.focus_session(&name),
+            }
         }
     }
 
@@ -74,25 +99,79 @@ impl PickerState {
         self.search_cursor = move_index_with_edge_wrap(
             self.search_cursor,
             delta,
-            self.search_results().len(),
+            self.search_rows().len(),
         );
     }
 
-    /// Accessor for rendering (the field is private). Wired in Task 6.
+    /// Accessor for rendering (the field is private).
     pub fn search_cursor(&self) -> usize {
         self.search_cursor
     }
 
+    /// The session name and, if the cursor is on a window row, that
+    /// window's stable tmux index -- the shared resolution logic behind
+    /// `search_cursor_name`, `search_selected_action`, and `exit_search`.
+    fn search_cursor_target(&self) -> Option<(String, Option<u32>)> {
+        let rows = self.search_rows();
+        let results = self.search_results();
+        match rows.get(self.search_cursor)? {
+            Row::Session(si) => Some((results[*si].name.clone(), None)),
+            Row::Window(si, wi) => {
+                let sess = results[*si];
+                Some((sess.name.clone(), Some(sess.windows[*wi].index)))
+            }
+        }
+    }
+
     pub fn search_cursor_name(&self) -> Option<String> {
-        self.search_results()
-            .get(self.search_cursor)
-            .map(|s| s.name.clone())
+        self.search_cursor_target().map(|(name, _)| name)
     }
 
     pub fn search_selected_action(&self) -> Option<Action> {
-        self.search_results()
-            .get(self.search_cursor)
-            .map(|s| Action::SwitchSession(s.name.clone()))
+        let rows = self.search_rows();
+        let results = self.search_results();
+        match rows.get(self.search_cursor)? {
+            Row::Session(si) => Some(Action::SwitchSession(results[*si].name.clone())),
+            Row::Window(si, wi) => {
+                let sess = results[*si];
+                Some(Action::SwitchWindow(sess.name.clone(), sess.windows[*wi].index))
+            }
+        }
+    }
+
+    /// Expand the session under the cursor, sharing the same `expanded` set
+    /// command mode uses. Re-focuses onto that session's own row afterward
+    /// (its row list just grew to include the new window rows).
+    pub fn search_expand(&mut self) {
+        if let Some(name) = self.search_cursor_name() {
+            self.expand_session(&name);
+            self.search_focus_session(&name);
+        }
+    }
+
+    /// Collapse the session under the cursor (which may itself be one of
+    /// its window rows) and refocus onto that session's row.
+    pub fn search_collapse(&mut self) {
+        if let Some(name) = self.search_cursor_name() {
+            self.collapse_session(&name);
+            self.search_focus_session(&name);
+        }
+    }
+
+    /// Move the search cursor onto `name`'s own session row within the
+    /// current `search_rows()` -- the search-local analog of `focus_session`,
+    /// which operates on command mode's `visible_rows()` instead.
+    fn search_focus_session(&mut self, name: &str) {
+        let rows = self.search_rows();
+        let results = self.search_results();
+        for (i, r) in rows.iter().enumerate() {
+            if let Row::Session(si) = r {
+                if results[*si].name == name {
+                    self.search_cursor = i;
+                    return;
+                }
+            }
+        }
     }
 }
 
@@ -258,6 +337,34 @@ mod tests {
     }
 
     #[test]
+    fn search_rows_are_flat_when_nothing_is_expanded() {
+        let sessions = vec![s("alpha", 1, 1), s("beta", 1, 2)];
+        let cfg = Config { groups: vec![], ..Default::default() };
+        let mut state = PickerState::build(sessions, &cfg);
+        state.enter_search();
+        assert_eq!(state.search_rows().len(), 2, "one row per session, nothing expanded");
+        assert!(matches!(state.search_rows()[0], Row::Session(0)));
+        assert!(matches!(state.search_rows()[1], Row::Session(1)));
+    }
+
+    #[test]
+    fn search_rows_include_windows_only_for_expanded_sessions() {
+        let mut sessions = vec![s("alpha", 1, 1), s("beta", 1, 2)];
+        sessions[0].windows = vec![win(0, "e"), win(1, "l")];
+        let cfg = Config { groups: vec![], ..Default::default() };
+        let mut state = PickerState::build(sessions, &cfg);
+        state.enter_search();
+        state.expand_session("alpha");
+
+        let rows = state.search_rows();
+        assert_eq!(rows.len(), 4, "alpha (1) + its two windows + beta (1)");
+        assert!(matches!(rows[0], Row::Session(_)));
+        assert!(matches!(rows[1], Row::Window(0, 0)));
+        assert!(matches!(rows[2], Row::Window(0, 1)));
+        assert!(matches!(rows[3], Row::Session(_)));
+    }
+
+    #[test]
     fn search_selected_action_is_none_with_no_matches() {
         let sessions = vec![s("alpha", 1, 1)];
         let cfg = Config { groups: vec![], ..Default::default() };
@@ -280,6 +387,96 @@ mod tests {
         assert_eq!(
             state.search_selected_action(),
             Some(Action::SwitchSession("pr-review".into()))
+        );
+    }
+
+    #[test]
+    fn search_move_walks_over_window_rows_and_wraps() {
+        let mut sessions = vec![s("alpha", 1, 1), s("beta", 1, 2)];
+        sessions[0].windows = vec![win(0, "e"), win(1, "l")];
+        let cfg = Config { groups: vec![], ..Default::default() };
+        let mut state = PickerState::build(sessions, &cfg);
+        state.enter_search();
+        state.expand_session("alpha");
+
+        assert_eq!(state.search_cursor(), 0); // alpha's session row
+        state.search_move(1);
+        assert_eq!(state.search_cursor(), 1); // alpha:0
+        state.search_move(1);
+        assert_eq!(state.search_cursor(), 2); // alpha:1
+        state.search_move(1);
+        assert_eq!(state.search_cursor(), 3); // beta
+        state.search_move(1);
+        assert_eq!(state.search_cursor(), 0, "wraps back to the top");
+    }
+
+    #[test]
+    fn search_cursor_name_resolves_the_owning_session_from_a_window_row() {
+        let mut sessions = vec![s("alpha", 1, 1)];
+        sessions[0].windows = vec![win(0, "e"), win(1, "l")];
+        let cfg = Config { groups: vec![], ..Default::default() };
+        let mut state = PickerState::build(sessions, &cfg);
+        state.enter_search();
+        state.expand_session("alpha");
+        state.search_move(1); // onto alpha:0
+
+        assert_eq!(state.search_cursor_name().as_deref(), Some("alpha"));
+    }
+
+    #[test]
+    fn search_selected_action_switches_to_window_when_row_is_a_window() {
+        let mut sessions = vec![s("alpha", 1, 1)];
+        sessions[0].windows = vec![win(0, "e"), win(3, "l")];
+        let cfg = Config { groups: vec![], ..Default::default() };
+        let mut state = PickerState::build(sessions, &cfg);
+        state.enter_search();
+        state.expand_session("alpha");
+        state.search_move(1); // onto the first window (tmux index 0)
+        state.search_move(1); // onto the second window (tmux index 3)
+
+        assert_eq!(
+            state.search_selected_action(),
+            Some(Action::SwitchWindow("alpha".into(), 3))
+        );
+    }
+
+    #[test]
+    fn search_expand_and_collapse_toggle_shared_state_and_refocus() {
+        let mut sessions = vec![s("alpha", 1, 1)];
+        sessions[0].windows = vec![win(0, "e")];
+        let cfg = Config { groups: vec![], ..Default::default() };
+        let mut state = PickerState::build(sessions, &cfg);
+        state.enter_search();
+
+        state.search_expand();
+        assert!(state.is_expanded("alpha"), "search_expand shares command mode's expanded set");
+        assert_eq!(state.search_rows().len(), 2);
+        assert_eq!(state.search_cursor(), 0, "cursor stays on alpha's own row after expanding");
+
+        state.search_move(1); // onto the window row
+        state.search_collapse();
+        assert!(!state.is_expanded("alpha"));
+        assert_eq!(state.search_cursor(), 0, "collapsing from a window row refocuses the parent session");
+    }
+
+    #[test]
+    fn exit_search_lands_on_the_selected_window_row() {
+        let mut sessions = vec![s("alpha", 1, 1), s("beta", 1, 2)];
+        sessions[0].windows = vec![win(0, "e"), win(5, "l")];
+        let cfg = Config { groups: vec![], ..Default::default() };
+        let mut state = PickerState::build(sessions, &cfg);
+        state.enter_search();
+        state.search_expand();
+        state.search_move(1); // onto alpha's first window
+        state.search_move(1); // onto alpha's second window (tmux index 5)
+
+        state.exit_search();
+        assert_eq!(state.mode, Mode::Command);
+        assert!(matches!(state.visible_rows()[state.cursor], Row::Window(_, _)));
+        assert_eq!(
+            state.selected_action(),
+            Some(Action::SwitchWindow("alpha".into(), 5)),
+            "command-mode cursor lands on the exact window that was selected in search"
         );
     }
 }

@@ -112,11 +112,12 @@ The inbox can be renamed and recolored like any other group, but it always stays
 
 Press `/` to enter search mode.
 Type any part of a session name; results are ranked best-match-first, with the top result auto-selected as you type.
-`Enter` switches to the highlighted session; `Esc` returns to command mode with the cursor left on the match.
+`Enter` switches to the highlighted session or window; `Esc` returns to command mode with the cursor left on the same match.
 Move within results with `↑`/`↓` (or `Ctrl-n`/`Ctrl-p`, `Ctrl-j`/`Ctrl-k`), wrapping between the first and last match.
 `Backspace` deletes the last character, `Ctrl-W` (or `Option/Alt` + `Backspace`) deletes the last word, and `Ctrl-U` clears the query.
+`→` (or `Ctrl-L`) expands the highlighted session's window tree and `←` (or `Ctrl-H`) collapses it -- `h`/`l` themselves still just type into the query, since search never wants to steal an ordinary filter character.
 
-While searching, section headers and jump numbers (sessions 1-20) are hidden; the list is flat and collapsed.
+While searching, section headers and jump numbers (sessions 1-20) are still hidden, but the tree otherwise behaves like command mode: expand a session to select and switch to one of its windows directly.
 If focus mode is on, search results exclude dormant sessions, and the footer shows how many are currently hidden.
 
 ### Dormant sessions and focus mode
