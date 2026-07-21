@@ -131,17 +131,14 @@ impl PickerState {
     /// `(direction, bright)` for a session row, if it's part of the active
     /// swap indicator. `bright` is `true` during the initial flash, `false`
     /// during the dimmer fade that follows.
-    #[allow(dead_code)]
     pub fn session_swap_marker(&self, name: &str) -> Option<(SwapDirection, bool)> {
         self.swap_stage(&SwapKey::Session(name.to_string()))
     }
 
-    #[allow(dead_code)]
     pub fn window_swap_marker(&self, session: &str, index: u32) -> Option<(SwapDirection, bool)> {
         self.swap_stage(&SwapKey::Window(session.to_string(), index))
     }
 
-    #[allow(dead_code)]
     pub fn group_swap_marker(&self, name: &str) -> Option<(SwapDirection, bool)> {
         self.swap_stage(&SwapKey::Group(name.to_string()))
     }

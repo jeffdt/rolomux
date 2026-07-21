@@ -1,6 +1,6 @@
 use crate::model::{
     ColorPolicy, DefaultMode, DotColorMode, Group, Mode, NewGroupPosition, PickerState, Row, Session,
-    SessionMetric, SettingsRow, ShortcutVisibility, Window, ALL_NAMED_COLORS,
+    SessionMetric, SettingsRow, ShortcutVisibility, SwapDirection, Window, ALL_NAMED_COLORS,
 };
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
@@ -74,6 +74,37 @@ fn dormant_session(selected: bool) -> Style {
     } else {
         Style::default().fg(DIM)
     }
+}
+
+/// Appends the brief post-`⇧J`/`⇧K` directional flash (issue #130) to a
+/// row's spans, right-aligned against `row_width`. The bright stage is
+/// `Color::Yellow`, visible on any row -- but the dim stage can't use plain
+/// `DIM` (`Color::DarkGray`) on a selected row: that's exactly `SEL_BG`, so
+/// the glyph would vanish into its own highlight bar. `dormant_session`
+/// above already solves this identical contrast problem by swapping to
+/// `Color::Gray` when selected; the dim stage reuses that split.
+fn push_swap_marker(
+    spans: &mut Vec<Span<'static>>,
+    row_width: u16,
+    marker: Option<(SwapDirection, bool)>,
+    selected: bool,
+) {
+    let Some((dir, bright)) = marker else { return };
+    let glyph = match dir {
+        SwapDirection::Up => "▲",
+        SwapDirection::Down => "▼",
+    };
+    let color = if bright {
+        Color::Yellow
+    } else if selected {
+        Color::Gray
+    } else {
+        DIM
+    };
+    let used: usize = spans.iter().map(|s| s.content.chars().count()).sum();
+    let pad = (row_width as usize).saturating_sub(used + 1).max(1);
+    spans.push(Span::raw(" ".repeat(pad)));
+    spans.push(Span::styled(glyph, Style::default().fg(color)));
 }
 
 /// Format a duration in seconds as a compact human-readable string.
@@ -256,6 +287,8 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
                     Some(current_gutter_color),
                     state.session_metric,
                     rename_buf,
+                    list_area.width,
+                    state.session_swap_marker(&sess.name),
                 ));
             }
             Row::Window(si, wi) => {
@@ -271,7 +304,17 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
                     DotColorMode::Group => current_gutter_color,
                     DotColorMode::Static => dot_static_color,
                 };
-                items.push(window_item(&sess.windows[*wi], last, selected, Some(current_gutter_color), dormant, rename_buf, dot_color));
+                items.push(window_item(
+                    &sess.windows[*wi],
+                    last,
+                    selected,
+                    Some(current_gutter_color),
+                    dormant,
+                    rename_buf,
+                    dot_color,
+                    list_area.width,
+                    state.window_swap_marker(&sess.name, sess.windows[*wi].index),
+                ));
             }
         }
     }
@@ -370,7 +413,7 @@ fn draw_search(frame: &mut Frame, state: &PickerState, inner: Rect) {
                         let age_pad = age_width.saturating_sub(this_age_width);
                         (state.groups[gi].name.clone(), group_color(&state.groups[gi], gi, &state.active_palette), age_pad)
                     });
-                    items.push(session_item(sess, state.is_expanded(&sess.name), selected, None, meta, state.is_dormant(&sess.name), attached_color, group_tag, None, state.session_metric, None));
+                    items.push(session_item(sess, state.is_expanded(&sess.name), selected, None, meta, state.is_dormant(&sess.name), attached_color, group_tag, None, state.session_metric, None, chunks[1].width, None));
                 }
                 Row::Window(si, wi) => {
                     let sess = results[*si];
@@ -387,7 +430,7 @@ fn draw_search(frame: &mut Frame, state: &PickerState, inner: Rect) {
                             .unwrap_or(dot_static_color),
                         DotColorMode::Static => dot_static_color,
                     };
-                    items.push(window_item(&sess.windows[*wi], last, selected, None, dormant, None, dot_color));
+                    items.push(window_item(&sess.windows[*wi], last, selected, None, dormant, None, dot_color, chunks[1].width, None));
                 }
             }
         }
@@ -451,6 +494,7 @@ fn draw_groups(frame: &mut Frame, state: &PickerState, inner: Rect) {
             let name_color = group_color(g, gi, &state.active_palette);
             let mut spans = group_label_spans(g, true, name_color, &state.inbox_icon);
             spans.push(Span::styled(format!("  · {}", state.group_session_count(gi)), secondary(selected)));
+            push_swap_marker(&mut spans, list_area.width, state.group_swap_marker(&g.name), selected);
             Line::from(spans)
         };
         items.push(ListItem::new(line));
@@ -729,6 +773,8 @@ fn session_item(
     gutter: Option<Color>,
     metric: SessionMetric,
     rename_buf: Option<&str>,
+    row_width: u16,
+    swap_marker: Option<(SwapDirection, bool)>,
 ) -> ListItem<'static> {
     let glyph = if expanded { "▾" } else { "▸" };
     let num = match number { Some(n) => jump_label(n), None => "  ".to_string() };
@@ -777,6 +823,7 @@ fn session_item(
         spans.push(Span::styled(" · ", secondary(selected)));
         spans.push(Span::styled(tag.to_uppercase(), Style::default().fg(color)));
     }
+    push_swap_marker(&mut spans, row_width, swap_marker, selected);
     ListItem::new(Line::from(spans))
 }
 
@@ -789,6 +836,8 @@ fn window_item(
     dormant: bool,
     rename_buf: Option<&str>,
     dot_color: Color,
+    row_width: u16,
+    swap_marker: Option<(SwapDirection, bool)>,
 ) -> ListItem<'static> {
     let connector = if last { "  └─" } else { "  ├─" };
     let dot = if win.active { "●" } else { " " };
@@ -812,6 +861,7 @@ fn window_item(
     spans.push(Span::styled(connector.to_string(), secondary(selected)));
     spans.push(Span::styled(format!("{dot} "), dot_style));
     spans.push(Span::styled(win.name.clone(), name_style));
+    push_swap_marker(&mut spans, row_width, swap_marker, selected);
     ListItem::new(Line::from(spans))
 }
 
@@ -820,6 +870,7 @@ mod tests {
     use super::*;
 
     use crate::model::{Action, Group, PickerState, Session, Window, WindowMove};
+    use crate::model::test_support::grouped_state;
     use crate::store::Config;
     use ratatui::backend::TestBackend;
     use ratatui::Terminal;
@@ -1897,6 +1948,125 @@ mod tests {
         let cols = metadata_dot_columns(&buf, &["alpha", "beta"]);
         assert_eq!(cols.len(), 2, "both rows present, got {cols:?}");
         assert_eq!(cols[0], cols[1], "middot must align across 9-window and 1-window rows");
+    }
+
+    #[test]
+    fn session_swap_marker_renders_bright_up_and_down_arrows_after_a_move() {
+        let sessions = vec![
+            Session { id: String::new(), name: "a".into(), activity: 1, created: 1, attached: false, windows: vec![] },
+            Session { id: String::new(), name: "b".into(), activity: 1, created: 2, attached: false, windows: vec![] },
+        ];
+        let cfg = Config {
+            groups: vec![
+                Group { name: "OTHER".into(), members: vec![], ..Default::default() },
+                Group { name: "ONLY".into(), members: vec!["a".into(), "b".into()], inbox: true, ..Default::default() },
+            ],
+            ..Default::default()
+        };
+        let mut state = PickerState::build(sessions, &cfg);
+        state.focus_session("b");
+        state.move_row(-1); // b moves up past a
+
+        let backend = TestBackend::new(80, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| draw(f, &state)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+
+        let row_of = |name: &str| -> u16 {
+            (0..buf.area.height)
+                .find(|&y| find_text_x(&buf, y, name).is_some())
+                .unwrap_or_else(|| panic!("no row contains {name:?}"))
+        };
+        let b_y = row_of("b");
+        let a_y = row_of("a");
+        let up_x = find_text_x(&buf, b_y, "▲").expect("up arrow on b's (moved) row");
+        let down_x = find_text_x(&buf, a_y, "▼").expect("down arrow on a's (bumped) row");
+        assert_eq!(buf[(up_x, b_y)].style().fg, Some(Color::Yellow));
+        assert_eq!(buf[(down_x, a_y)].style().fg, Some(Color::Yellow));
+    }
+
+    #[test]
+    fn session_swap_marker_dim_stage_uses_gray_on_the_selected_row_not_darkgray() {
+        let sessions = vec![
+            Session { id: String::new(), name: "a".into(), activity: 1, created: 1, attached: false, windows: vec![] },
+            Session { id: String::new(), name: "b".into(), activity: 1, created: 2, attached: false, windows: vec![] },
+        ];
+        let cfg = Config {
+            groups: vec![
+                Group { name: "OTHER".into(), members: vec![], ..Default::default() },
+                Group { name: "ONLY".into(), members: vec!["a".into(), "b".into()], inbox: true, ..Default::default() },
+            ],
+            ..Default::default()
+        };
+        let mut state = PickerState::build(sessions, &cfg);
+        state.focus_session("b");
+        state.move_row(-1); // b (selected) moves up past a
+        state.backdate_swap_indicator(std::time::Duration::from_millis(300)); // past the bright stage
+
+        let backend = TestBackend::new(80, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| draw(f, &state)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+
+        let row_of = |name: &str| -> u16 {
+            (0..buf.area.height)
+                .find(|&y| find_text_x(&buf, y, name).is_some())
+                .unwrap_or_else(|| panic!("no row contains {name:?}"))
+        };
+        let b_y = row_of("b"); // selected: cursor followed the moved session
+        let a_y = row_of("a"); // unselected neighbor
+        let up_x = find_text_x(&buf, b_y, "▲").expect("up arrow on b's row");
+        let down_x = find_text_x(&buf, a_y, "▼").expect("down arrow on a's row");
+        assert_eq!(buf[(up_x, b_y)].style().fg, Some(Color::Gray), "selected row: Gray, not DarkGray-on-DarkGray");
+        assert_eq!(buf[(down_x, a_y)].style().fg, Some(Color::DarkGray), "unselected row: plain DarkGray");
+    }
+
+    #[test]
+    fn group_swap_marker_renders_arrows_in_group_mode() {
+        let mut state = grouped_state();
+        state.enter_groups();
+        state.group_reorder(1); // G1 (cursor) moves down past G2
+
+        let backend = TestBackend::new(80, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| draw(f, &state)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+
+        let row_of = |name: &str| -> u16 {
+            (0..buf.area.height)
+                .find(|&y| find_text_x(&buf, y, name).is_some())
+                .unwrap_or_else(|| panic!("no row contains {name:?}"))
+        };
+        assert!(find_text_x(&buf, row_of("G2"), "▲").is_some(), "G2 moved up");
+        assert!(find_text_x(&buf, row_of("G1"), "▼").is_some(), "G1 moved down");
+    }
+
+    #[test]
+    fn window_swap_marker_renders_arrows_on_expanded_window_rows() {
+        let sessions = vec![Session {
+            id: String::new(), name: "work".into(), activity: 1, created: 1, attached: false,
+            windows: vec![
+                Window { index: 0, name: "alpha".into(), active: true },
+                Window { index: 1, name: "beta".into(), active: false },
+            ],
+        }];
+        let cfg = Config::default();
+        let mut state = PickerState::build(sessions, &cfg);
+        state.expand();
+        state.set_window_swap("work", 0, 1, -1); // simulate: "alpha" (now at 0) moved up, "beta" (now at 1) moved down
+
+        let backend = TestBackend::new(80, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| draw(f, &state)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+
+        let row_of = |name: &str| -> u16 {
+            (0..buf.area.height)
+                .find(|&y| find_text_x(&buf, y, name).is_some())
+                .unwrap_or_else(|| panic!("no row contains {name:?}"))
+        };
+        assert!(find_text_x(&buf, row_of("alpha"), "▲").is_some(), "window alpha flashes up");
+        assert!(find_text_x(&buf, row_of("beta"), "▼").is_some(), "window beta flashes down");
     }
 
     #[test]
