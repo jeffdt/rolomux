@@ -76,7 +76,6 @@ impl PickerState {
     /// `main::commit_window_move` already computes these for `focus_window`.
     /// `delta` is the `⇧J`/`⇧K` press that triggered it: negative means the
     /// moved window went up.
-    #[allow(dead_code)]
     pub fn set_window_swap(&mut self, session: &str, moved_index: u32, neighbor_index: u32, delta: i32) {
         let moved = SwapKey::Window(session.to_string(), moved_index);
         let neighbor = SwapKey::Window(session.to_string(), neighbor_index);
@@ -90,7 +89,6 @@ impl PickerState {
     /// A window crossed into an adjacent session with no swap partner,
     /// landing at `(dst_session, dst_index)`. `delta` is the triggering
     /// press: negative means it moved up.
-    #[allow(dead_code)]
     pub fn set_window_cross(&mut self, dst_session: &str, dst_index: u32, delta: i32) {
         let key = Some(SwapKey::Window(dst_session.to_string(), dst_index));
         if delta < 0 {
