@@ -19,7 +19,6 @@ mod search;
 mod dormant;
 
 mod swap_indicator;
-#[allow(unused_imports)]
 pub use swap_indicator::SwapDirection;
 use swap_indicator::SwapIndicator;
 
