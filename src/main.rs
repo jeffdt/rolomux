@@ -325,7 +325,7 @@ fn event_loop(
                                 }
                             }
                             SearchInput::Exit => state.cancel_rename(),
-                            SearchInput::Up | SearchInput::Down | SearchInput::Expand | SearchInput::Collapse | SearchInput::None => {}
+                            SearchInput::Up | SearchInput::Down | SearchInput::Expand | SearchInput::Collapse | SearchInput::ToggleFocusMode | SearchInput::None => {}
                         }
                     } else {
                         let input = map_key(key);
@@ -385,6 +385,7 @@ fn event_loop(
                         }
                     }
                     SearchInput::Exit => state.exit_search(),
+                    SearchInput::ToggleFocusMode => state.toggle_focus_mode(),
                     SearchInput::None => {}
                 },
                 Mode::Groups => {
@@ -396,7 +397,7 @@ fn event_loop(
                             SearchInput::Clear => state.group_edit_clear(),
                             SearchInput::Select => state.group_commit_rename(),
                             SearchInput::Exit => state.group_cancel_rename(),
-                            SearchInput::Up | SearchInput::Down | SearchInput::Expand | SearchInput::Collapse | SearchInput::None => {}
+                            SearchInput::Up | SearchInput::Down | SearchInput::Expand | SearchInput::Collapse | SearchInput::ToggleFocusMode | SearchInput::None => {}
                         }
                     } else {
                         let input = map_group_key(key);
