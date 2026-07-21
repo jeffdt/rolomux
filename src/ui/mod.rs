@@ -76,20 +76,21 @@ fn dormant_session(selected: bool) -> Style {
     }
 }
 
-/// Appends the brief post-`⇧J`/`⇧K` directional flash (issue #130) to a
-/// row's spans, right-aligned against `row_width`. The bright stage is
-/// `Color::Yellow`, visible on any row -- but the dim stage can't use plain
-/// `DIM` (`Color::DarkGray`) on a selected row: that's exactly `SEL_BG`, so
-/// the glyph would vanish into its own highlight bar. `dormant_session`
-/// above already solves this identical contrast problem by swapping to
-/// `Color::Gray` when selected; the dim stage reuses that split.
-fn push_swap_marker(
-    spans: &mut Vec<Span<'static>>,
-    row_width: u16,
-    marker: Option<(SwapDirection, bool)>,
-    selected: bool,
-) {
-    let Some((dir, bright)) = marker else { return };
+/// Resolves the brief post-`⇧J`/`⇧K` directional flash (issue #130) into a
+/// glyph and color, or `None` if this row isn't part of the active
+/// indicator. The bright stage is `Color::Yellow`, visible on any row --
+/// but the dim stage can't use plain `DIM` (`Color::DarkGray`) on a
+/// selected row: that's exactly `SEL_BG`, so the glyph would vanish into
+/// its own highlight bar. `dormant_session` above already solves this
+/// identical contrast problem by swapping to `Color::Gray` when selected;
+/// the dim stage reuses that split. Each row kind places the resolved
+/// glyph differently (see `session_item`, `window_item`, `draw_groups`):
+/// session rows splice it into the padding just before the shared
+/// metadata column, which is already kept aligned across every row and
+/// already guarantees room for it; window and group rows have no such
+/// shared column, so they append it right after their own content instead.
+fn swap_marker_glyph(marker: Option<(SwapDirection, bool)>, selected: bool) -> Option<(&'static str, Color)> {
+    let (dir, bright) = marker?;
     let glyph = match dir {
         SwapDirection::Up => "▲",
         SwapDirection::Down => "▼",
@@ -101,10 +102,7 @@ fn push_swap_marker(
     } else {
         DIM
     };
-    let used: usize = spans.iter().map(|s| s.content.chars().count()).sum();
-    let pad = (row_width as usize).saturating_sub(used + 1).max(1);
-    spans.push(Span::raw(" ".repeat(pad)));
-    spans.push(Span::styled(glyph, Style::default().fg(color)));
+    Some((glyph, color))
 }
 
 /// Format a duration in seconds as a compact human-readable string.
@@ -287,7 +285,6 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
                     Some(current_gutter_color),
                     state.session_metric,
                     rename_buf,
-                    list_area.width,
                     state.session_swap_marker(&sess.name),
                 ));
             }
@@ -312,7 +309,6 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
                     dormant,
                     rename_buf,
                     dot_color,
-                    list_area.width,
                     state.window_swap_marker(&sess.name, sess.windows[*wi].index),
                 ));
             }
@@ -413,7 +409,7 @@ fn draw_search(frame: &mut Frame, state: &PickerState, inner: Rect) {
                         let age_pad = age_width.saturating_sub(this_age_width);
                         (state.groups[gi].name.clone(), group_color(&state.groups[gi], gi, &state.active_palette), age_pad)
                     });
-                    items.push(session_item(sess, state.is_expanded(&sess.name), selected, None, meta, state.is_dormant(&sess.name), attached_color, group_tag, None, state.session_metric, None, chunks[1].width, None));
+                    items.push(session_item(sess, state.is_expanded(&sess.name), selected, None, meta, state.is_dormant(&sess.name), attached_color, group_tag, None, state.session_metric, None, None));
                 }
                 Row::Window(si, wi) => {
                     let sess = results[*si];
@@ -430,7 +426,7 @@ fn draw_search(frame: &mut Frame, state: &PickerState, inner: Rect) {
                             .unwrap_or(dot_static_color),
                         DotColorMode::Static => dot_static_color,
                     };
-                    items.push(window_item(&sess.windows[*wi], last, selected, None, dormant, None, dot_color, chunks[1].width, None));
+                    items.push(window_item(&sess.windows[*wi], last, selected, None, dormant, None, dot_color, None));
                 }
             }
         }
@@ -494,7 +490,10 @@ fn draw_groups(frame: &mut Frame, state: &PickerState, inner: Rect) {
             let name_color = group_color(g, gi, &state.active_palette);
             let mut spans = group_label_spans(g, true, name_color, &state.inbox_icon);
             spans.push(Span::styled(format!("  · {}", state.group_session_count(gi)), secondary(selected)));
-            push_swap_marker(&mut spans, list_area.width, state.group_swap_marker(&g.name), selected);
+            if let Some((glyph, color)) = swap_marker_glyph(state.group_swap_marker(&g.name), selected) {
+                spans.push(Span::raw("  "));
+                spans.push(Span::styled(glyph, Style::default().fg(color)));
+            }
             Line::from(spans)
         };
         items.push(ListItem::new(line));
@@ -773,7 +772,6 @@ fn session_item(
     gutter: Option<Color>,
     metric: SessionMetric,
     rename_buf: Option<&str>,
-    row_width: u16,
     swap_marker: Option<(SwapDirection, bool)>,
 ) -> ListItem<'static> {
     let glyph = if expanded { "▾" } else { "▸" };
@@ -809,11 +807,22 @@ fn session_item(
     spans.push(Span::styled(num, secondary(selected)));
     spans.push(Span::styled(format!("{glyph} "), secondary(selected)));
     spans.push(Span::styled(sess.name.clone(), name_style));
-    let trailing = match &age {
-        Some(age) => format!("{}{count}{} · {age}", " ".repeat(pad), " ".repeat(count_pad)),
-        None => format!("{}{count}{}", " ".repeat(pad), " ".repeat(count_pad)),
+    // The marker (if present) takes the *last* cell of the padding before
+    // the shared metadata column instead of adding any extra width: `pad`
+    // is always >= META_GAP (2) by construction (see `MetaLayout::compute`),
+    // so there's always room, and every row after this one still starts at
+    // exactly `meta.col` whether or not a marker occupies that last cell.
+    let marker = swap_marker_glyph(swap_marker, selected);
+    let pad_before_marker = if marker.is_some() { pad.saturating_sub(1) } else { pad };
+    spans.push(Span::styled(" ".repeat(pad_before_marker), secondary(selected)));
+    if let Some((glyph, color)) = marker {
+        spans.push(Span::styled(glyph, Style::default().fg(color)));
+    }
+    let meta_text = match &age {
+        Some(age) => format!("{count}{} · {age}", " ".repeat(count_pad)),
+        None => format!("{count}{}", " ".repeat(count_pad)),
     };
-    spans.push(Span::styled(trailing, secondary(selected)));
+    spans.push(Span::styled(meta_text, secondary(selected)));
     // age_pad brings every tagged row's age up to the widest age string among
     // this render's tagged rows, so tags line up in a column even though ages
     // ("4h" vs "53m") naturally differ in width. Untagged rows (command mode,
@@ -823,7 +832,6 @@ fn session_item(
         spans.push(Span::styled(" · ", secondary(selected)));
         spans.push(Span::styled(tag.to_uppercase(), Style::default().fg(color)));
     }
-    push_swap_marker(&mut spans, row_width, swap_marker, selected);
     ListItem::new(Line::from(spans))
 }
 
@@ -836,7 +844,6 @@ fn window_item(
     dormant: bool,
     rename_buf: Option<&str>,
     dot_color: Color,
-    row_width: u16,
     swap_marker: Option<(SwapDirection, bool)>,
 ) -> ListItem<'static> {
     let connector = if last { "  └─" } else { "  ├─" };
@@ -861,7 +868,10 @@ fn window_item(
     spans.push(Span::styled(connector.to_string(), secondary(selected)));
     spans.push(Span::styled(format!("{dot} "), dot_style));
     spans.push(Span::styled(win.name.clone(), name_style));
-    push_swap_marker(&mut spans, row_width, swap_marker, selected);
+    if let Some((glyph, color)) = swap_marker_glyph(swap_marker, selected) {
+        spans.push(Span::raw("  "));
+        spans.push(Span::styled(glyph, Style::default().fg(color)));
+    }
     ListItem::new(Line::from(spans))
 }
 
@@ -2067,6 +2077,75 @@ mod tests {
         };
         assert!(find_text_x(&buf, row_of("alpha"), "▲").is_some(), "window alpha flashes up");
         assert!(find_text_x(&buf, row_of("beta"), "▼").is_some(), "window beta flashes down");
+    }
+
+    #[test]
+    fn session_swap_marker_lands_on_the_stable_metadata_column_not_the_far_right_edge() {
+        // Task 8: the marker splices into the padding just before the shared
+        // metadata column (`MetaLayout::col`) instead of right-aligning to the
+        // card width, so its x-coordinate must be identical whether the
+        // swapped session's own name is very long or very short -- it must
+        // land wherever the metadata column already sits for every row.
+        let sessions = vec![
+            Session {
+                id: String::new(),
+                name: "a-very-long-session-name-for-marker-alignment".into(),
+                activity: 1,
+                created: 1,
+                attached: false,
+                windows: vec![],
+            },
+            Session { id: String::new(), name: "b".into(), activity: 1, created: 2, attached: false, windows: vec![] },
+            Session { id: String::new(), name: "control".into(), activity: 1, created: 3, attached: false, windows: vec![] },
+        ];
+        let cfg = Config {
+            groups: vec![Group {
+                name: "ONLY".into(),
+                members: vec![
+                    "a-very-long-session-name-for-marker-alignment".into(),
+                    "b".into(),
+                    "control".into(),
+                ],
+                inbox: true,
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let mut state = PickerState::build(sessions, &cfg);
+        state.focus_session("b");
+        state.move_row(-1); // b moves up past the long-named session; control is untouched
+
+        let backend = TestBackend::new(80, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| draw(f, &state)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+
+        let row_of = |name: &str| -> u16 {
+            (0..buf.area.height)
+                .find(|&y| find_text_x(&buf, y, name).is_some())
+                .unwrap_or_else(|| panic!("no row contains {name:?}"))
+        };
+        let long_y = row_of("a-very-long-session-name-for-marker-alignment");
+        let short_y = row_of("b");
+        let control_y = row_of("control");
+
+        let up_x = find_text_x(&buf, short_y, "▲").expect("up arrow on b's (moved) row");
+        let down_x = find_text_x(&buf, long_y, "▼").expect("down arrow on the long-named (bumped) row");
+
+        // `control` never moved, so its row carries no marker and its
+        // window-count digit marks exactly where the shared metadata column
+        // begins on every row.
+        let control_name_end = find_text_x(&buf, control_y, "control").unwrap() + "control".chars().count() as u16;
+        let meta_col_x = (control_name_end..buf.area.width)
+            .find(|&x| buf[(x, control_y)].symbol().chars().next().is_some_and(|c| c.is_ascii_digit()))
+            .expect("control row shows the window-count digit");
+
+        assert_eq!(up_x, meta_col_x - 1, "short name's marker must sit one cell before the shared metadata column");
+        assert_eq!(
+            down_x,
+            meta_col_x - 1,
+            "long name's marker must sit one cell before the shared metadata column, same as the short name's"
+        );
     }
 
     #[test]
