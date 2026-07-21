@@ -43,7 +43,6 @@ impl PickerState {
 
     /// Two sessions traded places in the same group: `up_name` moved toward
     /// the top, `down_name` toward the bottom.
-    #[allow(dead_code)]
     pub(super) fn set_session_swap(&mut self, up_name: &str, down_name: &str) {
         self.set_swap_indicator(
             Some(SwapKey::Session(up_name.to_string())),
@@ -54,7 +53,6 @@ impl PickerState {
     /// A session crossed a group boundary with no swap partner (lands at
     /// the front/back of the adjacent group). `moved_up` is `true` when
     /// this came from `move_up`.
-    #[allow(dead_code)]
     pub(super) fn set_session_cross(&mut self, name: &str, moved_up: bool) {
         let key = Some(SwapKey::Session(name.to_string()));
         if moved_up {
