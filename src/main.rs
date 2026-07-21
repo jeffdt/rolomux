@@ -349,8 +349,8 @@ fn event_loop(
                     SearchInput::Backspace => state.search_backspace(),
                     SearchInput::DeleteWord => state.search_delete_word(),
                     SearchInput::Clear => state.search_clear(),
-                    SearchInput::Expand => {},
-                    SearchInput::Collapse => {},
+                    SearchInput::Expand => state.search_expand(),
+                    SearchInput::Collapse => state.search_collapse(),
                     SearchInput::Up => state.search_move(-1),
                     SearchInput::Down => state.search_move(1),
                     SearchInput::Select => {
