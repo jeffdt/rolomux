@@ -394,6 +394,17 @@ impl PickerState {
         }
     }
 
+    /// Remove `name` from the expanded set regardless of prior state -- the
+    /// name-based counterpart to `expand_session`, used by search mode's
+    /// collapse (`search_collapse`), which re-focuses within its own row
+    /// list rather than command mode's `visible_rows`.
+    pub fn collapse_session(&mut self, name: &str) {
+        self.expanded.remove(name);
+        if self.remember_expanded_sessions {
+            self.dirty = true;
+        }
+    }
+
     pub fn selected_action(&self) -> Option<Action> {
         let rows = self.visible_rows();
         let ordered = self.ordered();
@@ -528,6 +539,23 @@ mod tests {
         st.expand_session("a");
         assert!(st.is_expanded("a"));
         assert!(!st.dirty); // remember_expanded_sessions defaults to false
+    }
+
+    #[test]
+    fn collapse_session_removes_regardless_of_cursor_and_marks_dirty_only_when_remembering() {
+        let sessions = vec![s("a", 1, 1)];
+        let cfg = Config::default();
+        let mut st = PickerState::build(sessions, &cfg);
+        st.expand_session("a");
+        st.collapse_session("a");
+        assert!(!st.is_expanded("a"));
+        assert!(!st.dirty, "off: collapse_session does not persist");
+
+        st.remember_expanded_sessions = true;
+        st.expand_session("a");
+        st.dirty = false;
+        st.collapse_session("a");
+        assert!(st.dirty, "on: collapse_session persists");
     }
 
     #[test]
