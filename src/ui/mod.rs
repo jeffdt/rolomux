@@ -809,9 +809,12 @@ fn session_item(
     spans.push(Span::styled(sess.name.clone(), name_style));
     // The marker (if present) takes the *last* cell of the padding before
     // the shared metadata column instead of adding any extra width: `pad`
-    // is always >= META_GAP (2) by construction (see `MetaLayout::compute`),
-    // so there's always room, and every row after this one still starts at
-    // exactly `meta.col` whether or not a marker occupies that last cell.
+    // is normally >= META_GAP (2) by construction (see `MetaLayout::compute`),
+    // so there's room for it without shifting anything else on this row.
+    // In the already-degenerate case where a very long name forces the
+    // shared column against `META_BUDGET`'s cap, `pad` can shrink toward 0
+    // for that one row regardless of a marker (pre-existing squeeze); a
+    // marker there just spends what little padding is left first.
     let marker = swap_marker_glyph(swap_marker, selected);
     let pad_before_marker = if marker.is_some() { pad.saturating_sub(1) } else { pad };
     spans.push(Span::styled(" ".repeat(pad_before_marker), secondary(selected)));
