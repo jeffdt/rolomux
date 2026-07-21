@@ -63,7 +63,6 @@ impl PickerState {
     }
 
     /// Two groups traded places: `up_name` moved toward the top.
-    #[allow(dead_code)]
     pub(super) fn set_group_swap(&mut self, up_name: &str, down_name: &str) {
         self.set_swap_indicator(
             Some(SwapKey::Group(up_name.to_string())),
