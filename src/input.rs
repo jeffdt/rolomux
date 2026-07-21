@@ -38,6 +38,7 @@ pub enum SearchInput {
     Down,
     Select,
     Exit,
+    ToggleFocusMode,
     None,
 }
 
@@ -107,6 +108,9 @@ pub fn map_settings_key(key: KeyEvent) -> SettingsInput {
 /// Enter, in which case it selects rather than moving down. Arrows, Ctrl-n,
 /// Ctrl-p, and Ctrl-k are the reliable movement keys; Ctrl-j is mapped for
 /// terminals that can distinguish it.
+///
+/// `Ctrl-f` toggles focus mode (same reasoning as `Ctrl-l`/`Ctrl-h`: bare
+/// `f` stays query text, so the Ctrl form carries the command).
 pub fn map_search_key(key: KeyEvent) -> SearchInput {
     let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
     let alt = key.modifiers.contains(KeyModifiers::ALT);
@@ -125,6 +129,7 @@ pub fn map_search_key(key: KeyEvent) -> SearchInput {
         KeyCode::Char('h') if ctrl => SearchInput::Collapse,
         KeyCode::Char('p') | KeyCode::Char('k') if ctrl => SearchInput::Up,
         KeyCode::Char('n') | KeyCode::Char('j') if ctrl => SearchInput::Down,
+        KeyCode::Char('f') if ctrl => SearchInput::ToggleFocusMode,
         KeyCode::Char(_) if ctrl => SearchInput::None,
         KeyCode::Char(c) => SearchInput::Char(c),
         _ => SearchInput::None,
@@ -276,6 +281,12 @@ mod tests {
         assert_eq!(map_search_key(key(KeyCode::Backspace)), SearchInput::Backspace);
         // Ctrl-modified letters are nav/no-op, never query text.
         assert_eq!(map_search_key(ctrl(KeyCode::Char('a'))), SearchInput::None);
+    }
+
+    #[test]
+    fn ctrl_f_toggles_focus_mode_in_search_but_plain_f_stays_query_text() {
+        assert_eq!(map_search_key(ctrl(KeyCode::Char('f'))), SearchInput::ToggleFocusMode);
+        assert_eq!(map_search_key(key(KeyCode::Char('f'))), SearchInput::Char('f'));
     }
 
     #[test]

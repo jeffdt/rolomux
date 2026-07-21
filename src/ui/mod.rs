@@ -45,7 +45,7 @@ const FOOTER_HINT: &str =
 const CREATE_GROUP_HINT: &str =
     "No groups yet: press g then n to create one, then use ⇧J/⇧K to move sessions.";
 
-const SEARCH_FOOTER_HINT: &str = "↑↓ move · ⌃W word · ⌃U clear · Esc back";
+const SEARCH_FOOTER_HINT: &str = "↑↓ move · ⌃w word · ⌃u clear · ⌃f focus · Esc back";
 
 /// The running binary's version, as `git describe --tags --dirty` saw it at
 /// build time (e.g. `v0.27.0` on a clean tagged release, `v0.27.0-3-gabc1234`
@@ -672,8 +672,12 @@ fn command_footer_hint(state: &PickerState) -> String {
     }
 }
 
-fn search_footer_hint(_state: &PickerState) -> String {
-    SEARCH_FOOTER_HINT.to_string()
+fn search_footer_hint(state: &PickerState) -> String {
+    if state.focus_mode() {
+        SEARCH_FOOTER_HINT.replace("⌃f focus", "⌃f show")
+    } else {
+        SEARCH_FOOTER_HINT.to_string()
+    }
 }
 
 /// Style a `"key desc · key desc"` hint line so each segment's leading key
@@ -1266,6 +1270,29 @@ mod tests {
         assert_eq!(shown_hint.find("f "), hidden_hint.find("f "));
         assert!(shown_hint.contains("f focus"));
         assert!(hidden_hint.contains("f show"));
+    }
+
+    #[test]
+    fn search_footer_keeps_ctrl_f_hint_in_place_when_focus_mode_is_on() {
+        let sessions = vec![
+            Session { id: String::new(), name: "alpha".into(), activity: 30, created: 1, attached: false,
+                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+            Session { id: String::new(), name: "beta".into(), activity: 20, created: 2, attached: false,
+                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+        ];
+        let cfg = Config { groups: vec![], dormant: vec!["beta".into()], ..Default::default() };
+        let mut state = PickerState::build(sessions, &cfg);
+        let shown_hint = search_footer_hint(&state);
+
+        state.toggle_focus_mode();
+        let hidden_hint = search_footer_hint(&state);
+
+        assert_eq!(shown_hint.find("⌃f"), hidden_hint.find("⌃f"));
+        assert!(shown_hint.contains("⌃f focus"));
+        assert!(hidden_hint.contains("⌃f show"));
+        // Neither ⌃w nor ⌃u should read as if Shift were required.
+        assert!(shown_hint.contains("⌃w word"));
+        assert!(shown_hint.contains("⌃u clear"));
     }
 
     #[test]
