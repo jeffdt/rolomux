@@ -1,5 +1,5 @@
 use crate::model::{
-    ColorPolicy, DefaultMode, DotColorMode, Group, Mode, NewGroupPosition, PickerState, Row, Session,
+    AttachedColorMode, ColorPolicy, DefaultMode, DotColorMode, Group, Mode, NewGroupPosition, PickerState, Row, Session,
     SessionMetric, SettingsRow, ShortcutVisibility, StartFocusMode, SwapDirection, Window, ALL_NAMED_COLORS,
 };
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
@@ -3182,19 +3182,25 @@ mod tests {
     }
 
     #[test]
-    fn draw_settings_expanded_attached_color_shows_radio_glyphs() {
+    fn draw_settings_attached_color_row_shows_mode_label_and_hides_swatch_in_match_mode() {
         let mut st = settings_view();
         st.settings_move_cursor(9); // AttachedColor
-        st.settings_step_right(); // expand
         let text = render_to_string(&st);
-        assert!(text.contains("●"), "the currently selected color is marked filled");
-        assert!(text.contains("○"), "unselected colors are marked hollow");
-        // "white" (the last option) sits below the 12-row test viewport once
-        // the list scrolls to keep the selected "cyan" row in view; assert on
-        // colors that are actually on screen instead (mirrors the sibling
-        // draw_settings_expanded_palette_shows_swatches_and_checkboxes test).
-        assert!(text.contains("black"));
-        assert!(text.contains("red"));
+        let row = text
+            .lines()
+            .find(|l| l.contains("Attached session color"))
+            .expect("row rendered");
+        assert!(row.contains("Static"), "default mode shown: {row:?}");
+        assert!(row.contains("green"), "swatch + color name shown while Static: {row:?}");
+
+        st.settings_step_right(); // Static -> Match
+        let text = render_to_string(&st);
+        let row = text
+            .lines()
+            .find(|l| l.contains("Attached session color"))
+            .expect("row rendered");
+        assert!(row.contains("Match"), "mode label updates: {row:?}");
+        assert!(!row.contains("green"), "no swatch/color name while Match: {row:?}");
     }
 
     #[test]
@@ -3292,7 +3298,7 @@ mod tests {
     #[test]
     fn draw_settings_gutter_bar_continues_through_expanded_color_options() {
         let mut st = settings_view();
-        st.settings_move_cursor(9); // AttachedColor
+        st.settings_move_cursor(10); // BorderColor
         st.settings_step_right(); // expand
         let text = render_to_string(&st);
         let row = text
