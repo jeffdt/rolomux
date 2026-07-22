@@ -11,7 +11,6 @@ use super::*;
 pub(super) struct SettingsUiState {
     cursor: usize,
     palette_expanded: bool,
-    attached_color_expanded: bool,
     border_color_expanded: bool,
     shortcut_color_expanded: bool,
 }
@@ -28,8 +27,6 @@ pub enum SettingsRow {
     ShortcutVisibility,
     InboxIcon,
     AttachedColor,
-    /// Index into `ALL_NAMED_COLORS`.
-    AttachedColorOption(usize),
     BorderColor,
     /// Index into `ALL_NAMED_COLORS`.
     BorderColorOption(usize),
@@ -44,54 +41,89 @@ pub enum SettingsRow {
 }
 
 impl SettingsRow {
-    /// A short, single-line explanation of what this setting does, shown
-    /// on the Settings footer's description line. Child/option rows
-    /// (individual color choices) reuse their parent setting's text since
-    /// the option itself (a named color, a checkbox) is self-explanatory.
-    pub fn description(&self) -> &'static str {
+    /// A short, single-line explanation of what this setting does, shown on
+    /// the Settings footer's description line. Rows whose static text used to
+    /// read as a "whether X or Y" dichotomy now describe only the row's
+    /// *current* effect (issue #140), including Attached color's Static/Match
+    /// mode; a row that only ever cycles a raw color (Border, Shortcut,
+    /// Palette) keeps a single generic description regardless of state, per
+    /// that issue's own text. Child/option rows reuse their parent setting's
+    /// text since the option itself (a named color, a checkbox) is
+    /// self-explanatory.
+    pub fn description(&self, state: &PickerState) -> String {
         match self {
-            SettingsRow::DefaultMode => {
-                "Whether the picker opens in Command mode or straight into Search."
+            SettingsRow::DefaultMode => match state.default_mode {
+                DefaultMode::Command => "On launch, rolomux opens in Command mode.",
+                DefaultMode::Search => "On launch, rolomux opens straight into Search.",
             }
-            SettingsRow::DormantNumbering => {
-                "Whether visible dormant sessions get jump numbers (1-20)."
+            .to_string(),
+            SettingsRow::DormantNumbering => if state.number_dormant_sessions {
+                "Visible dormant sessions receive jump numbers (1-20)."
+            } else {
+                "Visible dormant sessions do not receive jump numbers."
             }
-            SettingsRow::RememberExpanded => {
-                "When on, expand/collapse state persists across popups."
+            .to_string(),
+            SettingsRow::RememberExpanded => if state.remember_expanded_sessions {
+                "Expand/collapse state persists across popups."
+            } else {
+                "Expand/collapse state resets each time the popup opens."
             }
-            SettingsRow::SessionMetric => {
-                "Whether the row's trailing timestamp shows Recency, Age, or is Hidden."
+            .to_string(),
+            SettingsRow::SessionMetric => match state.session_metric {
+                SessionMetric::Recency => "Session timestamps show how long since the session was last active.",
+                SessionMetric::Age => "Session timestamps show how long ago the session was created.",
+                SessionMetric::Hidden => "Session timestamps are hidden.",
             }
-            SettingsRow::ClearDormantOnAttach => {
-                "When on, attaching to a dormant session automatically clears its dormant flag."
+            .to_string(),
+            SettingsRow::ClearDormantOnAttach => if state.clear_dormant_on_attach {
+                "Attaching to a dormant session automatically clears its dormant flag."
+            } else {
+                "Attaching to a dormant session doesn't touch its dormant flag."
             }
-            SettingsRow::StartFocusMode => {
-                "Whether the picker starts in focus mode: Remember the last state, Always start in it, or Never start in it."
+            .to_string(),
+            SettingsRow::StartFocusMode => match state.start_focus_mode {
+                StartFocusMode::Remember => "The picker starts in focus mode based on how you last left it.",
+                StartFocusMode::Always => "The picker always starts in focus mode.",
+                StartFocusMode::Never => "The picker never starts in focus mode.",
             }
-            SettingsRow::NewGroupPosition => {
-                "Where a newly created group is inserted: Top of the list, or Bottom (just above the inbox)."
+            .to_string(),
+            SettingsRow::NewGroupPosition => match state.new_group_position {
+                NewGroupPosition::Top => "A newly created group is inserted at the top of the list.",
+                NewGroupPosition::Bottom => {
+                    "A newly created group is inserted at the bottom, just above the inbox."
+                }
             }
-            SettingsRow::ShortcutVisibility => {
-                "Whether the footer's key-shortcut legend is always visible, or hidden until you press ?."
+            .to_string(),
+            SettingsRow::ShortcutVisibility => match state.shortcut_visibility {
+                ShortcutVisibility::Always => "The shortcut legend is always visible.",
+                ShortcutVisibility::OnDemand => "The shortcut legend is hidden until you press ?.",
             }
-            SettingsRow::InboxIcon => "Which glyph prefixes the inbox group's header.",
-            SettingsRow::AttachedColor | SettingsRow::AttachedColorOption(_) => {
-                "Highlight color for the session your tmux client is attached to."
+            .to_string(),
+            SettingsRow::InboxIcon => format!("The inbox group's header is prefixed with {}.", state.inbox_icon),
+            SettingsRow::AttachedColor => match state.attached_color_mode {
+                AttachedColorMode::Static => "The attached session's dot and name use a fixed color.",
+                AttachedColorMode::Match => "The attached session's dot and name match its group's color.",
             }
+            .to_string(),
             SettingsRow::BorderColor | SettingsRow::BorderColorOption(_) => {
-                "rolomux's own border frame color."
+                "rolomux's own border frame color.".to_string()
             }
             SettingsRow::ShortcutColor | SettingsRow::ShortcutColorOption(_) => {
-                "Highlight color for key tokens in the footer's shortcut hints."
+                "Highlight color for keys in the shortcut legend.".to_string()
             }
-            SettingsRow::DotColorMode => {
-                "Color of the \u{25cf} marking a session's active window: a fixed color, or the session's own group color."
+            SettingsRow::DotColorMode => match state.dot_color_mode {
+                DotColorMode::Static => "The active-window \u{25cf} uses a fixed color.",
+                DotColorMode::Group => "The active-window \u{25cf} uses its group's color.",
             }
-            SettingsRow::ColorPolicy => {
-                "How a new group picks its header color: Rotate, Random, or Static."
+            .to_string(),
+            SettingsRow::ColorPolicy => match state.new_group_color_policy {
+                ColorPolicy::Rotate => "A new group's header color rotates through the active palette.",
+                ColorPolicy::Random => "A new group's header color is picked randomly from the palette.",
+                ColorPolicy::Static => "A new group's header color is always the same fixed color.",
             }
+            .to_string(),
             SettingsRow::Palette | SettingsRow::PaletteColor(_) => {
-                "Which of the 16 terminal colors are in rotation for new group headers."
+                "Which of the 16 terminal colors are in rotation for new group headers.".to_string()
             }
         }
     }
@@ -118,11 +150,6 @@ impl PickerState {
         self.settings_ui.palette_expanded
     }
 
-    /// Whether the Attached session color picker is currently expanded.
-    pub fn attached_color_expanded(&self) -> bool {
-        self.settings_ui.attached_color_expanded
-    }
-
     /// Whether the Border color picker is currently expanded.
     pub fn border_color_expanded(&self) -> bool {
         self.settings_ui.border_color_expanded
@@ -133,11 +160,10 @@ impl PickerState {
         self.settings_ui.shortcut_color_expanded
     }
 
-    /// The flat, ordered list of settings rows currently on screen. Four
-    /// expandable sections (Attached session color, Border color, Shortcut
-    /// color, Color palette) each splice their child rows in directly below
-    /// themselves while expanded, same shape as the original
-    /// Palette/PaletteColor pattern.
+    /// The flat, ordered list of settings rows currently on screen. Three
+    /// expandable sections (Border color, Shortcut color, Color palette) each
+    /// splice their child rows in directly below themselves while expanded,
+    /// same shape as the original Palette/PaletteColor pattern.
     pub fn settings_visible_rows(&self) -> Vec<SettingsRow> {
         let mut rows = vec![
             SettingsRow::DefaultMode,
@@ -151,11 +177,6 @@ impl PickerState {
             SettingsRow::InboxIcon,
             SettingsRow::AttachedColor,
         ];
-        if self.settings_ui.attached_color_expanded {
-            for i in 0..ALL_NAMED_COLORS.len() {
-                rows.push(SettingsRow::AttachedColorOption(i));
-            }
-        }
         rows.push(SettingsRow::BorderColor);
         if self.settings_ui.border_color_expanded {
             for i in 0..ALL_NAMED_COLORS.len() {
@@ -216,32 +237,17 @@ impl PickerState {
         self.settings_ui.cursor = rows.iter().position(|r| *r == target).unwrap_or(0);
     }
 
-    /// Expand the Attached session color picker with the cursor starting on
-    /// the currently selected color, not row 0 -- opening the picker always
+    /// Expand the Border color picker with the cursor starting on the
+    /// currently selected color, not row 0 -- opening the picker always
     /// lands on the current value, like a standard radio picker.
-    fn expand_attached_color(&mut self) {
-        self.settings_ui.attached_color_expanded = true;
-        let idx = ALL_NAMED_COLORS.iter().position(|c| *c == self.attached_color).unwrap_or(0);
-        self.focus_settings_row(SettingsRow::AttachedColorOption(idx));
-    }
-
-    /// Same as `expand_attached_color`, for Border color.
     fn expand_border_color(&mut self) {
         self.settings_ui.border_color_expanded = true;
         let idx = ALL_NAMED_COLORS.iter().position(|c| *c == self.border_color).unwrap_or(0);
         self.focus_settings_row(SettingsRow::BorderColorOption(idx));
     }
 
-    /// Commit `idx` as the new attached-session color, collapse, and return
-    /// the cursor to the parent row.
-    fn select_attached_color(&mut self, idx: usize) {
-        self.attached_color = ALL_NAMED_COLORS[idx].to_string();
-        self.settings_ui.attached_color_expanded = false;
-        self.dirty = true;
-        self.focus_settings_row(SettingsRow::AttachedColor);
-    }
-
-    /// Same as `select_attached_color`, for Border color.
+    /// Commit `idx` as the new border color, collapse, and return the cursor
+    /// to the parent row.
     fn select_border_color(&mut self, idx: usize) {
         self.border_color = ALL_NAMED_COLORS[idx].to_string();
         self.settings_ui.border_color_expanded = false;
@@ -249,14 +255,14 @@ impl PickerState {
         self.focus_settings_row(SettingsRow::BorderColor);
     }
 
-    /// Same as `expand_attached_color`, for Shortcut highlight color.
+    /// Same as `expand_border_color`, for Shortcut highlight color.
     fn expand_shortcut_color(&mut self) {
         self.settings_ui.shortcut_color_expanded = true;
         let idx = ALL_NAMED_COLORS.iter().position(|c| *c == self.shortcut_color).unwrap_or(0);
         self.focus_settings_row(SettingsRow::ShortcutColorOption(idx));
     }
 
-    /// Same as `select_attached_color`, for Shortcut highlight color.
+    /// Same as `select_border_color`, for Shortcut highlight color.
     fn select_shortcut_color(&mut self, idx: usize) {
         self.shortcut_color = ALL_NAMED_COLORS[idx].to_string();
         self.settings_ui.shortcut_color_expanded = false;
@@ -304,6 +310,11 @@ impl PickerState {
         self.dirty = true;
     }
 
+    fn cycle_attached_color_mode(&mut self) {
+        self.attached_color_mode = self.attached_color_mode.next();
+        self.dirty = true;
+    }
+
     /// `h` on the current settings row: step Default Mode / Color Policy
     /// backward, collapse an expanded section, or (from inside an expanded
     /// section's child row) cancel -- collapse without changing the value --
@@ -325,11 +336,7 @@ impl PickerState {
                 self.inbox_icon = Self::cycle_inbox_icon(&self.inbox_icon, -1);
                 self.dirty = true;
             }
-            SettingsRow::AttachedColor => self.settings_ui.attached_color_expanded = false,
-            SettingsRow::AttachedColorOption(_) => {
-                self.settings_ui.attached_color_expanded = false;
-                self.focus_settings_row(SettingsRow::AttachedColor);
-            }
+            SettingsRow::AttachedColor => self.cycle_attached_color_mode(),
             SettingsRow::BorderColor => self.settings_ui.border_color_expanded = false,
             SettingsRow::BorderColorOption(_) => {
                 self.settings_ui.border_color_expanded = false;
@@ -354,10 +361,10 @@ impl PickerState {
     }
 
     /// `l` on the current settings row: step Default Mode / Color Policy
-    /// forward, or expand a section (Attached session color, Border color,
-    /// Color palette). A no-op on an already-expanded section's child row --
-    /// there is nothing further to expand, and selection there happens via
-    /// `Enter`/`Space` (`settings_activate`), not `l`.
+    /// forward, or expand a section (Border color, Color palette). A no-op
+    /// on an already-expanded section's child row -- there is nothing
+    /// further to expand, and selection there happens via `Enter`/`Space`
+    /// (`settings_activate`), not `l`.
     pub fn settings_step_right(&mut self) {
         match self.current_settings_row() {
             SettingsRow::DefaultMode => {
@@ -375,8 +382,7 @@ impl PickerState {
                 self.inbox_icon = Self::cycle_inbox_icon(&self.inbox_icon, 1);
                 self.dirty = true;
             }
-            SettingsRow::AttachedColor => self.expand_attached_color(),
-            SettingsRow::AttachedColorOption(_) => {}
+            SettingsRow::AttachedColor => self.cycle_attached_color_mode(),
             SettingsRow::BorderColor => self.expand_border_color(),
             SettingsRow::BorderColorOption(_) => {}
             SettingsRow::ShortcutColor => self.expand_shortcut_color(),
@@ -407,10 +413,9 @@ impl PickerState {
             | SettingsRow::NewGroupPosition
             | SettingsRow::ShortcutVisibility
             | SettingsRow::InboxIcon
+            | SettingsRow::AttachedColor
             | SettingsRow::DotColorMode
             | SettingsRow::ColorPolicy => self.settings_step_right(),
-            SettingsRow::AttachedColor => self.expand_attached_color(),
-            SettingsRow::AttachedColorOption(idx) => self.select_attached_color(idx),
             SettingsRow::BorderColor => self.expand_border_color(),
             SettingsRow::BorderColorOption(idx) => self.select_border_color(idx),
             SettingsRow::ShortcutColor => self.expand_shortcut_color(),
@@ -557,20 +562,6 @@ mod tests {
     }
 
     #[test]
-    fn activate_on_an_attached_color_option_commits_and_collapses() {
-        let mut st = settings_state();
-        st.settings_move_cursor(9); // AttachedColor
-        st.settings_step_right(); // expand, cursor lands on index 2 (green)
-        st.settings_move_cursor(-1); // step to index 1 ("red")
-        assert_eq!(st.settings_visible_rows()[st.settings_cursor()], SettingsRow::AttachedColorOption(1));
-        st.settings_activate();
-        assert_eq!(st.attached_color, "red");
-        assert!(st.dirty);
-        assert_eq!(st.settings_visible_rows().len(), 15, "collapsed after committing");
-        assert_eq!(st.settings_cursor(), 9, "cursor returned to the AttachedColor row");
-    }
-
-    #[test]
     fn activate_on_a_shortcut_color_option_commits_and_collapses() {
         let mut st = settings_state();
         st.settings_move_cursor(11); // ShortcutColor
@@ -617,23 +608,6 @@ mod tests {
         st.settings_activate();
         assert!(!st.active_palette.contains(&"cyan".to_string()));
         assert!(st.dirty);
-    }
-
-    #[test]
-    fn attached_color_expands_and_collapses_via_step_right_and_left() {
-        let mut st = settings_state();
-        st.settings_move_cursor(9); // row 9: AttachedColor
-        assert_eq!(st.settings_visible_rows().len(), 15);
-        st.settings_step_right();
-        assert_eq!(st.settings_visible_rows().len(), 15 + 16, "expanded into 16 options");
-        assert_eq!(
-            st.settings_visible_rows()[st.settings_cursor()],
-            SettingsRow::AttachedColorOption(2),
-            "cursor lands on the currently selected color (green, index 2), not row 0"
-        );
-        st.settings_step_left();
-        assert_eq!(st.settings_visible_rows().len(), 15, "collapsed back");
-        assert_eq!(st.settings_cursor(), 9, "cursor returned to the AttachedColor row");
     }
 
     #[test]
@@ -784,31 +758,21 @@ mod tests {
     #[test]
     fn expanding_and_collapsing_palette_still_refocuses_correctly_with_other_sections_expanded() {
         // Regression guard for the dynamic collapse-cursor refactor: Palette's
-        // own index is no longer fixed once AttachedColor/BorderColor/
-        // ShortcutColor can also expand above it.
+        // own index is no longer fixed once BorderColor/ShortcutColor can also
+        // expand above it. (AttachedColor no longer expands since gaining a
+        // Static/Match mode -- see settings_step_left_and_right_toggle_attached_color_mode.)
         let mut st = settings_state();
-        st.settings_move_cursor(9); // AttachedColor
-        st.settings_step_right(); // expand AttachedColor: 16 rows now sit between it and BorderColor/ShortcutColor/DotColorMode/ColorPolicy/Palette
+        st.settings_move_cursor(10); // BorderColor
+        st.settings_step_right(); // expand BorderColor: 16 rows now sit between it and ShortcutColor/DotColorMode/ColorPolicy/Palette
         st.settings_move_cursor(-1);
-        st.settings_step_left(); // collapse AttachedColor again, back to the 15-row layout
+        st.settings_step_left(); // collapse BorderColor again, back to the 15-row layout
         assert_eq!(st.settings_visible_rows().len(), 15);
-        st.settings_move_cursor(5); // AttachedColor(9) -> Palette(14)
+        st.settings_move_cursor(4); // BorderColor(10) -> Palette(14)
         assert_eq!(st.settings_visible_rows()[st.settings_cursor()], SettingsRow::Palette);
         st.settings_step_right(); // expand Palette
         st.settings_move_cursor(1); // first PaletteColor child
         st.settings_step_left(); // collapse
         assert_eq!(st.settings_cursor(), 14, "Palette collapse still lands on index 14");
-    }
-
-    #[test]
-    fn h_on_an_attached_color_option_collapses_without_changing_the_value() {
-        let mut st = settings_state();
-        st.settings_move_cursor(9);
-        st.settings_step_right();
-        st.settings_move_cursor(-1); // onto "red"
-        st.settings_step_left(); // cancel, not activate
-        assert_eq!(st.attached_color, "green", "unchanged: h cancels rather than commits");
-        assert_eq!(st.settings_cursor(), 9);
     }
 
     #[test]
@@ -935,6 +899,23 @@ mod tests {
     }
 
     #[test]
+    fn settings_step_left_and_right_toggle_attached_color_mode() {
+        let mut st = settings_state();
+        assert_eq!(st.attached_color_mode, AttachedColorMode::Static);
+        st.settings_move_cursor(9); // AttachedColor row
+        assert_eq!(st.current_settings_row(), SettingsRow::AttachedColor);
+        st.settings_step_right();
+        assert_eq!(st.attached_color_mode, AttachedColorMode::Match);
+        st.settings_step_right();
+        assert_eq!(st.attached_color_mode, AttachedColorMode::Static, "only two values, so right also wraps");
+        st.settings_step_left();
+        assert_eq!(st.attached_color_mode, AttachedColorMode::Match);
+        assert!(st.dirty);
+        st.settings_activate();
+        assert_eq!(st.attached_color_mode, AttachedColorMode::Static, "Enter/Space also steps forward");
+    }
+
+    #[test]
     fn settings_toggle_dormant_numbering_in_either_direction() {
         let mut st = settings_state();
         st.settings_move_cursor(1); // DormantNumbering
@@ -1055,38 +1036,196 @@ mod tests {
     }
 
     #[test]
-    fn settings_row_description_describes_default_mode() {
-        assert_eq!(
-            SettingsRow::DefaultMode.description(),
-            "Whether the picker opens in Command mode or straight into Search."
-        );
+    fn settings_row_description_reflects_default_mode() {
+        let mut st = settings_state();
+        assert_eq!(SettingsRow::DefaultMode.description(&st), "On launch, rolomux opens in Command mode.");
+        st.default_mode = DefaultMode::Search;
+        assert_eq!(SettingsRow::DefaultMode.description(&st), "On launch, rolomux opens straight into Search.");
     }
 
     #[test]
-    fn settings_row_description_describes_start_focus_mode() {
+    fn settings_row_description_reflects_start_focus_mode() {
+        let mut st = settings_state();
         assert_eq!(
-            SettingsRow::StartFocusMode.description(),
-            "Whether the picker starts in focus mode: Remember the last state, Always start in it, or Never start in it."
+            SettingsRow::StartFocusMode.description(&st),
+            "The picker starts in focus mode based on how you last left it."
         );
+        st.start_focus_mode = StartFocusMode::Always;
+        assert_eq!(SettingsRow::StartFocusMode.description(&st), "The picker always starts in focus mode.");
+        st.start_focus_mode = StartFocusMode::Never;
+        assert_eq!(SettingsRow::StartFocusMode.description(&st), "The picker never starts in focus mode.");
     }
 
     #[test]
     fn settings_row_description_child_rows_reuse_parent_text() {
+        let st = settings_state();
         assert_eq!(
-            SettingsRow::AttachedColorOption(0).description(),
-            SettingsRow::AttachedColor.description()
+            SettingsRow::BorderColorOption(0).description(&st),
+            SettingsRow::BorderColor.description(&st)
         );
         assert_eq!(
-            SettingsRow::BorderColorOption(0).description(),
-            SettingsRow::BorderColor.description()
+            SettingsRow::PaletteColor(0).description(&st),
+            SettingsRow::Palette.description(&st)
         );
         assert_eq!(
-            SettingsRow::PaletteColor(0).description(),
-            SettingsRow::Palette.description()
+            SettingsRow::ShortcutColorOption(0).description(&st),
+            SettingsRow::ShortcutColor.description(&st)
         );
+    }
+
+    #[test]
+    fn settings_row_description_reflects_inbox_icon() {
+        let mut st = settings_state();
+        assert_eq!(st.inbox_icon, "\u{229b}", "default glyph");
         assert_eq!(
-            SettingsRow::ShortcutColorOption(0).description(),
-            SettingsRow::ShortcutColor.description()
+            SettingsRow::InboxIcon.description(&st),
+            "The inbox group's header is prefixed with \u{229b}."
+        );
+        st.inbox_icon = "\u{2606}".to_string();
+        assert_eq!(
+            SettingsRow::InboxIcon.description(&st),
+            "The inbox group's header is prefixed with \u{2606}."
+        );
+    }
+
+    #[test]
+    fn settings_row_description_reflects_dormant_numbering() {
+        let mut st = settings_state();
+        assert!(st.number_dormant_sessions, "default is true");
+        assert_eq!(
+            SettingsRow::DormantNumbering.description(&st),
+            "Visible dormant sessions receive jump numbers (1-20)."
+        );
+        st.number_dormant_sessions = false;
+        assert_eq!(
+            SettingsRow::DormantNumbering.description(&st),
+            "Visible dormant sessions do not receive jump numbers."
+        );
+    }
+
+    #[test]
+    fn settings_row_description_reflects_remember_expanded() {
+        let mut st = settings_state();
+        assert!(!st.remember_expanded_sessions, "default is false");
+        assert_eq!(
+            SettingsRow::RememberExpanded.description(&st),
+            "Expand/collapse state resets each time the popup opens."
+        );
+        st.remember_expanded_sessions = true;
+        assert_eq!(
+            SettingsRow::RememberExpanded.description(&st),
+            "Expand/collapse state persists across popups."
+        );
+    }
+
+    #[test]
+    fn settings_row_description_reflects_session_metric() {
+        let mut st = settings_state();
+        assert_eq!(
+            SettingsRow::SessionMetric.description(&st),
+            "Session timestamps show how long since the session was last active."
+        );
+        st.session_metric = SessionMetric::Age;
+        assert_eq!(
+            SettingsRow::SessionMetric.description(&st),
+            "Session timestamps show how long ago the session was created."
+        );
+        st.session_metric = SessionMetric::Hidden;
+        assert_eq!(SettingsRow::SessionMetric.description(&st), "Session timestamps are hidden.");
+    }
+
+    #[test]
+    fn settings_row_description_reflects_clear_dormant_on_attach() {
+        let mut st = settings_state();
+        assert!(!st.clear_dormant_on_attach, "default is false");
+        assert_eq!(
+            SettingsRow::ClearDormantOnAttach.description(&st),
+            "Attaching to a dormant session doesn't touch its dormant flag."
+        );
+        st.clear_dormant_on_attach = true;
+        assert_eq!(
+            SettingsRow::ClearDormantOnAttach.description(&st),
+            "Attaching to a dormant session automatically clears its dormant flag."
+        );
+    }
+
+    #[test]
+    fn settings_row_description_reflects_new_group_position() {
+        let mut st = settings_state();
+        assert_eq!(st.new_group_position, NewGroupPosition::Bottom, "default is Bottom");
+        assert_eq!(
+            SettingsRow::NewGroupPosition.description(&st),
+            "A newly created group is inserted at the bottom, just above the inbox."
+        );
+        st.new_group_position = NewGroupPosition::Top;
+        assert_eq!(
+            SettingsRow::NewGroupPosition.description(&st),
+            "A newly created group is inserted at the top of the list."
+        );
+    }
+
+    #[test]
+    fn settings_row_description_reflects_shortcut_visibility() {
+        let mut st = settings_state();
+        assert_eq!(st.shortcut_visibility, ShortcutVisibility::Always, "default is Always");
+        assert_eq!(
+            SettingsRow::ShortcutVisibility.description(&st),
+            "The shortcut legend is always visible."
+        );
+        st.shortcut_visibility = ShortcutVisibility::OnDemand;
+        assert_eq!(
+            SettingsRow::ShortcutVisibility.description(&st),
+            "The shortcut legend is hidden until you press ?."
+        );
+    }
+
+    #[test]
+    fn settings_row_description_reflects_dot_color_mode() {
+        let mut st = settings_state();
+        assert_eq!(st.dot_color_mode, DotColorMode::Static, "default is Static");
+        assert_eq!(
+            SettingsRow::DotColorMode.description(&st),
+            "The active-window \u{25cf} uses a fixed color."
+        );
+        st.dot_color_mode = DotColorMode::Group;
+        assert_eq!(
+            SettingsRow::DotColorMode.description(&st),
+            "The active-window \u{25cf} uses its group's color."
+        );
+    }
+
+    #[test]
+    fn settings_row_description_reflects_color_policy() {
+        let mut st = settings_state();
+        assert_eq!(st.new_group_color_policy, ColorPolicy::Rotate, "default is Rotate");
+        assert_eq!(
+            SettingsRow::ColorPolicy.description(&st),
+            "A new group's header color rotates through the active palette."
+        );
+        st.new_group_color_policy = ColorPolicy::Random;
+        assert_eq!(
+            SettingsRow::ColorPolicy.description(&st),
+            "A new group's header color is picked randomly from the palette."
+        );
+        st.new_group_color_policy = ColorPolicy::Static;
+        assert_eq!(
+            SettingsRow::ColorPolicy.description(&st),
+            "A new group's header color is always the same fixed color."
+        );
+    }
+
+    #[test]
+    fn settings_row_description_reflects_attached_color_mode() {
+        let mut st = settings_state();
+        assert_eq!(st.attached_color_mode, AttachedColorMode::Static, "default is Static");
+        assert_eq!(
+            SettingsRow::AttachedColor.description(&st),
+            "The attached session's dot and name use a fixed color."
+        );
+        st.attached_color_mode = AttachedColorMode::Match;
+        assert_eq!(
+            SettingsRow::AttachedColor.description(&st),
+            "The attached session's dot and name match its group's color."
         );
     }
 

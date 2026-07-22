@@ -85,10 +85,24 @@ pub(super) fn draw_settings(frame: &mut Frame, state: &PickerState, inner: Rect)
                 settings_value_line("Inbox icon", &state.inbox_icon, selected)
             }
             SettingsRow::AttachedColor => {
-                settings_color_line("Attached session color", &state.attached_color, state.attached_color_expanded(), selected)
-            }
-            SettingsRow::AttachedColorOption(idx) => {
-                settings_color_option_line(ALL_NAMED_COLORS[*idx], &state.attached_color, selected)
+                let mut spans = vec![
+                    gutter_span(),
+                    Span::raw(" "),
+                    Span::styled("Attached session color", Style::default().add_modifier(Modifier::BOLD)),
+                    Span::styled(
+                        format!("  {}", attached_color_mode_label(state.attached_color_mode)),
+                        secondary(selected),
+                    ),
+                ];
+                if state.attached_color_mode == AttachedColorMode::Static {
+                    spans.push(Span::raw("  "));
+                    spans.push(Span::styled(
+                        "██",
+                        Style::default().fg(color_from_name(&state.attached_color)),
+                    ));
+                    spans.push(Span::styled(format!(" {}", state.attached_color), secondary(selected)));
+                }
+                Line::from(spans)
             }
             SettingsRow::BorderColor => {
                 settings_color_line("Border color", &state.border_color, state.border_color_expanded(), selected)
@@ -178,7 +192,7 @@ pub(super) fn draw_settings(frame: &mut Frame, state: &PickerState, inner: Rect)
     frame.render_stateful_widget(list, list_area, &mut list_state);
 
     let rule = "─".repeat(footer_area.width as usize);
-    let current_description = rows[state.settings_cursor().min(rows.len().saturating_sub(1))].description();
+    let current_description = rows[state.settings_cursor().min(rows.len().saturating_sub(1))].description(state);
     let footer = Paragraph::new(vec![
         Line::from(Span::styled(rule, Style::default().fg(DIM))),
         Line::from(Span::styled(current_description, Style::default())),
@@ -314,6 +328,13 @@ fn dot_color_mode_label(m: DotColorMode) -> &'static str {
     match m {
         DotColorMode::Static => "Static",
         DotColorMode::Group => "Group",
+    }
+}
+
+fn attached_color_mode_label(m: AttachedColorMode) -> &'static str {
+    match m {
+        AttachedColorMode::Static => "Static",
+        AttachedColorMode::Match => "Group",
     }
 }
 

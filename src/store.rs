@@ -1,5 +1,5 @@
 use crate::model::{
-    ColorPolicy, DefaultMode, DotColorMode, Group, HEADER_COLORS, NewGroupPosition, SessionMetric,
+    AttachedColorMode, ColorPolicy, DefaultMode, DotColorMode, Group, HEADER_COLORS, NewGroupPosition, SessionMetric,
     ShortcutVisibility, StartFocusMode, ensure_inbox_last, ensure_single_inbox,
 };
 use serde::Deserialize;
@@ -37,6 +37,7 @@ pub struct Config {
     pub static_color: String,
     pub active_palette: Vec<String>,
     pub attached_color: String,
+    pub attached_color_mode: AttachedColorMode,
     pub border_color: String,
     pub inbox_icon: String,
     pub remember_expanded_sessions: bool,
@@ -75,6 +76,7 @@ impl Default for Config {
             static_color: "cyan".to_string(),
             active_palette: default_active_palette(),
             attached_color: "green".to_string(),
+            attached_color_mode: AttachedColorMode::default(),
             border_color: "green".to_string(),
             inbox_icon: "⊛".to_string(),
             remember_expanded_sessions: false,
@@ -120,6 +122,8 @@ struct RawSettings {
     #[serde(default)]
     attached_color: Option<String>,
     #[serde(default)]
+    attached_color_mode: Option<String>,
+    #[serde(default)]
     border_color: Option<String>,
     #[serde(default)]
     inbox_icon: Option<String>,
@@ -149,6 +153,7 @@ struct OutSettings {
     static_color: String,
     active_palette: Vec<String>,
     attached_color: String,
+    attached_color_mode: String,
     border_color: String,
     inbox_icon: String,
     remember_expanded_sessions: bool,
@@ -268,6 +273,12 @@ impl Config {
             .unwrap_or_default();
         let static_color = raw.settings.static_color.unwrap_or_else(|| "cyan".to_string());
         let attached_color = raw.settings.attached_color.unwrap_or_else(|| "green".to_string());
+        let attached_color_mode = raw
+            .settings
+            .attached_color_mode
+            .as_deref()
+            .map(AttachedColorMode::from_config_str)
+            .unwrap_or_default();
         let border_color = raw.settings.border_color.unwrap_or_else(|| "green".to_string());
         let inbox_icon = raw.settings.inbox_icon.unwrap_or_else(|| "⊛".to_string());
         let active_palette = raw
@@ -314,6 +325,7 @@ impl Config {
             static_color,
             active_palette,
             attached_color,
+            attached_color_mode,
             border_color,
             inbox_icon,
             remember_expanded_sessions: raw.settings.remember_expanded_sessions.unwrap_or(false),
@@ -361,6 +373,7 @@ impl Config {
                 static_color: self.static_color.clone(),
                 active_palette: self.active_palette.clone(),
                 attached_color: self.attached_color.clone(),
+                attached_color_mode: self.attached_color_mode.as_config_str().to_string(),
                 border_color: self.border_color.clone(),
                 inbox_icon: self.inbox_icon.clone(),
                 remember_expanded_sessions: self.remember_expanded_sessions,
@@ -1221,6 +1234,29 @@ inbox = true
         std::fs::write(&path, "config_version = 4\n").unwrap();
         let cfg = Config::load_from(&path);
         assert_eq!(cfg.start_focus_mode, StartFocusMode::Remember);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn round_trips_attached_color_mode() {
+        let dir = std::env::temp_dir().join(format!("rolomux-attached-color-mode-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.toml");
+        let cfg = Config { attached_color_mode: AttachedColorMode::Match, ..Default::default() };
+        cfg.save_to(&path).unwrap();
+        let reloaded = Config::load_from(&path);
+        assert_eq!(reloaded.attached_color_mode, AttachedColorMode::Match);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn legacy_config_without_attached_color_mode_defaults_to_static() {
+        let dir = std::env::temp_dir().join(format!("rolomux-noattachedmode-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.toml");
+        std::fs::write(&path, "config_version = 4\n").unwrap();
+        let cfg = Config::load_from(&path);
+        assert_eq!(cfg.attached_color_mode, AttachedColorMode::Static);
         std::fs::remove_dir_all(&dir).ok();
     }
 }

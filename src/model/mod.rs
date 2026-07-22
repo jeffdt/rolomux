@@ -73,6 +73,7 @@ pub struct PickerState {
     pub static_color: String,
     pub active_palette: Vec<String>,
     pub attached_color: String,
+    pub attached_color_mode: AttachedColorMode,
     pub border_color: String,
     pub dot_color_mode: DotColorMode,
     pub dot_color: String,
@@ -143,6 +144,7 @@ impl PickerState {
             static_color: config.static_color.clone(),
             active_palette: config.active_palette.clone(),
             attached_color: config.attached_color.clone(),
+            attached_color_mode: config.attached_color_mode,
             border_color: config.border_color.clone(),
             dot_color_mode: config.dot_color_mode,
             dot_color: config.dot_color.clone(),
@@ -353,6 +355,7 @@ impl PickerState {
         config.static_color = self.static_color.clone();
         config.active_palette = self.active_palette.clone();
         config.attached_color = self.attached_color.clone();
+        config.attached_color_mode = self.attached_color_mode;
         config.border_color = self.border_color.clone();
         config.inbox_icon = self.inbox_icon.clone();
         config.remember_expanded_sessions = self.remember_expanded_sessions;
@@ -988,6 +991,7 @@ mod tests {
             dot_color: "lightred".to_string(),
             shortcut_color: "lightyellow".to_string(),
             shortcut_visibility: ShortcutVisibility::OnDemand,
+            attached_color_mode: AttachedColorMode::Match,
             ..Default::default()
         };
         let state = PickerState::build(sessions, &cfg);
@@ -1001,6 +1005,7 @@ mod tests {
         assert_eq!(state.dot_color, "lightred");
         assert_eq!(state.shortcut_color, "lightyellow");
         assert_eq!(state.shortcut_visibility, ShortcutVisibility::OnDemand);
+        assert_eq!(state.attached_color_mode, AttachedColorMode::Match);
     }
 
     #[test]
@@ -1075,6 +1080,7 @@ mod tests {
         let mut cfg = Config::default();
         let mut st = PickerState::build(vec![s("a", 1, 1)], &cfg);
         st.attached_color = "magenta".to_string();
+        st.attached_color_mode = AttachedColorMode::Match;
         st.border_color = "yellow".to_string();
         st.default_mode = DefaultMode::Search;
         st.number_dormant_sessions = false;
@@ -1096,6 +1102,7 @@ mod tests {
         let reloaded = Config::load_from(&path);
 
         assert_eq!(reloaded.attached_color, "magenta");
+        assert_eq!(reloaded.attached_color_mode, AttachedColorMode::Match);
         assert_eq!(reloaded.border_color, "yellow");
         assert_eq!(reloaded.default_mode, DefaultMode::Search);
         assert!(!reloaded.number_dormant_sessions);
