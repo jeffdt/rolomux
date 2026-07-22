@@ -535,10 +535,12 @@ impl PickerState {
 
     /// Applied exactly once, from `PickerState::build`, when a fresh popup
     /// opens: under `Rotate`/`Random`, replaces `border_color` for this run
-    /// and marks the state dirty so it's persisted (which is also what lets
-    /// `Rotate` continue in sequence on the next launch). A no-op under
-    /// `Static`. Deliberately not called from `build_with_focus` /
-    /// `build_with_expanded` directly, so a mid-session rebuild (e.g. after
+    /// and marks the state dirty so it's persisted. For `Rotate` this is
+    /// load-bearing -- it's what lets the sequence continue from the next
+    /// launch; for `Random` the persist is cosmetic (each open re-rolls
+    /// regardless), just kept so the saved file matches what's on screen.
+    /// A no-op under `Static`. Deliberately not called from `build_with_focus`
+    /// / `build_with_expanded` directly, so a mid-session rebuild (e.g. after
     /// a rename) never re-rolls the border color.
     pub fn apply_border_color_policy(&mut self) {
         match self.border_color_policy {
