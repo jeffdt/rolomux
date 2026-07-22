@@ -234,6 +234,42 @@ impl DotColorMode {
     }
 }
 
+/// Governs the color used for the session your tmux client is attached to
+/// (`Config::attached_color`, cycled via `c` same as `dot_color`/`border_color`
+/// /`shortcut_color`). `Static` uses that single fixed color; `Match` inherits
+/// the color of the attached session's own group instead, same idea as
+/// `DotColorMode::Group` for the active-window dot. Only two values, so
+/// `next` covers both `h` and `l`, same shape as `DotColorMode`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum AttachedColorMode {
+    #[default]
+    Static,
+    Match,
+}
+
+impl AttachedColorMode {
+    pub fn from_config_str(s: &str) -> AttachedColorMode {
+        match s {
+            "match" => AttachedColorMode::Match,
+            _ => AttachedColorMode::Static,
+        }
+    }
+
+    pub fn as_config_str(self) -> &'static str {
+        match self {
+            AttachedColorMode::Static => "static",
+            AttachedColorMode::Match => "match",
+        }
+    }
+
+    pub fn next(self) -> AttachedColorMode {
+        match self {
+            AttachedColorMode::Static => AttachedColorMode::Match,
+            AttachedColorMode::Match => AttachedColorMode::Static,
+        }
+    }
+}
+
 /// Governs whether the footer's key-shortcut legend renders on every frame
 /// or stays hidden until the transient `?` toggle (`PickerState::toggle_shortcuts`)
 /// reveals it for the rest of the current popup's lifetime. Only two values,
@@ -616,6 +652,22 @@ mod tests {
         assert_eq!(DotColorMode::from_config_str("group"), DotColorMode::Group);
         assert_eq!(DotColorMode::from_config_str("static"), DotColorMode::Static);
         assert_eq!(DotColorMode::from_config_str("garbage"), DotColorMode::Static);
+    }
+
+    #[test]
+    fn attached_color_mode_next_toggles_and_round_trips_config_str() {
+        assert_eq!(AttachedColorMode::Static.next(), AttachedColorMode::Match);
+        assert_eq!(AttachedColorMode::Match.next(), AttachedColorMode::Static);
+        assert_eq!(AttachedColorMode::Static.as_config_str(), "static");
+        assert_eq!(AttachedColorMode::Match.as_config_str(), "match");
+        assert_eq!(AttachedColorMode::default(), AttachedColorMode::Static);
+    }
+
+    #[test]
+    fn attached_color_mode_parses_with_static_fallback() {
+        assert_eq!(AttachedColorMode::from_config_str("match"), AttachedColorMode::Match);
+        assert_eq!(AttachedColorMode::from_config_str("static"), AttachedColorMode::Static);
+        assert_eq!(AttachedColorMode::from_config_str("garbage"), AttachedColorMode::Static);
     }
 
     #[test]
