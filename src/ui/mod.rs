@@ -224,7 +224,7 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
     }).count();
     let wide_numbering = numbered_session_count > 10;
     let meta = MetaLayout::compute(session_refs, list_area.width, true, wide_numbering);
-    let attached_color = color_from_name(&state.attached_color);
+    let attached_static_color = color_from_name(&state.attached_color);
     let dot_static_color = color_from_name(&state.dot_color);
 
     let group_ids = state.ordered_group_ids();
@@ -281,6 +281,10 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
                     None
                 };
                 let rename_buf = if selected && state.renaming() { state.rename_edit_buffer() } else { None };
+                let attached_color = match state.attached_color_mode {
+                    AttachedColorMode::Match => current_gutter_color,
+                    AttachedColorMode::Static => attached_static_color,
+                };
                 items.push(session_item(
                     sess,
                     state.is_expanded(&sess.name),
@@ -397,7 +401,7 @@ fn draw_search(frame: &mut Frame, state: &PickerState, inner: Rect) {
         // Search always suppresses jump numbers (see module doc), so the
         // wide-numbering column is never needed here.
         let meta = MetaLayout::compute(results.iter().copied(), chunks[1].width, false, false);
-        let attached_color = color_from_name(&state.attached_color);
+        let attached_static_color = color_from_name(&state.attached_color);
         let dot_static_color = color_from_name(&state.dot_color);
         // Widest age string among tagged rows, so every tag in this render
         // starts at the same column regardless of its own row's age width.
@@ -426,6 +430,13 @@ fn draw_search(frame: &mut Frame, state: &PickerState, inner: Rect) {
                         let age_pad = age_width.saturating_sub(this_age_width);
                         (state.groups[gi].name.clone(), group_color(&state.groups[gi], gi, &state.active_palette), age_pad)
                     });
+                    let attached_color = match state.attached_color_mode {
+                        AttachedColorMode::Match => state
+                            .group_index_of(&sess.name)
+                            .map(|gi| group_color(&state.groups[gi], gi, &state.active_palette))
+                            .unwrap_or(attached_static_color),
+                        AttachedColorMode::Static => attached_static_color,
+                    };
                     items.push(session_item(sess, state.is_expanded(&sess.name), selected, None, meta, state.is_dormant(&sess.name), attached_color, group_tag, None, state.session_metric, None, None, false));
                 }
                 Row::Window(si, wi) => {
@@ -3775,6 +3786,60 @@ mod tests {
         terminal.draw(|f| draw(f, &state)).unwrap();
         let buf = terminal.backend().buffer().clone();
         assert_eq!(find_dot_color(&buf), Some(Color::Magenta), "Group mode picks up the tools group's color");
+    }
+
+    /// Shared setup for the attached-session-color tests: one attached
+    /// session filed in a "magenta" group so Match mode's inherited color is
+    /// unambiguous against the Static default ("green").
+    fn attached_color_test_state(cfg_overrides: Config) -> PickerState {
+        let sessions = vec![
+            Session { id: String::new(), name: "claude".into(), activity: 30, created: 1, attached: true,
+                      windows: vec![] },
+        ];
+        let cfg = Config {
+            groups: vec![Group { name: "tools".into(), members: vec!["claude".into()], color: "magenta".into(), ..Default::default() }],
+            ..cfg_overrides
+        };
+        PickerState::build(sessions, &cfg)
+    }
+
+    #[test]
+    fn attached_color_static_mode_uses_the_configured_color_not_the_group_color() {
+        let state = attached_color_test_state(Config { attached_color: "lightblue".to_string(), ..Default::default() });
+        assert_eq!(state.attached_color_mode, AttachedColorMode::Static, "default mode is Static");
+        let backend = TestBackend::new(80, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| draw(f, &state)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+        let y = (0..buf.area.height).find(|&y| find_text_x(&buf, y, "claude").is_some()).unwrap();
+        let x = find_text_x(&buf, y, "claude").unwrap();
+        assert_eq!(buf[(x, y)].style().fg, Some(Color::LightBlue), "Static mode ignores the group color");
+    }
+
+    #[test]
+    fn attached_color_match_mode_inherits_the_sessions_group_color() {
+        let state = attached_color_test_state(Config { attached_color_mode: AttachedColorMode::Match, ..Default::default() });
+        let backend = TestBackend::new(80, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| draw(f, &state)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+        let y = (0..buf.area.height).find(|&y| find_text_x(&buf, y, "claude").is_some()).unwrap();
+        let x = find_text_x(&buf, y, "claude").unwrap();
+        assert_eq!(buf[(x, y)].style().fg, Some(Color::Magenta), "Match mode picks up the tools group's color");
+    }
+
+    #[test]
+    fn attached_color_match_mode_also_applies_in_search_view() {
+        let mut state = attached_color_test_state(Config { attached_color_mode: AttachedColorMode::Match, ..Default::default() });
+        state.mode = Mode::Search;
+        state.search_push('c');
+        let backend = TestBackend::new(80, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| draw(f, &state)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+        let y = (0..buf.area.height).find(|&y| find_text_x(&buf, y, "claude").is_some()).unwrap();
+        let x = find_text_x(&buf, y, "claude").unwrap();
+        assert_eq!(buf[(x, y)].style().fg, Some(Color::Magenta), "Match mode picks up the group color in search too");
     }
 
     #[test]
