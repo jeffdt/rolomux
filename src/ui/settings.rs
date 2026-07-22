@@ -334,7 +334,7 @@ fn dot_color_mode_label(m: DotColorMode) -> &'static str {
 fn attached_color_mode_label(m: AttachedColorMode) -> &'static str {
     match m {
         AttachedColorMode::Static => "Static",
-        AttachedColorMode::Match => "Match",
+        AttachedColorMode::Match => "Group",
     }
 }
 

@@ -3210,7 +3210,7 @@ mod tests {
             .lines()
             .find(|l| l.contains("Attached session color"))
             .expect("row rendered");
-        assert!(row.contains("Match"), "mode label updates: {row:?}");
+        assert!(row.contains("Group"), "mode label matches DotColorMode's own Group label: {row:?}");
         assert!(!row.contains("green"), "no swatch/color name while Match: {row:?}");
     }
 

@@ -70,9 +70,9 @@ impl SettingsRow {
             }
             .to_string(),
             SettingsRow::SessionMetric => match state.session_metric {
-                SessionMetric::Recency => "The row's trailing timestamp shows Recency.",
-                SessionMetric::Age => "The row's trailing timestamp shows Age.",
-                SessionMetric::Hidden => "The row's trailing timestamp is hidden.",
+                SessionMetric::Recency => "Session timestamps show how long since the session was last active.",
+                SessionMetric::Age => "Session timestamps show how long ago the session was created.",
+                SessionMetric::Hidden => "Session timestamps are hidden.",
             }
             .to_string(),
             SettingsRow::ClearDormantOnAttach => if state.clear_dormant_on_attach {
@@ -99,7 +99,7 @@ impl SettingsRow {
                 ShortcutVisibility::OnDemand => "The shortcut legend is hidden until you press ?.",
             }
             .to_string(),
-            SettingsRow::InboxIcon => format!("The inbox group's header is prefixed with '{}'.", state.inbox_icon),
+            SettingsRow::InboxIcon => format!("The inbox group's header is prefixed with {}.", state.inbox_icon),
             SettingsRow::AttachedColor => match state.attached_color_mode {
                 AttachedColorMode::Static => "The attached session's dot and name use a fixed color.",
                 AttachedColorMode::Match => "The attached session's dot and name match its group's color.",
@@ -109,7 +109,7 @@ impl SettingsRow {
                 "rolomux's own border frame color.".to_string()
             }
             SettingsRow::ShortcutColor | SettingsRow::ShortcutColorOption(_) => {
-                "Highlight color for key tokens in the footer's shortcut hints.".to_string()
+                "Highlight color for keys in the shortcut legend.".to_string()
             }
             SettingsRow::DotColorMode => match state.dot_color_mode {
                 DotColorMode::Static => "The active-window \u{25cf} uses a fixed color.",
@@ -1079,12 +1079,12 @@ mod tests {
         assert_eq!(st.inbox_icon, "\u{229b}", "default glyph");
         assert_eq!(
             SettingsRow::InboxIcon.description(&st),
-            "The inbox group's header is prefixed with '\u{229b}'."
+            "The inbox group's header is prefixed with \u{229b}."
         );
         st.inbox_icon = "\u{2606}".to_string();
         assert_eq!(
             SettingsRow::InboxIcon.description(&st),
-            "The inbox group's header is prefixed with '\u{2606}'."
+            "The inbox group's header is prefixed with \u{2606}."
         );
     }
 
@@ -1121,11 +1121,17 @@ mod tests {
     #[test]
     fn settings_row_description_reflects_session_metric() {
         let mut st = settings_state();
-        assert_eq!(SettingsRow::SessionMetric.description(&st), "The row's trailing timestamp shows Recency.");
+        assert_eq!(
+            SettingsRow::SessionMetric.description(&st),
+            "Session timestamps show how long since the session was last active."
+        );
         st.session_metric = SessionMetric::Age;
-        assert_eq!(SettingsRow::SessionMetric.description(&st), "The row's trailing timestamp shows Age.");
+        assert_eq!(
+            SettingsRow::SessionMetric.description(&st),
+            "Session timestamps show how long ago the session was created."
+        );
         st.session_metric = SessionMetric::Hidden;
-        assert_eq!(SettingsRow::SessionMetric.description(&st), "The row's trailing timestamp is hidden.");
+        assert_eq!(SettingsRow::SessionMetric.description(&st), "Session timestamps are hidden.");
     }
 
     #[test]
