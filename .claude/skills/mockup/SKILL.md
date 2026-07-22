@@ -239,6 +239,21 @@ always preserves each pane's 84-col width regardless of window size:
 tmux split-window -t "$tab"
 ```
 
+Write one script per option and label each variant inline in its own title
+row (e.g. `rolomux -- BEFORE arrow` / `rolomux -- AFTER arrow`) so the two
+panes are distinguishable at a glance without relying on pane position or
+memory of which command went where.
+
+`mux send --tab` only reaches a tab's *active* pane, so once split, target
+each pane directly. Grab their IDs first, then send each variant's command
+to its own pane:
+
+```bash
+tmux list-panes -t "$tab" -F '#{pane_id}'
+tmux send-keys -t "%142" "clear && python3 /path/to/variant_a.py" Enter
+tmux send-keys -t "%143" "clear && python3 /path/to/variant_b.py" Enter
+```
+
 ## 7. Cleanup (mandatory, every time)
 
 Once you've reacted to the mockup (approved it, asked for changes, or
