@@ -2059,7 +2059,7 @@ mod tests {
     }
 
     #[test]
-    fn session_swap_marker_renders_bright_up_and_down_arrows_after_a_move() {
+    fn session_swap_marker_renders_only_the_moved_rows_arrow() {
         let sessions = vec![
             Session { id: String::new(), name: "a".into(), activity: 1, created: 1, attached: false, windows: vec![] },
             Session { id: String::new(), name: "b".into(), activity: 1, created: 2, attached: false, windows: vec![] },
@@ -2088,9 +2088,11 @@ mod tests {
         let b_y = row_of("b");
         let a_y = row_of("a");
         let up_x = find_text_x(&buf, b_y, "▲").expect("up arrow on b's (moved) row");
-        let down_x = find_text_x(&buf, a_y, "▼").expect("down arrow on a's (bumped) row");
+        assert!(
+            find_text_x(&buf, a_y, "▲").is_none() && find_text_x(&buf, a_y, "▼").is_none(),
+            "a's (bumped) row gets no marker"
+        );
         assert_eq!(buf[(up_x, b_y)].style().fg, Some(Color::Yellow));
-        assert_eq!(buf[(down_x, a_y)].style().fg, Some(Color::Yellow));
     }
 
     #[test]
@@ -2124,13 +2126,15 @@ mod tests {
         let b_y = row_of("b"); // selected: cursor followed the moved session
         let a_y = row_of("a"); // unselected neighbor
         let up_x = find_text_x(&buf, b_y, "▲").expect("up arrow on b's row");
-        let down_x = find_text_x(&buf, a_y, "▼").expect("down arrow on a's row");
+        assert!(
+            find_text_x(&buf, a_y, "▲").is_none() && find_text_x(&buf, a_y, "▼").is_none(),
+            "a's row gets no marker"
+        );
         assert_eq!(buf[(up_x, b_y)].style().fg, Some(Color::Gray), "selected row: Gray, not DarkGray-on-DarkGray");
-        assert_eq!(buf[(down_x, a_y)].style().fg, Some(Color::DarkGray), "unselected row: plain DarkGray");
     }
 
     #[test]
-    fn group_swap_marker_renders_arrows_in_group_mode() {
+    fn group_swap_marker_renders_only_the_moved_groups_arrow() {
         let mut state = grouped_state();
         state.enter_groups();
         state.group_reorder(1); // G1 (cursor) moves down past G2
@@ -2145,12 +2149,16 @@ mod tests {
                 .find(|&y| find_text_x(&buf, y, name).is_some())
                 .unwrap_or_else(|| panic!("no row contains {name:?}"))
         };
-        assert!(find_text_x(&buf, row_of("G2"), "▲").is_some(), "G2 moved up");
         assert!(find_text_x(&buf, row_of("G1"), "▼").is_some(), "G1 moved down");
+        let g2_y = row_of("G2");
+        assert!(
+            find_text_x(&buf, g2_y, "▲").is_none() && find_text_x(&buf, g2_y, "▼").is_none(),
+            "G2 (bumped) row gets no marker"
+        );
     }
 
     #[test]
-    fn window_swap_marker_renders_arrows_on_expanded_window_rows() {
+    fn window_swap_marker_renders_only_the_moved_windows_arrow() {
         let sessions = vec![Session {
             id: String::new(), name: "work".into(), activity: 1, created: 1, attached: false,
             windows: vec![
@@ -2174,7 +2182,11 @@ mod tests {
                 .unwrap_or_else(|| panic!("no row contains {name:?}"))
         };
         assert!(find_text_x(&buf, row_of("alpha"), "▲").is_some(), "window alpha flashes up");
-        assert!(find_text_x(&buf, row_of("beta"), "▼").is_some(), "window beta flashes down");
+        let beta_y = row_of("beta");
+        assert!(
+            find_text_x(&buf, beta_y, "▲").is_none() && find_text_x(&buf, beta_y, "▼").is_none(),
+            "window beta (bumped) gets no marker"
+        );
     }
 
     #[test]
@@ -2228,7 +2240,10 @@ mod tests {
         let control_y = row_of("control");
 
         let up_x = find_text_x(&buf, short_y, "▲").expect("up arrow on b's (moved) row");
-        let down_x = find_text_x(&buf, long_y, "▼").expect("down arrow on the long-named (bumped) row");
+        assert!(
+            find_text_x(&buf, long_y, "▲").is_none() && find_text_x(&buf, long_y, "▼").is_none(),
+            "the long-named (bumped) row gets no marker"
+        );
 
         // `control` never moved, so its row carries no marker and its
         // window-count digit marks exactly where the shared metadata column
@@ -2239,11 +2254,6 @@ mod tests {
             .expect("control row shows the window-count digit");
 
         assert_eq!(up_x, meta_col_x - 1, "short name's marker must sit one cell before the shared metadata column");
-        assert_eq!(
-            down_x,
-            meta_col_x - 1,
-            "long name's marker must sit one cell before the shared metadata column, same as the short name's"
-        );
     }
 
     #[test]
