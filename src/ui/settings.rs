@@ -249,8 +249,8 @@ fn settings_value_line(label: &str, value: &str, selected: bool) -> Line<'static
 }
 
 /// Render a collapsed single-color settings row: a gutter bar, an expand
-/// glyph, the bold label, a swatch, and the color's name. Shared by
-/// Attached session color and Border color.
+/// glyph, the bold label, a swatch, and the color's name. Used by Shortcut
+/// highlight color, the one remaining row with an expandable direct-pick list.
 fn settings_color_line(label: &str, color_name: &str, expanded: bool, selected: bool) -> Line<'static> {
     let glyph = if expanded { "▾" } else { "▸" };
     Line::from(vec![
