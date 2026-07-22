@@ -40,7 +40,7 @@ const POPUP_MARGIN: u16 = 2;
 const TITLE_CHROME_ROWS: u16 = 1;
 
 const FOOTER_HINT: &str =
-    "/ search · R rename · JK mv · g groups · , settings · d dim · f focus · q quit";
+    "/ search · R rename · JK mv · x kill · g grp · , cfg · d dim · f foc · q quit";
 
 const CREATE_GROUP_HINT: &str =
     "No groups yet: press g then n to create one, then use ⇧J/⇧K to move sessions.";
@@ -336,7 +336,12 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
     // Render the divider and hint row inside the footer area. A pending
     // window-move confirm is destructive if missed, so it renders in
     // WARNING (red) rather than the normal dim hint color.
-    let hint_line = if let Some(warning) = state.pending_window_move_warning() {
+    let hint_line = if let Some(warning) = state.pending_kill_warning() {
+        Line::from(Span::styled(
+            warning,
+            Style::default().fg(WARNING).add_modifier(Modifier::BOLD),
+        ))
+    } else if let Some(warning) = state.pending_window_move_warning() {
         Line::from(Span::styled(
             warning.to_string(),
             Style::default().fg(WARNING).add_modifier(Modifier::BOLD),
@@ -662,11 +667,14 @@ fn footer_rule(width: u16, state: &PickerState) -> String {
 }
 
 fn command_footer_hint(state: &PickerState) -> String {
+    if let Some(warning) = state.pending_kill_warning() {
+        return warning;
+    }
     if let Some(warning) = state.pending_window_move_warning() {
         return warning.to_string();
     }
     if state.focus_mode() {
-        FOOTER_HINT.replace("f focus", "f show")
+        FOOTER_HINT.replace("f foc", "f show")
     } else {
         FOOTER_HINT.to_string()
     }
@@ -886,7 +894,7 @@ fn window_item(
 mod tests {
     use super::*;
 
-    use crate::model::{Action, Group, PickerState, Session, Window, WindowMove};
+    use crate::model::{Action, Group, KillTarget, PickerState, Session, Window, WindowMove};
     use crate::model::test_support::grouped_state;
     use crate::store::Config;
     use ratatui::backend::TestBackend;
@@ -1105,6 +1113,65 @@ mod tests {
     }
 
     #[test]
+    fn draw_shows_pending_kill_warning_in_footer() {
+        let sessions = vec![Session { id: String::new(),
+            name: "work".into(), activity: 1, created: 1, attached: false,
+            windows: vec![Window { index: 0, name: "only".into(), active: true }],
+        }];
+        let cfg = Config::default();
+        let mut st = PickerState::build(sessions, &cfg);
+        st.arm_kill(KillTarget::Session("work".into()), false);
+
+        let text = render_to_string(&st);
+        assert!(text.contains("kill session 'work'"), "armed kill warning should replace the normal footer hint");
+    }
+
+    #[test]
+    fn draw_shows_pending_kill_warning_in_red_not_dim() {
+        let sessions = vec![Session { id: String::new(),
+            name: "work".into(), activity: 1, created: 1, attached: false,
+            windows: vec![Window { index: 0, name: "only".into(), active: true }],
+        }];
+        let cfg = Config::default();
+        let mut st = PickerState::build(sessions, &cfg);
+        st.arm_kill(KillTarget::Session("work".into()), false);
+
+        let backend = TestBackend::new(80, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| draw(f, &st)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+
+        // Mirrors draw_shows_pending_window_move_warning_in_red_not_dim exactly:
+        // the whole warning line is one uniformly-styled Span, so a raw
+        // byte-offset `.find()` is fine here (unlike the multi-style footer
+        // hint line, which needs the column-safe `find_text_x` helper).
+        let mut warning_red = false;
+        for y in 0..buf.area.height {
+            let line: String = (0..buf.area.width).map(|x| buf[(x, y)].symbol()).collect();
+            if let Some(x) = line.find("kill session") {
+                warning_red = buf[(x as u16, y)].style().fg == Some(WARNING);
+            }
+        }
+        assert!(warning_red, "kill warning should render in WARNING (red), not the dim footer color");
+    }
+
+    #[test]
+    fn footer_hint_gains_x_kill_and_still_fits_84_columns() {
+        assert!(FOOTER_HINT.contains("x kill"));
+        assert!(FOOTER_HINT.chars().count() <= 78, "FOOTER_HINT must fit the 78-col footer at real 84-col popup width");
+    }
+
+    #[test]
+    fn command_footer_swaps_foc_for_show_when_focus_mode_is_on() {
+        let sessions = vec![Session { id: String::new(), name: "a".into(), activity: 1, created: 1, attached: false, windows: vec![] }];
+        let cfg = Config { groups: vec![], ..Default::default() };
+        let mut state = PickerState::build(sessions, &cfg);
+        assert!(command_footer_hint(&state).contains("f foc"));
+        state.toggle_focus_mode();
+        assert!(command_footer_hint(&state).contains("f show"));
+    }
+
+    #[test]
     fn draw_hides_create_group_hint_once_a_user_group_exists() {
         let sessions = vec![
             Session { id: String::new(), name: "alpha".into(), activity: 1, created: 1, attached: false, windows: vec![] },
@@ -1268,7 +1335,7 @@ mod tests {
         let hidden_hint = command_footer_hint(&state);
 
         assert_eq!(shown_hint.find("f "), hidden_hint.find("f "));
-        assert!(shown_hint.contains("f focus"));
+        assert!(shown_hint.contains("f foc"));
         assert!(hidden_hint.contains("f show"));
     }
 
@@ -1688,8 +1755,9 @@ mod tests {
         // tmux popup is 84 columns wide; test needs 84 to avoid footer truncation
         let text = render_to_string_sized(&state, 84, 20);
         assert!(text.contains("search"), "footer hint: search present");
-        assert!(text.contains("groups"), "footer hint: groups present");
-        assert!(text.contains("settings"), "footer hint: settings present");
+        assert!(text.contains("grp"), "footer hint: grp present");
+        assert!(text.contains("cfg"), "footer hint: cfg present");
+        assert!(text.contains("kill"), "footer hint: kill present");
         assert!(text.contains("quit"), "footer hint: quit present");
         assert!(text.contains("rename"), "footer hint: rename present");
         assert!(!text.contains("1-9"), "footer no longer spends space on number shortcuts");
@@ -2713,7 +2781,7 @@ mod tests {
         let cfg = Config::default();
         let state = PickerState::build(sessions, &cfg);
         let text = render_to_string(&state);
-        assert!(text.contains("settings"), "footer hint: settings present");
+        assert!(text.contains("cfg"), "footer hint: cfg present");
     }
 
     fn settings_view() -> PickerState {
