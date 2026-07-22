@@ -39,6 +39,7 @@ pub struct Config {
     pub attached_color: String,
     pub attached_color_mode: AttachedColorMode,
     pub border_color: String,
+    pub border_color_policy: ColorPolicy,
     pub inbox_icon: String,
     pub remember_expanded_sessions: bool,
     pub expanded: Vec<String>,
@@ -78,6 +79,7 @@ impl Default for Config {
             attached_color: "green".to_string(),
             attached_color_mode: AttachedColorMode::default(),
             border_color: "green".to_string(),
+            border_color_policy: ColorPolicy::Static,
             inbox_icon: "⊛".to_string(),
             remember_expanded_sessions: false,
             expanded: Vec::new(),
@@ -126,6 +128,8 @@ struct RawSettings {
     #[serde(default)]
     border_color: Option<String>,
     #[serde(default)]
+    border_color_policy: Option<String>,
+    #[serde(default)]
     inbox_icon: Option<String>,
     #[serde(default)]
     remember_expanded_sessions: Option<bool>,
@@ -155,6 +159,7 @@ struct OutSettings {
     attached_color: String,
     attached_color_mode: String,
     border_color: String,
+    border_color_policy: String,
     inbox_icon: String,
     remember_expanded_sessions: bool,
     session_metric: String,
@@ -280,6 +285,12 @@ impl Config {
             .map(AttachedColorMode::from_config_str)
             .unwrap_or_default();
         let border_color = raw.settings.border_color.unwrap_or_else(|| "green".to_string());
+        let border_color_policy = raw
+            .settings
+            .border_color_policy
+            .as_deref()
+            .map(ColorPolicy::from_config_str)
+            .unwrap_or(ColorPolicy::Static);
         let inbox_icon = raw.settings.inbox_icon.unwrap_or_else(|| "⊛".to_string());
         let active_palette = raw
             .settings
@@ -327,6 +338,7 @@ impl Config {
             attached_color,
             attached_color_mode,
             border_color,
+            border_color_policy,
             inbox_icon,
             remember_expanded_sessions: raw.settings.remember_expanded_sessions.unwrap_or(false),
             expanded: raw.expanded,
@@ -375,6 +387,7 @@ impl Config {
                 attached_color: self.attached_color.clone(),
                 attached_color_mode: self.attached_color_mode.as_config_str().to_string(),
                 border_color: self.border_color.clone(),
+                border_color_policy: self.border_color_policy.as_config_str().to_string(),
                 inbox_icon: self.inbox_icon.clone(),
                 remember_expanded_sessions: self.remember_expanded_sessions,
                 session_metric: self.session_metric.as_config_str().to_string(),
@@ -1246,6 +1259,35 @@ inbox = true
         cfg.save_to(&path).unwrap();
         let reloaded = Config::load_from(&path);
         assert_eq!(reloaded.attached_color_mode, AttachedColorMode::Match);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn border_color_policy_defaults_to_static_on_a_fresh_config() {
+        let cfg = Config::default();
+        assert_eq!(cfg.border_color_policy, ColorPolicy::Static);
+    }
+
+    #[test]
+    fn legacy_config_without_border_color_policy_defaults_to_static() {
+        let dir = std::env::temp_dir().join(format!("rolomux-noborderpolicy-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.toml");
+        std::fs::write(&path, "config_version = 4\n").unwrap();
+        let cfg = Config::load_from(&path);
+        assert_eq!(cfg.border_color_policy, ColorPolicy::Static);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn round_trips_border_color_policy() {
+        let dir = std::env::temp_dir().join(format!("rolomux-border-color-policy-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.toml");
+        let cfg = Config { border_color_policy: ColorPolicy::Rotate, ..Default::default() };
+        cfg.save_to(&path).unwrap();
+        let reloaded = Config::load_from(&path);
+        assert_eq!(reloaded.border_color_policy, ColorPolicy::Rotate);
         std::fs::remove_dir_all(&dir).ok();
     }
 
