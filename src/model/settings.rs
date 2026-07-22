@@ -515,6 +515,28 @@ impl PickerState {
             _ => {}
         }
     }
+
+    /// Applied exactly once, from `PickerState::build`, when a fresh popup
+    /// opens: under `Rotate`/`Random`, replaces `border_color` for this run
+    /// and marks the state dirty so it's persisted (which is also what lets
+    /// `Rotate` continue in sequence on the next launch). A no-op under
+    /// `Static`. Deliberately not called from `build_with_focus` /
+    /// `build_with_expanded` directly, so a mid-session rebuild (e.g. after
+    /// a rename) never re-rolls the border color.
+    pub fn apply_border_color_policy(&mut self) {
+        match self.border_color_policy {
+            ColorPolicy::Rotate => {
+                self.border_color = Self::cycle_named_color(&self.border_color);
+                self.dirty = true;
+            }
+            ColorPolicy::Random => {
+                let seed = super::groups::random_seed();
+                self.border_color = ALL_NAMED_COLORS[(seed as usize) % ALL_NAMED_COLORS.len()].to_string();
+                self.dirty = true;
+            }
+            ColorPolicy::Static => {}
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1253,5 +1275,42 @@ mod tests {
     fn shortcut_color_defaults_to_gray() {
         let st = settings_state();
         assert_eq!(st.shortcut_color, "gray");
+    }
+
+    #[test]
+    fn apply_border_color_policy_is_a_noop_under_static() {
+        let mut st = grouped_state();
+        st.border_color_policy = ColorPolicy::Static;
+        st.border_color = "red".to_string();
+        st.dirty = false;
+        st.apply_border_color_policy();
+        assert_eq!(st.border_color, "red");
+        assert!(!st.dirty);
+    }
+
+    #[test]
+    fn apply_border_color_policy_steps_forward_under_rotate() {
+        let mut st = grouped_state();
+        st.border_color_policy = ColorPolicy::Rotate;
+        st.border_color = "green".to_string();
+        st.dirty = false;
+        st.apply_border_color_policy();
+        assert_eq!(st.border_color, "yellow", "green -> yellow, next in ALL_NAMED_COLORS");
+        assert!(st.dirty);
+    }
+
+    #[test]
+    fn apply_border_color_policy_picks_from_all_named_colors_under_random() {
+        let mut st = grouped_state();
+        st.border_color_policy = ColorPolicy::Random;
+        st.border_color = "green".to_string();
+        st.dirty = false;
+        st.apply_border_color_policy();
+        assert!(
+            ALL_NAMED_COLORS.contains(&st.border_color.as_str()),
+            "expected one of the 16 named colors, got {}",
+            st.border_color
+        );
+        assert!(st.dirty);
     }
 }

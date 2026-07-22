@@ -229,7 +229,7 @@ pub fn pick_random_color(palette: &[String], seed: u64) -> String {
     palette[(seed as usize) % palette.len()].clone()
 }
 
-fn random_seed() -> u64 {
+pub(super) fn random_seed() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_nanos() as u64)
