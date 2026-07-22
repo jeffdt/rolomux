@@ -11,7 +11,6 @@ use super::*;
 pub(super) struct SettingsUiState {
     cursor: usize,
     palette_expanded: bool,
-    attached_color_expanded: bool,
     border_color_expanded: bool,
     shortcut_color_expanded: bool,
 }
@@ -28,8 +27,6 @@ pub enum SettingsRow {
     ShortcutVisibility,
     InboxIcon,
     AttachedColor,
-    /// Index into `ALL_NAMED_COLORS`.
-    AttachedColorOption(usize),
     BorderColor,
     /// Index into `ALL_NAMED_COLORS`.
     BorderColorOption(usize),
@@ -75,7 +72,7 @@ impl SettingsRow {
                 "Whether the footer's key-shortcut legend is always visible, or hidden until you press ?."
             }
             SettingsRow::InboxIcon => "Which glyph prefixes the inbox group's header.",
-            SettingsRow::AttachedColor | SettingsRow::AttachedColorOption(_) => {
+            SettingsRow::AttachedColor => {
                 "Highlight color for the session your tmux client is attached to."
             }
             SettingsRow::BorderColor | SettingsRow::BorderColorOption(_) => {
@@ -118,11 +115,6 @@ impl PickerState {
         self.settings_ui.palette_expanded
     }
 
-    /// Whether the Attached session color picker is currently expanded.
-    pub fn attached_color_expanded(&self) -> bool {
-        self.settings_ui.attached_color_expanded
-    }
-
     /// Whether the Border color picker is currently expanded.
     pub fn border_color_expanded(&self) -> bool {
         self.settings_ui.border_color_expanded
@@ -133,11 +125,10 @@ impl PickerState {
         self.settings_ui.shortcut_color_expanded
     }
 
-    /// The flat, ordered list of settings rows currently on screen. Four
-    /// expandable sections (Attached session color, Border color, Shortcut
-    /// color, Color palette) each splice their child rows in directly below
-    /// themselves while expanded, same shape as the original
-    /// Palette/PaletteColor pattern.
+    /// The flat, ordered list of settings rows currently on screen. Three
+    /// expandable sections (Border color, Shortcut color, Color palette) each
+    /// splice their child rows in directly below themselves while expanded,
+    /// same shape as the original Palette/PaletteColor pattern.
     pub fn settings_visible_rows(&self) -> Vec<SettingsRow> {
         let mut rows = vec![
             SettingsRow::DefaultMode,
@@ -151,11 +142,6 @@ impl PickerState {
             SettingsRow::InboxIcon,
             SettingsRow::AttachedColor,
         ];
-        if self.settings_ui.attached_color_expanded {
-            for i in 0..ALL_NAMED_COLORS.len() {
-                rows.push(SettingsRow::AttachedColorOption(i));
-            }
-        }
         rows.push(SettingsRow::BorderColor);
         if self.settings_ui.border_color_expanded {
             for i in 0..ALL_NAMED_COLORS.len() {
@@ -216,32 +202,17 @@ impl PickerState {
         self.settings_ui.cursor = rows.iter().position(|r| *r == target).unwrap_or(0);
     }
 
-    /// Expand the Attached session color picker with the cursor starting on
-    /// the currently selected color, not row 0 -- opening the picker always
+    /// Expand the Border color picker with the cursor starting on the
+    /// currently selected color, not row 0 -- opening the picker always
     /// lands on the current value, like a standard radio picker.
-    fn expand_attached_color(&mut self) {
-        self.settings_ui.attached_color_expanded = true;
-        let idx = ALL_NAMED_COLORS.iter().position(|c| *c == self.attached_color).unwrap_or(0);
-        self.focus_settings_row(SettingsRow::AttachedColorOption(idx));
-    }
-
-    /// Same as `expand_attached_color`, for Border color.
     fn expand_border_color(&mut self) {
         self.settings_ui.border_color_expanded = true;
         let idx = ALL_NAMED_COLORS.iter().position(|c| *c == self.border_color).unwrap_or(0);
         self.focus_settings_row(SettingsRow::BorderColorOption(idx));
     }
 
-    /// Commit `idx` as the new attached-session color, collapse, and return
-    /// the cursor to the parent row.
-    fn select_attached_color(&mut self, idx: usize) {
-        self.attached_color = ALL_NAMED_COLORS[idx].to_string();
-        self.settings_ui.attached_color_expanded = false;
-        self.dirty = true;
-        self.focus_settings_row(SettingsRow::AttachedColor);
-    }
-
-    /// Same as `select_attached_color`, for Border color.
+    /// Commit `idx` as the new border color, collapse, and return the cursor
+    /// to the parent row.
     fn select_border_color(&mut self, idx: usize) {
         self.border_color = ALL_NAMED_COLORS[idx].to_string();
         self.settings_ui.border_color_expanded = false;
@@ -249,14 +220,14 @@ impl PickerState {
         self.focus_settings_row(SettingsRow::BorderColor);
     }
 
-    /// Same as `expand_attached_color`, for Shortcut highlight color.
+    /// Same as `expand_border_color`, for Shortcut highlight color.
     fn expand_shortcut_color(&mut self) {
         self.settings_ui.shortcut_color_expanded = true;
         let idx = ALL_NAMED_COLORS.iter().position(|c| *c == self.shortcut_color).unwrap_or(0);
         self.focus_settings_row(SettingsRow::ShortcutColorOption(idx));
     }
 
-    /// Same as `select_attached_color`, for Shortcut highlight color.
+    /// Same as `select_border_color`, for Shortcut highlight color.
     fn select_shortcut_color(&mut self, idx: usize) {
         self.shortcut_color = ALL_NAMED_COLORS[idx].to_string();
         self.settings_ui.shortcut_color_expanded = false;
@@ -304,6 +275,11 @@ impl PickerState {
         self.dirty = true;
     }
 
+    fn cycle_attached_color_mode(&mut self) {
+        self.attached_color_mode = self.attached_color_mode.next();
+        self.dirty = true;
+    }
+
     /// `h` on the current settings row: step Default Mode / Color Policy
     /// backward, collapse an expanded section, or (from inside an expanded
     /// section's child row) cancel -- collapse without changing the value --
@@ -325,11 +301,7 @@ impl PickerState {
                 self.inbox_icon = Self::cycle_inbox_icon(&self.inbox_icon, -1);
                 self.dirty = true;
             }
-            SettingsRow::AttachedColor => self.settings_ui.attached_color_expanded = false,
-            SettingsRow::AttachedColorOption(_) => {
-                self.settings_ui.attached_color_expanded = false;
-                self.focus_settings_row(SettingsRow::AttachedColor);
-            }
+            SettingsRow::AttachedColor => self.cycle_attached_color_mode(),
             SettingsRow::BorderColor => self.settings_ui.border_color_expanded = false,
             SettingsRow::BorderColorOption(_) => {
                 self.settings_ui.border_color_expanded = false;
@@ -354,10 +326,10 @@ impl PickerState {
     }
 
     /// `l` on the current settings row: step Default Mode / Color Policy
-    /// forward, or expand a section (Attached session color, Border color,
-    /// Color palette). A no-op on an already-expanded section's child row --
-    /// there is nothing further to expand, and selection there happens via
-    /// `Enter`/`Space` (`settings_activate`), not `l`.
+    /// forward, or expand a section (Border color, Color palette). A no-op
+    /// on an already-expanded section's child row -- there is nothing
+    /// further to expand, and selection there happens via `Enter`/`Space`
+    /// (`settings_activate`), not `l`.
     pub fn settings_step_right(&mut self) {
         match self.current_settings_row() {
             SettingsRow::DefaultMode => {
@@ -375,8 +347,7 @@ impl PickerState {
                 self.inbox_icon = Self::cycle_inbox_icon(&self.inbox_icon, 1);
                 self.dirty = true;
             }
-            SettingsRow::AttachedColor => self.expand_attached_color(),
-            SettingsRow::AttachedColorOption(_) => {}
+            SettingsRow::AttachedColor => self.cycle_attached_color_mode(),
             SettingsRow::BorderColor => self.expand_border_color(),
             SettingsRow::BorderColorOption(_) => {}
             SettingsRow::ShortcutColor => self.expand_shortcut_color(),
@@ -407,10 +378,9 @@ impl PickerState {
             | SettingsRow::NewGroupPosition
             | SettingsRow::ShortcutVisibility
             | SettingsRow::InboxIcon
+            | SettingsRow::AttachedColor
             | SettingsRow::DotColorMode
             | SettingsRow::ColorPolicy => self.settings_step_right(),
-            SettingsRow::AttachedColor => self.expand_attached_color(),
-            SettingsRow::AttachedColorOption(idx) => self.select_attached_color(idx),
             SettingsRow::BorderColor => self.expand_border_color(),
             SettingsRow::BorderColorOption(idx) => self.select_border_color(idx),
             SettingsRow::ShortcutColor => self.expand_shortcut_color(),
@@ -557,20 +527,6 @@ mod tests {
     }
 
     #[test]
-    fn activate_on_an_attached_color_option_commits_and_collapses() {
-        let mut st = settings_state();
-        st.settings_move_cursor(9); // AttachedColor
-        st.settings_step_right(); // expand, cursor lands on index 2 (green)
-        st.settings_move_cursor(-1); // step to index 1 ("red")
-        assert_eq!(st.settings_visible_rows()[st.settings_cursor()], SettingsRow::AttachedColorOption(1));
-        st.settings_activate();
-        assert_eq!(st.attached_color, "red");
-        assert!(st.dirty);
-        assert_eq!(st.settings_visible_rows().len(), 15, "collapsed after committing");
-        assert_eq!(st.settings_cursor(), 9, "cursor returned to the AttachedColor row");
-    }
-
-    #[test]
     fn activate_on_a_shortcut_color_option_commits_and_collapses() {
         let mut st = settings_state();
         st.settings_move_cursor(11); // ShortcutColor
@@ -617,23 +573,6 @@ mod tests {
         st.settings_activate();
         assert!(!st.active_palette.contains(&"cyan".to_string()));
         assert!(st.dirty);
-    }
-
-    #[test]
-    fn attached_color_expands_and_collapses_via_step_right_and_left() {
-        let mut st = settings_state();
-        st.settings_move_cursor(9); // row 9: AttachedColor
-        assert_eq!(st.settings_visible_rows().len(), 15);
-        st.settings_step_right();
-        assert_eq!(st.settings_visible_rows().len(), 15 + 16, "expanded into 16 options");
-        assert_eq!(
-            st.settings_visible_rows()[st.settings_cursor()],
-            SettingsRow::AttachedColorOption(2),
-            "cursor lands on the currently selected color (green, index 2), not row 0"
-        );
-        st.settings_step_left();
-        assert_eq!(st.settings_visible_rows().len(), 15, "collapsed back");
-        assert_eq!(st.settings_cursor(), 9, "cursor returned to the AttachedColor row");
     }
 
     #[test]
@@ -784,31 +723,21 @@ mod tests {
     #[test]
     fn expanding_and_collapsing_palette_still_refocuses_correctly_with_other_sections_expanded() {
         // Regression guard for the dynamic collapse-cursor refactor: Palette's
-        // own index is no longer fixed once AttachedColor/BorderColor/
-        // ShortcutColor can also expand above it.
+        // own index is no longer fixed once BorderColor/ShortcutColor can also
+        // expand above it. (AttachedColor no longer expands since gaining a
+        // Static/Match mode -- see settings_step_left_and_right_toggle_attached_color_mode.)
         let mut st = settings_state();
-        st.settings_move_cursor(9); // AttachedColor
-        st.settings_step_right(); // expand AttachedColor: 16 rows now sit between it and BorderColor/ShortcutColor/DotColorMode/ColorPolicy/Palette
+        st.settings_move_cursor(10); // BorderColor
+        st.settings_step_right(); // expand BorderColor: 16 rows now sit between it and ShortcutColor/DotColorMode/ColorPolicy/Palette
         st.settings_move_cursor(-1);
-        st.settings_step_left(); // collapse AttachedColor again, back to the 15-row layout
+        st.settings_step_left(); // collapse BorderColor again, back to the 15-row layout
         assert_eq!(st.settings_visible_rows().len(), 15);
-        st.settings_move_cursor(5); // AttachedColor(9) -> Palette(14)
+        st.settings_move_cursor(4); // BorderColor(10) -> Palette(14)
         assert_eq!(st.settings_visible_rows()[st.settings_cursor()], SettingsRow::Palette);
         st.settings_step_right(); // expand Palette
         st.settings_move_cursor(1); // first PaletteColor child
         st.settings_step_left(); // collapse
         assert_eq!(st.settings_cursor(), 14, "Palette collapse still lands on index 14");
-    }
-
-    #[test]
-    fn h_on_an_attached_color_option_collapses_without_changing_the_value() {
-        let mut st = settings_state();
-        st.settings_move_cursor(9);
-        st.settings_step_right();
-        st.settings_move_cursor(-1); // onto "red"
-        st.settings_step_left(); // cancel, not activate
-        assert_eq!(st.attached_color, "green", "unchanged: h cancels rather than commits");
-        assert_eq!(st.settings_cursor(), 9);
     }
 
     #[test]
@@ -932,6 +861,23 @@ mod tests {
         assert!(st.dirty);
         st.settings_activate();
         assert_eq!(st.dot_color_mode, DotColorMode::Static, "Enter/Space also steps forward");
+    }
+
+    #[test]
+    fn settings_step_left_and_right_toggle_attached_color_mode() {
+        let mut st = settings_state();
+        assert_eq!(st.attached_color_mode, AttachedColorMode::Static);
+        st.settings_move_cursor(9); // AttachedColor row
+        assert_eq!(st.current_settings_row(), SettingsRow::AttachedColor);
+        st.settings_step_right();
+        assert_eq!(st.attached_color_mode, AttachedColorMode::Match);
+        st.settings_step_right();
+        assert_eq!(st.attached_color_mode, AttachedColorMode::Static, "only two values, so right also wraps");
+        st.settings_step_left();
+        assert_eq!(st.attached_color_mode, AttachedColorMode::Match);
+        assert!(st.dirty);
+        st.settings_activate();
+        assert_eq!(st.attached_color_mode, AttachedColorMode::Static, "Enter/Space also steps forward");
     }
 
     #[test]
@@ -1072,10 +1018,6 @@ mod tests {
 
     #[test]
     fn settings_row_description_child_rows_reuse_parent_text() {
-        assert_eq!(
-            SettingsRow::AttachedColorOption(0).description(),
-            SettingsRow::AttachedColor.description()
-        );
         assert_eq!(
             SettingsRow::BorderColorOption(0).description(),
             SettingsRow::BorderColor.description()
