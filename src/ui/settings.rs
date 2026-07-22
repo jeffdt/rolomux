@@ -334,4 +334,11 @@ mod tests {
         push_settings_section_header(&mut items, "BEHAVIOR", 40);
         assert_eq!(items.len(), 1, "no blank spacer should precede the very first header");
     }
+
+    #[test]
+    fn start_focus_mode_label_covers_all_three_states() {
+        assert_eq!(start_focus_mode_label(StartFocusMode::Remember), "Remember");
+        assert_eq!(start_focus_mode_label(StartFocusMode::Always), "Always");
+        assert_eq!(start_focus_mode_label(StartFocusMode::Never), "Never");
+    }
 }
