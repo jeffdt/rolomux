@@ -72,19 +72,14 @@ impl PickerState {
             self.groups[gc].color = gc_color;
             self.groups[target].color = target_color;
         }
-        // Captured before the swap: `moved_from_gc` ends up at `target`'s
-        // slot (the direction of travel), `moved_from_target` ends up at
-        // `gc`'s slot (the opposite direction).
+        // Captured before the swap: `moved_from_gc` is the group under the
+        // cursor, the one the user actually moved.
         let moved_from_gc = self.groups[gc].name.clone();
-        let moved_from_target = self.groups[target].name.clone();
         self.groups.swap(gc, target);
         self.group_cursor = target;
         self.dirty = true;
-        if delta < 0 {
-            self.set_group_swap(&moved_from_gc, &moved_from_target);
-        } else {
-            self.set_group_swap(&moved_from_target, &moved_from_gc);
-        }
+        let direction = if delta < 0 { SwapDirection::Up } else { SwapDirection::Down };
+        self.set_group_swap(&moved_from_gc, direction);
     }
 
     /// The message to show in place of the group-mode footer hint after a
@@ -564,12 +559,12 @@ mod tests {
     }
 
     #[test]
-    fn group_reorder_swap_marks_the_moved_group_up_and_the_bumped_one_down() {
+    fn group_reorder_swap_marks_only_the_moved_group() {
         let mut st = grouped_state(); // G1, G2, INBOX (synthesized last)
         st.enter_groups();
         st.group_reorder(1); // G1 (cursor) moves down past G2
-        assert_eq!(st.group_swap_marker("G2"), Some((SwapDirection::Up, true)));
         assert_eq!(st.group_swap_marker("G1"), Some((SwapDirection::Down, true)));
+        assert_eq!(st.group_swap_marker("G2"), None, "neighbor gets no marker");
     }
 
     #[test]

@@ -4,7 +4,7 @@
 //! All of it is pure planning or `members`-list bookkeeping; the actual tmux
 //! `swap-window`/`move-window` calls happen in `main.rs`.
 
-use super::{PickerState, Row};
+use super::{PickerState, Row, SwapDirection};
 
 /// A planned window-level `⇧J`/`⇧K` action, computed by `plan_window_move`.
 /// Pure data -- no tmux call happens until `main.rs` commits it.
@@ -252,19 +252,14 @@ impl PickerState {
     /// inbox, this is also what "freezes" any never-touched fallback
     /// members into a concrete, persisted order on first touch.
     fn commit_swap(&mut self, gi: usize, mut order: Vec<String>, a: usize, b: usize, name: &str) {
-        let other = order[b].clone();
         order.swap(a, b);
         self.groups[gi].members = order;
         self.dirty = true;
         self.focus_session(name);
         // `order` indices run top-to-bottom, so a smaller index is higher on
-        // screen: b < a means `name` moved up (toward index 0), taking
-        // `other`'s old slot while `other` drops into `name`'s old slot.
-        if b < a {
-            self.set_session_swap(name, &other);
-        } else {
-            self.set_session_swap(&other, name);
-        }
+        // screen: b < a means `name` moved up (toward index 0).
+        let direction = if b < a { SwapDirection::Up } else { SwapDirection::Down };
+        self.set_session_swap(name, direction);
     }
 }
 
@@ -548,21 +543,21 @@ mod tests {
     }
 
     #[test]
-    fn move_up_within_group_swap_marks_the_moved_row_up_and_its_neighbor_down() {
+    fn move_up_within_group_swap_marks_only_the_moved_row() {
         let mut st = state_with_two_groups();
         st.focus_session("b");
         st.move_row(-1); // b moves up past a
         assert_eq!(st.session_swap_marker("b"), Some((SwapDirection::Up, true)));
-        assert_eq!(st.session_swap_marker("a"), Some((SwapDirection::Down, true)));
+        assert_eq!(st.session_swap_marker("a"), None, "neighbor gets no marker");
     }
 
     #[test]
-    fn move_down_within_group_swap_marks_the_moved_row_down_and_its_neighbor_up() {
+    fn move_down_within_group_swap_marks_only_the_moved_row() {
         let mut st = state_with_two_groups();
         st.focus_session("a");
         st.move_row(1); // a moves down past b (both still in G1)
         assert_eq!(st.session_swap_marker("a"), Some((SwapDirection::Down, true)));
-        assert_eq!(st.session_swap_marker("b"), Some((SwapDirection::Up, true)));
+        assert_eq!(st.session_swap_marker("b"), None, "neighbor gets no marker");
     }
 
     #[test]

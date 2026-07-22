@@ -268,9 +268,9 @@ fn commit_window_move(
     match &mv {
         // swap-window exchanges the two indices, so the window that was
         // under the cursor (originally at a_index) now lives at b_index.
-        WindowMove::SwapWithin { session, a_index, b_index } => {
+        WindowMove::SwapWithin { session, a_index: _, b_index } => {
             state.focus_window(session, *b_index);
-            state.set_window_swap(session, *b_index, *a_index, delta);
+            state.set_window_swap(session, *b_index, delta);
         }
         // move-window -b/-a place the incoming window at the anchor's own
         // index (before) or one past it (after); it never keeps its
@@ -682,8 +682,8 @@ mod tests {
         );
         assert_eq!(
             state.window_swap_marker("work", 1),
-            Some((crate::model::SwapDirection::Down, true)),
-            "the bumped neighbor (now at 1) flashes down"
+            None,
+            "the bumped neighbor gets no marker"
         );
 
         let _ = std::fs::remove_dir_all(&dir);

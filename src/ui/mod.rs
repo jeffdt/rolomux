@@ -2161,7 +2161,7 @@ mod tests {
         let cfg = Config::default();
         let mut state = PickerState::build(sessions, &cfg);
         state.expand();
-        state.set_window_swap("work", 0, 1, -1); // simulate: "alpha" (now at 0) moved up, "beta" (now at 1) moved down
+        state.set_window_swap("work", 0, -1); // simulate: "alpha" (now at 0) moved up
 
         let backend = TestBackend::new(80, 20);
         let mut terminal = Terminal::new(backend).unwrap();
