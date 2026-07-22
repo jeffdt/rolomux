@@ -20,7 +20,7 @@ const SEL_BG: Color = Color::DarkGray;
 const META_COL: usize = 30;
 /// Fixed cells preceding a session name: jump number (2) + expand glyph and
 /// its trailing space (2).
-const SESSION_PREFIX: usize = 4;
+const SESSION_PREFIX: usize = 6;
 /// Minimum gap kept between the longest visible name and its metadata when the
 /// shared column is anchored to that name rather than to META_COL.
 const META_GAP: usize = 2;
@@ -215,7 +215,15 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
         Row::Session(si) => Some(ordered[*si]),
         Row::Window(..) => None,
     });
-    let meta = MetaLayout::compute(session_refs, list_area.width, true);
+    // True once 11+ sessions receive a jump number, i.e. some row uses the
+    // two-character `⌥N` label instead of a single digit -- see
+    // `MetaLayout::compute`'s doc comment for why this is a render-wide flag.
+    let numbered_session_count = rows.iter().filter(|r| match r {
+        Row::Session(si) => state.number_dormant_sessions || !state.is_dormant(&ordered[*si].name),
+        Row::Window(..) => false,
+    }).count();
+    let wide_numbering = numbered_session_count > 10;
+    let meta = MetaLayout::compute(session_refs, list_area.width, true, wide_numbering);
     let attached_color = color_from_name(&state.attached_color);
     let dot_static_color = color_from_name(&state.dot_color);
 
@@ -286,6 +294,7 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
                     state.session_metric,
                     rename_buf,
                     state.session_swap_marker(&sess.name),
+                    wide_numbering,
                 ));
             }
             Row::Window(si, wi) => {
@@ -310,6 +319,7 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
                     rename_buf,
                     dot_color,
                     state.window_swap_marker(&sess.name, sess.windows[*wi].index),
+                    wide_numbering,
                 ));
             }
         }
@@ -384,7 +394,9 @@ fn draw_search(frame: &mut Frame, state: &PickerState, inner: Rect) {
             Style::default().fg(DIM),
         ))));
     } else {
-        let meta = MetaLayout::compute(results.iter().copied(), chunks[1].width, false);
+        // Search always suppresses jump numbers (see module doc), so the
+        // wide-numbering column is never needed here.
+        let meta = MetaLayout::compute(results.iter().copied(), chunks[1].width, false, false);
         let attached_color = color_from_name(&state.attached_color);
         let dot_static_color = color_from_name(&state.dot_color);
         // Widest age string among tagged rows, so every tag in this render
@@ -414,7 +426,7 @@ fn draw_search(frame: &mut Frame, state: &PickerState, inner: Rect) {
                         let age_pad = age_width.saturating_sub(this_age_width);
                         (state.groups[gi].name.clone(), group_color(&state.groups[gi], gi, &state.active_palette), age_pad)
                     });
-                    items.push(session_item(sess, state.is_expanded(&sess.name), selected, None, meta, state.is_dormant(&sess.name), attached_color, group_tag, None, state.session_metric, None, None));
+                    items.push(session_item(sess, state.is_expanded(&sess.name), selected, None, meta, state.is_dormant(&sess.name), attached_color, group_tag, None, state.session_metric, None, None, false));
                 }
                 Row::Window(si, wi) => {
                     let sess = results[*si];
@@ -431,7 +443,7 @@ fn draw_search(frame: &mut Frame, state: &PickerState, inner: Rect) {
                             .unwrap_or(dot_static_color),
                         DotColorMode::Static => dot_static_color,
                     };
-                    items.push(window_item(&sess.windows[*wi], last, selected, None, dormant, None, dot_color, None));
+                    items.push(window_item(&sess.windows[*wi], last, selected, None, dormant, None, dot_color, None, false));
                 }
             }
         }
@@ -740,13 +752,21 @@ impl MetaLayout {
     /// capped so metadata never falls off the card. `has_gutter` reserves one
     /// extra leading column when the caller renders a colored gutter bar
     /// before the jump number (draw_command); draw_search renders no gutter
-    /// and must not reserve space for one.
-    fn compute<'a>(sessions: impl Iterator<Item = &'a Session>, width: u16, has_gutter: bool) -> Self {
+    /// and must not reserve space for one. `wide_numbering` reserves one more
+    /// column for every row in this render (not just the affected ones) when
+    /// any session reached the two-character `⌥N` jump label (11-20): that
+    /// label has no trailing space of its own, unlike single-digit labels, so
+    /// the attached-session dot would otherwise land jammed against the
+    /// digit on that one row. Kept as a single render-wide flag rather than
+    /// per-row width so this stays a uniform, alignment-safe column count,
+    /// not per-row conditional math.
+    fn compute<'a>(sessions: impl Iterator<Item = &'a Session>, width: u16, has_gutter: bool, wide_numbering: bool) -> Self {
         let gutter_width = if has_gutter { 1 } else { 0 };
+        let numbering_pad = if wide_numbering { 1 } else { 0 };
         let mut longest_prefix = 0usize;
         let mut count_width = 0usize;
         for s in sessions {
-            longest_prefix = longest_prefix.max(gutter_width + SESSION_PREFIX + s.name.chars().count());
+            longest_prefix = longest_prefix.max(gutter_width + SESSION_PREFIX + numbering_pad + s.name.chars().count());
             count_width = count_width.max(window_count(s.windows.len()).chars().count());
         }
         let target = META_COL.max(longest_prefix + META_GAP);
@@ -785,6 +805,7 @@ fn session_item(
     metric: SessionMetric,
     rename_buf: Option<&str>,
     swap_marker: Option<(SwapDirection, bool)>,
+    wide_numbering: bool,
 ) -> ListItem<'static> {
     let glyph = if expanded { "▾" } else { "▸" };
     let num = match number { Some(n) => jump_label(n), None => "  ".to_string() };
@@ -795,19 +816,26 @@ fn session_item(
     } else {
         Style::default()
     };
+    let dot = if sess.attached { "●" } else { " " };
+    let dot_style = if dormant { dormant_session(selected) } else { Style::default().fg(attached_color) };
     if let Some(buf) = rename_buf {
         let mut spans = Vec::new();
         if let Some(color) = gutter {
             spans.push(Span::styled("│", Style::default().fg(color)));
         }
         spans.push(Span::styled(num, secondary(selected)));
+        if wide_numbering {
+            spans.push(Span::raw(" "));
+        }
+        spans.push(Span::styled(format!("{dot} "), dot_style));
         spans.push(Span::styled(format!("{glyph} "), secondary(selected)));
         spans.push(Span::styled(buf.to_string(), Style::default().add_modifier(Modifier::BOLD)));
         spans.push(Span::raw("▏"));
         return ListItem::new(Line::from(spans));
     }
     let gutter_width = if gutter.is_some() { 1 } else { 0 };
-    let prefix_len = gutter_width + SESSION_PREFIX + sess.name.chars().count(); // gutter + num + "glyph " + name
+    let numbering_pad = if wide_numbering { 1 } else { 0 };
+    let prefix_len = gutter_width + SESSION_PREFIX + numbering_pad + sess.name.chars().count(); // gutter + num + numbering-pad + dot-slot + "glyph " + name
     let pad = meta.col.saturating_sub(prefix_len);
     let count = window_count(sess.windows.len());
     let count_pad = meta.count_width.saturating_sub(count.chars().count());
@@ -817,6 +845,10 @@ fn session_item(
         spans.push(Span::styled("│", Style::default().fg(color)));
     }
     spans.push(Span::styled(num, secondary(selected)));
+    if wide_numbering {
+        spans.push(Span::raw(" "));
+    }
+    spans.push(Span::styled(format!("{dot} "), dot_style));
     spans.push(Span::styled(format!("{glyph} "), secondary(selected)));
     spans.push(Span::styled(sess.name.clone(), name_style));
     // The marker (if present) takes the *last* cell of the padding before
@@ -860,8 +892,20 @@ fn window_item(
     rename_buf: Option<&str>,
     dot_color: Color,
     swap_marker: Option<(SwapDirection, bool)>,
+    wide_numbering: bool,
 ) -> ListItem<'static> {
-    let connector = if last { "  └─" } else { "  ├─" };
+    // 4 leading spaces (not 2): the connector's tree glyph must land under the
+    // parent session's expand glyph (issue #76), which itself shifted right by
+    // 2 columns when the attached-session dot slot was added (issue #134). One
+    // more (5) when `wide_numbering` is set: the session row itself gained a
+    // render-wide extra spacer column there too (see `session_item`), so the
+    // glyph shifted one column further right in that render.
+    let connector = match (last, wide_numbering) {
+        (false, false) => "    ├─",
+        (true, false) => "    └─",
+        (false, true) => "     ├─",
+        (true, true) => "     └─",
+    };
     let dot = if win.active { "●" } else { " " };
     let dot_style = if dormant { dormant_session(selected) } else { Style::default().fg(dot_color) };
     let name_style = if dormant { dormant_session(selected) } else { Style::default() };
@@ -1239,14 +1283,36 @@ mod tests {
         let mut terminal = Terminal::new(backend).unwrap();
         terminal.draw(|f| draw(f, &state)).unwrap();
         let buf = terminal.backend().buffer().clone();
-        let mut found_lightgreen = false;
-        for y in 0..buf.area.height {
-            let line: String = (0..buf.area.width).map(|x| buf[(x, y)].symbol()).collect();
-            if let Some(x) = line.find("current") {
-                found_lightgreen = buf[(x as u16, y)].style().fg == Some(Color::LightGreen);
-            }
-        }
-        assert!(found_lightgreen, "attached session name picks up the configured color");
+        let y = (0..buf.area.height).find(|&y| find_text_x(&buf, y, "current").is_some()).unwrap();
+        let x = find_text_x(&buf, y, "current").unwrap();
+        assert_eq!(buf[(x, y)].style().fg, Some(Color::LightGreen), "attached session name picks up the configured color");
+    }
+
+    #[test]
+    fn attached_session_shows_a_dot_before_the_expand_arrow() {
+        let sessions = vec![
+            Session { id: String::new(), name: "current".into(), activity: 1, created: 1, attached: true,
+                      windows: vec![] },
+            Session { id: String::new(), name: "other".into(), activity: 1, created: 2, attached: false,
+                      windows: vec![] },
+        ];
+        let cfg = Config { attached_color: "lightgreen".to_string(), ..Default::default() };
+        let state = PickerState::build(sessions, &cfg);
+        let backend = TestBackend::new(80, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| draw(f, &state)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+
+        let current_y = (0..buf.area.height).find(|&y| find_text_x(&buf, y, "current").is_some()).unwrap();
+        let current_x = find_text_x(&buf, current_y, "current").unwrap();
+        assert!(current_x >= 4, "expected room for gutter + number + dot slot + glyph before the name");
+        let dot_cell = &buf[(current_x - 4, current_y)];
+        assert_eq!(dot_cell.symbol(), "●", "attached session's row shows the dot 4 cols before its name");
+        assert_eq!(dot_cell.style().fg, Some(Color::LightGreen), "dot uses the configured attached_color");
+
+        let other_y = (0..buf.area.height).find(|&y| find_text_x(&buf, y, "other").is_some()).unwrap();
+        let other_x = find_text_x(&buf, other_y, "other").unwrap();
+        assert_eq!(buf[(other_x - 4, other_y)].symbol(), " ", "non-attached session's dot slot stays blank");
     }
 
     #[test]
@@ -1515,6 +1581,88 @@ mod tests {
         }
         assert!(name_dim, "dormant session's window name renders dim");
         assert!(dot_dim, "dormant session's active-window dot renders dim, not green");
+    }
+
+    #[test]
+    fn attached_dormant_session_dot_renders_dim_not_attached_color() {
+        let sessions = vec![
+            Session { id: String::new(), name: "alpha".into(), activity: 30, created: 1, attached: true,
+                      windows: vec![] },
+        ];
+        let cfg = Config { groups: vec![], dormant: vec!["alpha".into()], attached_color: "lightgreen".to_string(), ..Default::default() };
+        let state = PickerState::build(sessions, &cfg); // cursor starts on "alpha"
+        let backend = TestBackend::new(80, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| draw(f, &state)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+
+        let y = (0..buf.area.height).find(|&y| find_text_x(&buf, y, "alpha").is_some()).unwrap();
+        let x = find_text_x(&buf, y, "alpha").unwrap();
+        let dot_cell = &buf[(x - 4, y)];
+        assert_eq!(dot_cell.symbol(), "●", "attached session's dot still renders even though dormant");
+        assert_ne!(dot_cell.style().fg, Some(Color::LightGreen), "dormant beats attached_color for the dot, same priority order the name style already uses");
+    }
+
+    #[test]
+    fn attached_session_past_jump_number_ten_shows_a_gap_before_the_dot() {
+        // issue #134: rows numbered 11+ use the two-character "⌥N" jump label,
+        // which (unlike single-digit labels) has no trailing space of its
+        // own; without a render-wide extra spacer column, the
+        // attached-session dot would land jammed directly against the digit.
+        let mut sessions: Vec<Session> = (1..=11)
+            .map(|i| Session {
+                id: String::new(),
+                name: format!("sess{i:02}"),
+                activity: i as i64,
+                created: i as i64,
+                attached: false,
+                windows: vec![],
+            })
+            .collect();
+        let last = sessions.len() - 1;
+        sessions[last].attached = true;
+        let cfg = Config::default();
+        let state = PickerState::build(sessions, &cfg);
+        let backend = TestBackend::new(80, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| draw(f, &state)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+
+        let y = (0..buf.area.height).find(|&y| find_text_x(&buf, y, "sess11").is_some()).unwrap();
+        let x = find_text_x(&buf, y, "sess11").unwrap();
+        assert_eq!(buf[(x - 4, y)].symbol(), "●", "dot still lands 4 cols before the name");
+        assert_eq!(buf[(x - 5, y)].symbol(), " ", "a blank spacer separates the ⌥N jump label from the dot");
+    }
+
+    #[test]
+    fn draw_expanded_window_name_indents_one_step_past_session_name_with_wide_numbering() {
+        // issue #134: past 10 numbered sessions, the session row's jump-number
+        // gutter grows one extra column (see `wide_numbering`), so the tree
+        // connector must grow to match or the "one step past" invariant from
+        // issue #76 breaks.
+        let mut sessions: Vec<Session> = (1..=11)
+            .map(|i| Session {
+                id: String::new(),
+                name: format!("sess{i:02}"),
+                activity: i as i64,
+                created: i as i64,
+                attached: false,
+                windows: vec![],
+            })
+            .collect();
+        sessions[0].windows = vec![Window { index: 0, name: "editor".into(), active: true }];
+        let cfg = Config::default();
+        let mut state = PickerState::build(sessions, &cfg); // cursor starts on "sess01"
+        state.expand();
+
+        let backend = TestBackend::new(80, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| draw(f, &state)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+
+        let session_x = (0..buf.area.height).find_map(|y| find_text_x(&buf, y, "sess01")).unwrap();
+        let window_x = (0..buf.area.height).find_map(|y| find_text_x(&buf, y, "editor")).unwrap();
+        assert_eq!(window_x, session_x + 2, "window name should indent one step past its parent session's name even with wide numbering active");
     }
 
     #[test]
@@ -1980,7 +2128,7 @@ mod tests {
                 assert!(line.starts_with("│1 "), "alpha row gutter: got {line:?}");
             }
             if line.contains("beta") {
-                assert!(line.starts_with("│  ▸ beta"), "dormant beta has no jump number: got {line:?}");
+                assert!(line.starts_with("│    ▸ beta"), "dormant beta has no jump number: got {line:?}");
             }
             if line.contains("gamma") {
                 assert!(line.starts_with("│2 "), "gamma closes the numbering gap: got {line:?}");
