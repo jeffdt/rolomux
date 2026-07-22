@@ -75,6 +75,7 @@ pub struct PickerState {
     pub attached_color: String,
     pub attached_color_mode: AttachedColorMode,
     pub border_color: String,
+    pub border_color_policy: ColorPolicy,
     pub dot_color_mode: DotColorMode,
     pub dot_color: String,
     pub shortcut_color: String,
@@ -91,7 +92,9 @@ pub struct PickerState {
 
 impl PickerState {
     pub fn build(sessions: Vec<Session>, config: &Config) -> PickerState {
-        Self::build_with_focus(sessions, config, INITIAL_FOCUS, None)
+        let mut state = Self::build_with_focus(sessions, config, INITIAL_FOCUS, None);
+        state.apply_border_color_policy();
+        state
     }
 
     /// Like `build`, but with an explicit initial-focus policy and current
@@ -146,6 +149,7 @@ impl PickerState {
             attached_color: config.attached_color.clone(),
             attached_color_mode: config.attached_color_mode,
             border_color: config.border_color.clone(),
+            border_color_policy: config.border_color_policy,
             dot_color_mode: config.dot_color_mode,
             dot_color: config.dot_color.clone(),
             shortcut_color: config.shortcut_color.clone(),
@@ -357,6 +361,7 @@ impl PickerState {
         config.attached_color = self.attached_color.clone();
         config.attached_color_mode = self.attached_color_mode;
         config.border_color = self.border_color.clone();
+        config.border_color_policy = self.border_color_policy;
         config.inbox_icon = self.inbox_icon.clone();
         config.remember_expanded_sessions = self.remember_expanded_sessions;
         config.clear_dormant_on_attach = self.clear_dormant_on_attach;
@@ -1141,5 +1146,20 @@ mod tests {
         // Even though config.expanded lists "alpha", the explicit (empty) override wins.
         let st = PickerState::build_with_expanded(sessions, &cfg, vec![]);
         assert!(!st.is_expanded("alpha"));
+    }
+
+    #[test]
+    fn build_with_expanded_does_not_reapply_border_color_policy() {
+        let mut config = Config { border_color_policy: ColorPolicy::Rotate, ..Default::default() };
+        config.border_color = "green".to_string();
+        let sessions = vec![s("a", 1, 1)];
+        let state = PickerState::build(sessions.clone(), &config);
+        assert_ne!(state.border_color, "green", "build() should have applied Rotate once");
+
+        let rebuilt = PickerState::build_with_expanded(sessions, &config, vec![]);
+        assert_eq!(
+            rebuilt.border_color, config.border_color,
+            "build_with_expanded must not re-apply the policy on top of the original config value"
+        );
     }
 }

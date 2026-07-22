@@ -117,8 +117,14 @@ impl StartFocusMode {
     }
 }
 
-/// Governs the header color assigned when a new group is created
-/// (`PickerState::group_new`). Never retroactively recolors existing groups.
+/// Governs how a color is chosen for two independent settings: the header
+/// color assigned when a new group is created (`PickerState::group_new`,
+/// default `Rotate`) and the popup's border color (`Config::border_color`,
+/// applied once per popup open by `PickerState::apply_border_color_policy`,
+/// default `Static`). Each site keeps its own field and its own default;
+/// this enum only supplies the shared three-state shape. Never
+/// retroactively recolors an existing group or a border color already on
+/// screen for the current popup.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ColorPolicy {
     #[default]

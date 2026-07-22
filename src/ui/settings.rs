@@ -104,6 +104,13 @@ pub(super) fn draw_settings(frame: &mut Frame, state: &PickerState, inner: Rect)
                 }
                 Line::from(spans)
             }
+            SettingsRow::BorderColorPolicy => {
+                settings_value_line(
+                    "Border color policy",
+                    color_policy_label(state.border_color_policy),
+                    selected,
+                )
+            }
             SettingsRow::BorderColor => {
                 settings_color_line("Border color", &state.border_color, state.border_color_expanded(), selected)
             }
