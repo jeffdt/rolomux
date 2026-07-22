@@ -32,6 +32,8 @@ pub trait Tmux {
     fn swap_window(&self, session: &str, a: u32, b: u32) -> io::Result<()>;
     fn move_window(&self, src_session: &str, src_index: u32, dst_session: &str, dst_anchor_index: u32, before: bool) -> io::Result<()>;
     fn new_placeholder_window(&self, session: &str) -> io::Result<()>;
+    fn kill_session(&self, name: &str) -> io::Result<()>;
+    fn kill_window(&self, session: &str, index: u32) -> io::Result<()>;
     fn detach_on_destroy_off(&self, session: &str) -> bool;
     /// The (session, stable window id) the invoking client is currently
     /// attached to and viewing, resolved implicitly against "this client"
@@ -189,6 +191,21 @@ impl Tmux for RealTmux {
     fn new_placeholder_window(&self, session: &str) -> io::Result<()> {
         self.command()
             .args(["new-window", "-d", "-t", session, "-n", "(empty)"])
+            .status()
+            .map(|_| ())
+    }
+
+    fn kill_session(&self, name: &str) -> io::Result<()> {
+        self.command()
+            .args(["kill-session", "-t", name])
+            .status()
+            .map(|_| ())
+    }
+
+    fn kill_window(&self, session: &str, index: u32) -> io::Result<()> {
+        let target = format!("{session}:{index}");
+        self.command()
+            .args(["kill-window", "-t", &target])
             .status()
             .map(|_| ())
     }
@@ -442,6 +459,14 @@ impl Tmux for FakeTmux {
     }
     fn new_placeholder_window(&self, session: &str) -> std::io::Result<()> {
         self.calls.borrow_mut().push(format!("new-window:{session}"));
+        Ok(())
+    }
+    fn kill_session(&self, name: &str) -> std::io::Result<()> {
+        self.calls.borrow_mut().push(format!("kill-session:{name}"));
+        Ok(())
+    }
+    fn kill_window(&self, session: &str, index: u32) -> std::io::Result<()> {
+        self.calls.borrow_mut().push(format!("kill-window:{session}:{index}"));
         Ok(())
     }
     fn detach_on_destroy_off(&self, _session: &str) -> bool {
