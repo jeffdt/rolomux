@@ -348,6 +348,7 @@ fn event_loop(
                             Input::ToggleFocusMode => state.toggle_focus_mode(),
                             Input::ToggleShortcuts => state.toggle_shortcuts(),
                             Input::Rename => state.start_rename(),
+                            Input::Kill => {}, // Task 4: wired to confirm_kill()
                             Input::Select => return Ok(state.selected_action()),
                             Input::Switch(n) => {
                                 if let Some(action) = state.action_for_session_number(n) {
