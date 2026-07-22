@@ -5,6 +5,10 @@ mod reorder;
 pub use reorder::WindowMove;
 use reorder::PendingWindowMove;
 
+mod kill;
+pub use kill::KillTarget;
+use kill::PendingKill;
+
 mod rename;
 pub use rename::{PendingRename, RenameTarget};
 
@@ -46,6 +50,10 @@ pub struct PickerState {
     /// a session; `Some` until the same-direction key repeats it or any
     /// other key clears it.
     pending_window_move: Option<PendingWindowMove>,
+    /// In-flight kill confirmation, armed when `x` targets a session or
+    /// window; `Some` until a second `x` confirms it or any other key
+    /// clears it. See `src/model/kill.rs`.
+    pending_kill: Option<PendingKill>,
     /// The brief post-⇧J/⇧K directional flash (issue #130): `Some` for about
     /// a second after a session/window/group reorder, then cleared by
     /// `tick_swap_indicator`.
@@ -116,6 +124,7 @@ impl PickerState {
             group_edit: None,
             rename_edit: None,
             pending_window_move: None,
+            pending_kill: None,
             swap_indicator: None,
             group_reorder_blocked: false,
             default_mode: config.default_mode,

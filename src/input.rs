@@ -22,6 +22,7 @@ pub enum Input {
     ToggleFocusMode,
     ToggleShortcuts,
     Rename,
+    Kill,
     Quit,
     None,
 }
@@ -143,6 +144,7 @@ pub fn map_key(key: KeyEvent) -> Input {
         KeyCode::Char('K') | KeyCode::Up if shift => Input::MoveUp,
         KeyCode::Char('J') | KeyCode::Down if shift => Input::MoveDown,
         KeyCode::Char('R') if shift => Input::Rename,
+        KeyCode::Char('x') => Input::Kill,
         KeyCode::Char('j') | KeyCode::Down => Input::Down,
         KeyCode::Char('k') | KeyCode::Up => Input::Up,
         KeyCode::Char('l') | KeyCode::Right => Input::Expand,
@@ -240,7 +242,8 @@ mod tests {
         assert_eq!(map_key(key(KeyCode::Char('1'))), Input::Switch(1));
         assert_eq!(map_key(key(KeyCode::Char('9'))), Input::Switch(9));
         assert_eq!(map_key(key(KeyCode::Char('0'))), Input::Switch(10));
-        assert_eq!(map_key(key(KeyCode::Char('x'))), Input::None);
+        assert_eq!(map_key(key(KeyCode::Char('x'))), Input::Kill);
+        assert_eq!(map_key(shift(KeyCode::Char('X'))), Input::None, "X is deliberately left unmapped");
         // Option/Alt+digit reaches the second decade of sessions (11-20).
         assert_eq!(map_key(alt(KeyCode::Char('1'))), Input::Switch(11));
         assert_eq!(map_key(alt(KeyCode::Char('9'))), Input::Switch(19));
