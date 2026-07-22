@@ -60,6 +60,13 @@ pub(super) fn draw_settings(frame: &mut Frame, state: &PickerState, inner: Rect)
                     selected,
                 )
             }
+            SettingsRow::StartFocusMode => {
+                settings_value_line(
+                    "Start in focus mode",
+                    start_focus_mode_label(state.start_focus_mode),
+                    selected,
+                )
+            }
             SettingsRow::NewGroupPosition => {
                 settings_value_line(
                     "New group position",
@@ -273,6 +280,14 @@ fn clear_dormant_on_attach_label(clear_dormant_on_attach: bool) -> &'static str 
     if clear_dormant_on_attach { "Yes" } else { "No" }
 }
 
+fn start_focus_mode_label(m: StartFocusMode) -> &'static str {
+    match m {
+        StartFocusMode::Remember => "Remember",
+        StartFocusMode::Always => "Always",
+        StartFocusMode::Never => "Never",
+    }
+}
+
 fn new_group_position_label(p: NewGroupPosition) -> &'static str {
     match p {
         NewGroupPosition::Top => "Top",
@@ -318,5 +333,12 @@ mod tests {
         let mut items: Vec<ListItem> = Vec::new();
         push_settings_section_header(&mut items, "BEHAVIOR", 40);
         assert_eq!(items.len(), 1, "no blank spacer should precede the very first header");
+    }
+
+    #[test]
+    fn start_focus_mode_label_covers_all_three_states() {
+        assert_eq!(start_focus_mode_label(StartFocusMode::Remember), "Remember");
+        assert_eq!(start_focus_mode_label(StartFocusMode::Always), "Always");
+        assert_eq!(start_focus_mode_label(StartFocusMode::Never), "Never");
     }
 }
