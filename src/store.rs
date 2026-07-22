@@ -1,6 +1,6 @@
 use crate::model::{
     ColorPolicy, DefaultMode, DotColorMode, Group, HEADER_COLORS, NewGroupPosition, SessionMetric,
-    ShortcutVisibility, ensure_inbox_last, ensure_single_inbox,
+    ShortcutVisibility, StartFocusMode, ensure_inbox_last, ensure_single_inbox,
 };
 use serde::Deserialize;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -42,6 +42,7 @@ pub struct Config {
     pub remember_expanded_sessions: bool,
     pub expanded: Vec<String>,
     pub session_metric: SessionMetric,
+    pub start_focus_mode: StartFocusMode,
     pub dot_color_mode: DotColorMode,
     pub dot_color: String,
     pub shortcut_color: String,
@@ -79,6 +80,7 @@ impl Default for Config {
             remember_expanded_sessions: false,
             expanded: Vec::new(),
             session_metric: SessionMetric::default(),
+            start_focus_mode: StartFocusMode::default(),
             dot_color_mode: DotColorMode::default(),
             dot_color: "green".to_string(),
             shortcut_color: "gray".to_string(),
@@ -126,6 +128,8 @@ struct RawSettings {
     #[serde(default)]
     session_metric: Option<String>,
     #[serde(default)]
+    start_focus_mode: Option<String>,
+    #[serde(default)]
     dot_color_mode: Option<String>,
     #[serde(default)]
     dot_color: Option<String>,
@@ -149,6 +153,7 @@ struct OutSettings {
     inbox_icon: String,
     remember_expanded_sessions: bool,
     session_metric: String,
+    start_focus_mode: String,
     dot_color_mode: String,
     dot_color: String,
     shortcut_color: String,
@@ -276,6 +281,12 @@ impl Config {
             .as_deref()
             .map(SessionMetric::from_config_str)
             .unwrap_or_default();
+        let start_focus_mode = raw
+            .settings
+            .start_focus_mode
+            .as_deref()
+            .map(StartFocusMode::from_config_str)
+            .unwrap_or_default();
         let dot_color_mode = raw
             .settings
             .dot_color_mode
@@ -308,6 +319,7 @@ impl Config {
             remember_expanded_sessions: raw.settings.remember_expanded_sessions.unwrap_or(false),
             expanded: raw.expanded,
             session_metric,
+            start_focus_mode,
             dot_color_mode,
             dot_color,
             shortcut_color,
@@ -353,6 +365,7 @@ impl Config {
                 inbox_icon: self.inbox_icon.clone(),
                 remember_expanded_sessions: self.remember_expanded_sessions,
                 session_metric: self.session_metric.as_config_str().to_string(),
+                start_focus_mode: self.start_focus_mode.as_config_str().to_string(),
                 dot_color_mode: self.dot_color_mode.as_config_str().to_string(),
                 dot_color: self.dot_color.clone(),
                 shortcut_color: self.shortcut_color.clone(),
@@ -1179,6 +1192,35 @@ inbox = true
         std::fs::write(&path, "config_version = 3\n").unwrap();
         let cfg = Config::load_from(&path);
         assert_eq!(cfg.session_metric, SessionMetric::Recency);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn default_config_has_start_focus_mode_remember() {
+        let cfg = Config::default();
+        assert_eq!(cfg.start_focus_mode, StartFocusMode::Remember);
+    }
+
+    #[test]
+    fn round_trips_start_focus_mode() {
+        let dir = std::env::temp_dir().join(format!("rolomux-start-focus-mode-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.toml");
+        let cfg = Config { start_focus_mode: StartFocusMode::Always, ..Default::default() };
+        cfg.save_to(&path).unwrap();
+        let reloaded = Config::load_from(&path);
+        assert_eq!(reloaded.start_focus_mode, StartFocusMode::Always);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn legacy_config_without_start_focus_mode_defaults_to_remember() {
+        let dir = std::env::temp_dir().join(format!("rolomux-nostartfocus-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.toml");
+        std::fs::write(&path, "config_version = 4\n").unwrap();
+        let cfg = Config::load_from(&path);
+        assert_eq!(cfg.start_focus_mode, StartFocusMode::Remember);
         std::fs::remove_dir_all(&dir).ok();
     }
 }
