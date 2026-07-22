@@ -3140,7 +3140,7 @@ mod tests {
     #[test]
     fn draw_settings_shows_border_color_policy_row() {
         let text = render_to_string_sized(&settings_view(), 80, 24);
-        assert!(text.contains("Border color policy"));
+        assert!(text.contains("Border color"));
         assert!(text.contains("Static"), "default policy label shown");
     }
 
@@ -3223,9 +3223,9 @@ mod tests {
     }
 
     #[test]
-    fn draw_settings_expanded_border_color_shows_radio_glyphs() {
+    fn draw_settings_expanded_shortcut_color_shows_radio_glyphs() {
         let mut st = settings_view();
-        st.settings_move_cursor(11); // BorderColor
+        st.settings_move_cursor(11); // ShortcutColor
         st.settings_step_right();
         let text = render_to_string(&st);
         assert!(text.contains("●"));
@@ -3251,7 +3251,7 @@ mod tests {
     #[test]
     fn draw_settings_shows_static_color_value_when_policy_is_static() {
         let mut st = settings_view();
-        st.settings_move_cursor(14); // ColorPolicy row
+        st.settings_move_cursor(13); // ColorPolicy row
         st.settings_step_right(); // Rotate -> Random
         st.settings_step_right(); // Random -> Static
         st.static_color = "magenta".to_string();
@@ -3268,13 +3268,11 @@ mod tests {
         // footer all push "New group color" further down the list.
         let text = render_to_string_sized(&settings_view(), 80, 28); // default policy is Rotate
         // "Rotate" itself is on screen, but no color name should follow it
-        // since Rotate has no single fixed color to show. The four swatches on
-        // screen are the always-present Attached/Border/Shortcut color rows
-        // plus Active window dot color (Static by default); Rotate/Random
-        // must not add a fifth for the policy row itself. Border color policy
-        // defaults to Static but, unlike ColorPolicy's own row, never grows a
-        // swatch of its own -- the Border color row directly below already
-        // shows one.
+        // since Rotate has no single fixed color to show. The four swatches
+        // on screen are Attached session color and Border color policy
+        // (both Static by default), the always-present Shortcut color row,
+        // and Active window dot color (Static by default); Rotate/Random
+        // must not add a fifth for the New group color policy row itself.
         assert!(text.contains("Rotate"));
         assert_eq!(
             text.matches("██").count(),
@@ -3320,7 +3318,7 @@ mod tests {
     #[test]
     fn draw_settings_gutter_bar_continues_through_expanded_color_options() {
         let mut st = settings_view();
-        st.settings_move_cursor(11); // BorderColor
+        st.settings_move_cursor(11); // ShortcutColor
         st.settings_step_right(); // expand
         let text = render_to_string(&st);
         let row = text

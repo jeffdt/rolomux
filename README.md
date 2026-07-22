@@ -160,8 +160,7 @@ Press `,` to open Settings, a full-screen view of picker-wide preferences, group
 
 - **Inbox icon.** The glyph shown before the inbox group's header. Cycle through a curated set with `h`/`l`.
 - **Attached session color.** The color used to highlight the session your tmux client is currently attached to -- both its bolded name and a dot next to its jump number, mirroring the active-window dot: a fixed **Static** color (default), or the session's own **Group** color.
-- **Border color policy.** How the border color is chosen each time the popup opens: always use one Static color (default), Rotate through the 16 named colors in order, or pick a Random one each time.
-- **Border color.** rolomux's own border frame color.
+- **Border color.** How rolomux's own border frame color is chosen: always use one Static color (default), Rotate through the 16 named colors each time the popup opens, or pick a Random one each time.
 - **Shortcut highlight color.** The color used to highlight keys in the shortcut legend.
 - **Active window dot color.** Color of the `●` marking a session's active window: a fixed **Static** color, or the session's own **Group** color.
 - **New group color.** How a newly created group picks its header color: Rotate through the palette in order, pick a Random color each time, or always use one Static color.
