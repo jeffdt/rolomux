@@ -3019,9 +3019,10 @@ mod tests {
         // Taller than the usual 80x20 for several stacking reasons: the added
         // Session metadata row pushes later rows down (mirrors the palette
         // tests), so do the added Show shortcuts/Shortcut color/Active window
-        // dot color rows, and the footer grew from 2 to 3 rows (rule,
-        // key-hint, description), consuming one more row of the list area.
-        let text = render_to_string_sized(&settings_view(), 80, 28);
+        // dot color/Border color policy rows, and the footer grew from 2 to
+        // 3 rows (rule, key-hint, description), consuming one more row of
+        // the list area.
+        let text = render_to_string_sized(&settings_view(), 80, 29);
         assert!(text.contains("Default mode"));
         assert!(text.contains("Command"));
         assert!(text.contains("Number dormant sessions"));
@@ -3126,14 +3127,21 @@ mod tests {
     #[test]
     fn draw_settings_shows_attached_and_border_color_rows() {
         // Taller than the usual 80x20: the New group position, Show
-        // shortcuts, and Inbox icon rows push Border color further down the
-        // list.
-        let text = render_to_string_sized(&settings_view(), 80, 24);
+        // shortcuts, Inbox icon, and Border color policy rows push Border
+        // color further down the list.
+        let text = render_to_string_sized(&settings_view(), 80, 25);
         assert!(text.contains("Attached session color"));
         assert!(text.contains("Border color"));
         // Both default to green and render collapsed with a swatch + name.
         // (Shortcut/Active-window-dot color rows sit further down, out of view here.)
         assert_eq!(text.matches("green").count(), 2, "one swatch label per collapsed color row");
+    }
+
+    #[test]
+    fn draw_settings_shows_border_color_policy_row() {
+        let text = render_to_string_sized(&settings_view(), 80, 24);
+        assert!(text.contains("Border color policy"));
+        assert!(text.contains("Static"), "default policy label shown");
     }
 
     #[test]
@@ -3217,7 +3225,7 @@ mod tests {
     #[test]
     fn draw_settings_expanded_border_color_shows_radio_glyphs() {
         let mut st = settings_view();
-        st.settings_move_cursor(10); // BorderColor
+        st.settings_move_cursor(11); // BorderColor
         st.settings_step_right();
         let text = render_to_string(&st);
         assert!(text.contains("●"));
@@ -3227,13 +3235,13 @@ mod tests {
     #[test]
     fn draw_settings_expanded_palette_shows_swatches_and_checkboxes() {
         let mut st = settings_view();
-        st.settings_move_cursor(14); // Palette
+        st.settings_move_cursor(15); // Palette
         st.settings_step_right(); // expand
         // Taller than the usual 80x20: section headers and the added Show
-        // shortcuts/Shortcut color/Active window dot color/Inbox icon rows
-        // now push the palette rows further down than the default viewport
-        // reveals.
-        let text = render_to_string_sized(&st, 80, 30);
+        // shortcuts/Shortcut color/Active window dot color/Border color
+        // policy/Inbox icon rows now push the palette rows further down
+        // than the default viewport reveals.
+        let text = render_to_string_sized(&st, 80, 31);
         assert!(text.contains("[x]"), "active color checked");
         assert!(text.contains("[ ]"), "inactive color unchecked");
         assert!(text.contains("green"));
@@ -3243,7 +3251,7 @@ mod tests {
     #[test]
     fn draw_settings_shows_static_color_value_when_policy_is_static() {
         let mut st = settings_view();
-        st.settings_move_cursor(13); // ColorPolicy row
+        st.settings_move_cursor(14); // ColorPolicy row
         st.settings_step_right(); // Rotate -> Random
         st.settings_step_right(); // Random -> Static
         st.static_color = "magenta".to_string();
@@ -3255,15 +3263,18 @@ mod tests {
     #[test]
     fn draw_settings_does_not_show_a_color_value_for_rotate_or_random() {
         // Taller than the default 80x20: the Session metadata, New group
-        // position, Show shortcuts, Shortcut color/Active window dot color,
-        // and Inbox icon rows plus the 3-row footer all push "New group
-        // color" further down the list.
-        let text = render_to_string_sized(&settings_view(), 80, 27); // default policy is Rotate
+        // position, Show shortcuts, Shortcut color/Active window dot
+        // color/Border color policy, and Inbox icon rows plus the 3-row
+        // footer all push "New group color" further down the list.
+        let text = render_to_string_sized(&settings_view(), 80, 28); // default policy is Rotate
         // "Rotate" itself is on screen, but no color name should follow it
         // since Rotate has no single fixed color to show. The four swatches on
         // screen are the always-present Attached/Border/Shortcut color rows
         // plus Active window dot color (Static by default); Rotate/Random
-        // must not add a fifth for the policy row itself.
+        // must not add a fifth for the policy row itself. Border color policy
+        // defaults to Static but, unlike ColorPolicy's own row, never grows a
+        // swatch of its own -- the Border color row directly below already
+        // shows one.
         assert!(text.contains("Rotate"));
         assert_eq!(
             text.matches("██").count(),
@@ -3309,7 +3320,7 @@ mod tests {
     #[test]
     fn draw_settings_gutter_bar_continues_through_expanded_color_options() {
         let mut st = settings_view();
-        st.settings_move_cursor(10); // BorderColor
+        st.settings_move_cursor(11); // BorderColor
         st.settings_step_right(); // expand
         let text = render_to_string(&st);
         let row = text
@@ -3324,13 +3335,13 @@ mod tests {
     #[test]
     fn draw_settings_gutter_bar_continues_through_expanded_palette_rows() {
         let mut st = settings_view();
-        st.settings_move_cursor(14); // Palette
+        st.settings_move_cursor(15); // Palette
         st.settings_step_right(); // expand
         // Taller than the usual 80x20: section headers and the added Show
-        // shortcuts/Shortcut color/Active window dot color/Inbox icon rows
-        // now push the palette rows further down than the default viewport
-        // reveals.
-        let text = render_to_string_sized(&st, 80, 29);
+        // shortcuts/Shortcut color/Active window dot color/Border color
+        // policy/Inbox icon rows now push the palette rows further down
+        // than the default viewport reveals.
+        let text = render_to_string_sized(&st, 80, 30);
         let row = text
             .lines()
             .find(|line| line.contains("[ ]"))
@@ -3343,10 +3354,10 @@ mod tests {
     #[test]
     fn draw_settings_color_policy_row_continues_the_gutter_bar() {
         // Taller than the default 80x20: the Session metadata, New group
-        // position, Show shortcuts, Shortcut color/Active window dot color,
-        // and Inbox icon rows plus the 3-row footer all push "New group
-        // color" further down the list.
-        let text = render_to_string_sized(&settings_view(), 80, 27);
+        // position, Show shortcuts, Shortcut color/Active window dot
+        // color/Border color policy, and Inbox icon rows plus the 3-row
+        // footer all push "New group color" further down the list.
+        let text = render_to_string_sized(&settings_view(), 80, 28);
         let row = text
             .lines()
             .find(|line| line.contains("New group color"))
