@@ -11,7 +11,7 @@ use crossterm::terminal::{
     disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
 };
 use crossterm::execute;
-use model::{Mode, PendingRename, PickerState, RenameTarget, Row, WindowMove};
+use model::{KillTarget, Mode, PendingRename, PickerState, RenameTarget, Row, WindowMove};
 use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
 use std::io::{self, stdout};
@@ -284,6 +284,75 @@ fn commit_window_move(
     }
 }
 
+/// Dispatch an `x` press. First press classifies the risk (reusing
+/// `last_window_risk`, the same helper the `⇧J`/`⇧K` last-window-move path
+/// uses) and arms a confirm; a second press commits it.
+fn handle_kill(
+    state: &mut PickerState,
+    tmux: &dyn Tmux,
+    config: &mut store::Config,
+    path: &std::path::Path,
+) {
+    if let Some(target) = state.take_confirmed_kill() {
+        commit_kill(target, tmux, config, path, state);
+        return;
+    }
+
+    let Some(target) = state.plan_kill() else { return };
+    let risky = match &target {
+        KillTarget::Session(name) => {
+            let attached = state.ordered().iter().find(|s| s.name == *name).map(|s| s.attached).unwrap_or(false);
+            matches!(last_window_risk(tmux, name, attached), LastWindowRisk::Ejects)
+        }
+        KillTarget::Window { session, index } => {
+            let sess = state.ordered().into_iter().find(|s| s.name == *session);
+            let is_only_window = sess.map(|s| s.windows.len() == 1 && s.windows[0].index == *index).unwrap_or(false);
+            if is_only_window {
+                let attached = sess.map(|s| s.attached).unwrap_or(false);
+                matches!(last_window_risk(tmux, session, attached), LastWindowRisk::Ejects)
+            } else {
+                false
+            }
+        }
+    };
+    state.arm_kill(target, risky);
+}
+
+/// Apply a confirmed kill: flush pending config changes, issue the tmux
+/// kill, re-gather, reconcile (this is what drops the dead session out of
+/// every group's members, `dormant`, and `expanded`), rebuild state. No
+/// explicit refocus afterward -- unlike rename/move there's no "where did
+/// it go" target, so the rebuilt state's default cursor placement is correct
+/// as-is.
+fn commit_kill(
+    target: KillTarget,
+    tmux: &dyn Tmux,
+    config: &mut store::Config,
+    path: &std::path::Path,
+    state: &mut PickerState,
+) {
+    if state.dirty {
+        state.apply_to_config(config);
+        let _ = config.save_to(path);
+    }
+
+    match &target {
+        KillTarget::Session(name) => {
+            let _ = tmux.kill_session(name);
+        }
+        KillTarget::Window { session, index } => {
+            let _ = tmux.kill_window(session, *index);
+        }
+    }
+
+    let gathered = tmux.gather();
+    if config.reconcile(&gathered.session_ids()) {
+        let _ = config.save_to(path);
+    }
+
+    *state = PickerState::build(gathered.sessions, config);
+}
+
 fn event_loop(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     state: &mut PickerState,
@@ -330,8 +399,12 @@ fn event_loop(
                     } else {
                         let input = map_key(key);
                         let had_pending_window_move = state.pending_window_move_warning().is_some();
+                        let had_pending_kill = state.pending_kill_warning().is_some();
                         if !matches!(input, Input::MoveUp | Input::MoveDown) {
                             state.clear_pending_window_move();
+                        }
+                        if !matches!(input, Input::Kill) {
+                            state.clear_pending_kill();
                         }
                         match input {
                             Input::Up => state.move_cursor(-1),
@@ -348,7 +421,7 @@ fn event_loop(
                             Input::ToggleFocusMode => state.toggle_focus_mode(),
                             Input::ToggleShortcuts => state.toggle_shortcuts(),
                             Input::Rename => state.start_rename(),
-                            Input::Kill => {}, // Task 4: wired to confirm_kill()
+                            Input::Kill => handle_kill(state, tmux, config, path),
                             Input::Select => return Ok(state.selected_action()),
                             Input::Switch(n) => {
                                 if let Some(action) = state.action_for_session_number(n) {
@@ -363,7 +436,7 @@ fn event_loop(
                             // than surprising the user by quitting the
                             // whole picker out from under them.
                             Input::Quit => {
-                                if !had_pending_window_move {
+                                if !had_pending_window_move && !had_pending_kill {
                                     return Ok(None);
                                 }
                             }
@@ -853,6 +926,115 @@ mod tests {
             vec!["new-window:alpha".to_string(), "move-window:alpha:0:beta:0:after".to_string()]
         );
         assert!(state.pending_window_move_warning().is_none(), "no confirmation needed once a placeholder makes the move safe");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn handle_kill_arms_then_confirms_a_session_kill() {
+        let dir = std::env::temp_dir().join(format!("rolomux-kill-session-{}", std::process::id()));
+        let path = dir.join("config.toml");
+        let mut config = Config {
+            groups: vec![Group { name: "WORK".into(), members: vec!["alpha".into(), "beta".into()], ..Default::default() }],
+            ..Default::default()
+        };
+        let sessions = vec![sess("alpha"), sess("beta")];
+        let mut state = PickerState::build(sessions, &config);
+        state.focus_session("alpha");
+
+        let tmux = FakeTmux::with_gather(Gathered { sessions: vec![sess("beta")], current: None });
+
+        handle_kill(&mut state, &tmux, &mut config, &path);
+        assert!(tmux.calls.borrow().is_empty(), "first press only arms, no tmux call yet");
+        assert!(state.pending_kill_warning().is_some());
+
+        handle_kill(&mut state, &tmux, &mut config, &path);
+        assert_eq!(*tmux.calls.borrow(), vec!["kill-session:alpha".to_string()]);
+        assert!(state.pending_kill_warning().is_none());
+        assert_eq!(config.groups[0].members, vec!["beta".to_string()], "dead session scrubbed from group membership");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn handle_kill_confirms_a_window_kill_on_a_non_last_window() {
+        let dir = std::env::temp_dir().join(format!("rolomux-kill-window-{}", std::process::id()));
+        let path = dir.join("config.toml");
+        let mut config = Config::default();
+        let windows_before = vec![
+            Window { index: 0, name: "editor".into(), active: true },
+            Window { index: 1, name: "logs".into(), active: false },
+        ];
+        let sessions = vec![Session { id: String::new(), name: "alpha".into(), activity: 1, created: 1, attached: false, windows: windows_before }];
+        let mut state = PickerState::build(sessions, &config);
+        state.expand();
+        state.move_cursor(2); // rows: [session, window 0 "editor", window 1 "logs"]
+
+        let windows_after = vec![Window { index: 0, name: "editor".into(), active: true }];
+        let tmux = FakeTmux::with_gather(Gathered {
+            sessions: vec![Session { id: String::new(), name: "alpha".into(), activity: 1, created: 1, attached: false, windows: windows_after }],
+            current: None,
+        });
+
+        handle_kill(&mut state, &tmux, &mut config, &path); // arm
+        assert!(!state.pending_kill_warning().unwrap().contains("exit tmux"), "non-last window is never risky");
+        handle_kill(&mut state, &tmux, &mut config, &path); // confirm
+
+        assert_eq!(*tmux.calls.borrow(), vec!["kill-window:alpha:1".to_string()]);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn handle_kill_warns_of_ejection_when_killing_the_attached_session() {
+        let dir = std::env::temp_dir().join(format!("rolomux-kill-session-risky-{}", std::process::id()));
+        let path = dir.join("config.toml");
+        let mut config = Config::default();
+        let sessions = vec![Session { id: String::new(), name: "alpha".into(), activity: 1, created: 1, attached: true, windows: vec![Window { index: 0, name: "w".into(), active: true }] }];
+        let mut state = PickerState::build(sessions, &config);
+
+        let tmux = FakeTmux::with_gather(Gathered { sessions: vec![], current: None });
+        // FakeTmux's detach_on_destroy_off defaults to false ("on" / risky).
+
+        handle_kill(&mut state, &tmux, &mut config, &path); // arm
+        let warning = state.pending_kill_warning().expect("armed");
+        assert!(warning.contains("exit tmux"), "attached session with detach-on-destroy on is risky: {warning}");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn handle_kill_on_the_only_window_of_an_attached_session_is_risky() {
+        let dir = std::env::temp_dir().join(format!("rolomux-kill-only-window-risky-{}", std::process::id()));
+        let path = dir.join("config.toml");
+        let mut config = Config::default();
+        let sessions = vec![Session { id: String::new(), name: "alpha".into(), activity: 1, created: 1, attached: true, windows: vec![Window { index: 0, name: "w".into(), active: true }] }];
+        let mut state = PickerState::build(sessions, &config);
+        state.expand();
+        state.move_cursor(1); // the only window in alpha
+
+        let tmux = FakeTmux::with_gather(Gathered { sessions: vec![], current: None });
+
+        handle_kill(&mut state, &tmux, &mut config, &path); // arm
+        let warning = state.pending_kill_warning().expect("armed");
+        assert!(warning.contains("exit tmux"), "killing the only window of an attached session is risky: {warning}");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn handle_kill_on_an_unattached_session_is_never_risky_even_with_detach_on_destroy_on() {
+        let dir = std::env::temp_dir().join(format!("rolomux-kill-unattached-{}", std::process::id()));
+        let path = dir.join("config.toml");
+        let mut config = Config::default();
+        let sessions = vec![sess("alpha")];
+        let mut state = PickerState::build(sessions, &config);
+
+        let tmux = FakeTmux::with_gather(Gathered { sessions: vec![], current: None });
+
+        handle_kill(&mut state, &tmux, &mut config, &path); // arm
+        let warning = state.pending_kill_warning().expect("armed");
+        assert!(!warning.contains("exit tmux"));
 
         let _ = std::fs::remove_dir_all(&dir);
     }
