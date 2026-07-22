@@ -41,54 +41,88 @@ pub enum SettingsRow {
 }
 
 impl SettingsRow {
-    /// A short, single-line explanation of what this setting does, shown
-    /// on the Settings footer's description line. Child/option rows
-    /// (individual color choices) reuse their parent setting's text since
-    /// the option itself (a named color, a checkbox) is self-explanatory.
-    pub fn description(&self) -> &'static str {
+    /// A short, single-line explanation of what this setting does, shown on
+    /// the Settings footer's description line. Rows whose static text used to
+    /// read as a "whether X or Y" dichotomy now describe only the row's
+    /// *current* effect (issue #140); a raw color-cycle row (Border, Shortcut,
+    /// Palette, and Attached color's own quick-cycled color) keeps a single
+    /// generic description regardless of state, per that issue's own text.
+    /// Child/option rows reuse their parent setting's text since the option
+    /// itself (a named color, a checkbox) is self-explanatory.
+    pub fn description(&self, state: &PickerState) -> String {
         match self {
-            SettingsRow::DefaultMode => {
-                "Whether the picker opens in Command mode or straight into Search."
+            SettingsRow::DefaultMode => match state.default_mode {
+                DefaultMode::Command => "On launch, rolomux opens in Command mode.",
+                DefaultMode::Search => "On launch, rolomux opens straight into Search.",
             }
-            SettingsRow::DormantNumbering => {
-                "Whether visible dormant sessions get jump numbers (1-20)."
+            .to_string(),
+            SettingsRow::DormantNumbering => if state.number_dormant_sessions {
+                "Visible dormant sessions receive jump numbers (1-20)."
+            } else {
+                "Visible dormant sessions do not receive jump numbers."
             }
-            SettingsRow::RememberExpanded => {
-                "When on, expand/collapse state persists across popups."
+            .to_string(),
+            SettingsRow::RememberExpanded => if state.remember_expanded_sessions {
+                "Expand/collapse state persists across popups."
+            } else {
+                "Expand/collapse state resets each time the popup opens."
             }
-            SettingsRow::SessionMetric => {
-                "Whether the row's trailing timestamp shows Recency, Age, or is Hidden."
+            .to_string(),
+            SettingsRow::SessionMetric => match state.session_metric {
+                SessionMetric::Recency => "The row's trailing timestamp shows Recency.",
+                SessionMetric::Age => "The row's trailing timestamp shows Age.",
+                SessionMetric::Hidden => "The row's trailing timestamp is hidden.",
             }
-            SettingsRow::ClearDormantOnAttach => {
-                "When on, attaching to a dormant session automatically clears its dormant flag."
+            .to_string(),
+            SettingsRow::ClearDormantOnAttach => if state.clear_dormant_on_attach {
+                "Attaching to a dormant session automatically clears its dormant flag."
+            } else {
+                "Attaching to a dormant session doesn't touch its dormant flag."
             }
-            SettingsRow::StartFocusMode => {
-                "Whether the picker starts in focus mode: Remember the last state, Always start in it, or Never start in it."
+            .to_string(),
+            SettingsRow::StartFocusMode => match state.start_focus_mode {
+                StartFocusMode::Remember => "The picker starts in focus mode based on how you last left it.",
+                StartFocusMode::Always => "The picker always starts in focus mode.",
+                StartFocusMode::Never => "The picker never starts in focus mode.",
             }
-            SettingsRow::NewGroupPosition => {
-                "Where a newly created group is inserted: Top of the list, or Bottom (just above the inbox)."
+            .to_string(),
+            SettingsRow::NewGroupPosition => match state.new_group_position {
+                NewGroupPosition::Top => "A newly created group is inserted at the top of the list.",
+                NewGroupPosition::Bottom => {
+                    "A newly created group is inserted at the bottom, just above the inbox."
+                }
             }
-            SettingsRow::ShortcutVisibility => {
-                "Whether the footer's key-shortcut legend is always visible, or hidden until you press ?."
+            .to_string(),
+            SettingsRow::ShortcutVisibility => match state.shortcut_visibility {
+                ShortcutVisibility::Always => "The shortcut legend is always visible.",
+                ShortcutVisibility::OnDemand => "The shortcut legend is hidden until you press ?.",
             }
-            SettingsRow::InboxIcon => "Which glyph prefixes the inbox group's header.",
-            SettingsRow::AttachedColor => {
-                "Highlight color for the session your tmux client is attached to."
+            .to_string(),
+            SettingsRow::InboxIcon => format!("The inbox group's header is prefixed with '{}'.", state.inbox_icon),
+            SettingsRow::AttachedColor => match state.attached_color_mode {
+                AttachedColorMode::Static => "The attached session's dot and name use a fixed color.",
+                AttachedColorMode::Match => "The attached session's dot and name match its group's color.",
             }
+            .to_string(),
             SettingsRow::BorderColor | SettingsRow::BorderColorOption(_) => {
-                "rolomux's own border frame color."
+                "rolomux's own border frame color.".to_string()
             }
             SettingsRow::ShortcutColor | SettingsRow::ShortcutColorOption(_) => {
-                "Highlight color for key tokens in the footer's shortcut hints."
+                "Highlight color for key tokens in the footer's shortcut hints.".to_string()
             }
-            SettingsRow::DotColorMode => {
-                "Color of the \u{25cf} marking a session's active window: a fixed color, or the session's own group color."
+            SettingsRow::DotColorMode => match state.dot_color_mode {
+                DotColorMode::Static => "The active-window \u{25cf} uses a fixed color.",
+                DotColorMode::Group => "The active-window \u{25cf} uses its group's color.",
             }
-            SettingsRow::ColorPolicy => {
-                "How a new group picks its header color: Rotate, Random, or Static."
+            .to_string(),
+            SettingsRow::ColorPolicy => match state.new_group_color_policy {
+                ColorPolicy::Rotate => "A new group's header color rotates through the active palette.",
+                ColorPolicy::Random => "A new group's header color is picked randomly from the palette.",
+                ColorPolicy::Static => "A new group's header color is always the same fixed color.",
             }
+            .to_string(),
             SettingsRow::Palette | SettingsRow::PaletteColor(_) => {
-                "Which of the 16 terminal colors are in rotation for new group headers."
+                "Which of the 16 terminal colors are in rotation for new group headers.".to_string()
             }
         }
     }
@@ -1001,34 +1035,190 @@ mod tests {
     }
 
     #[test]
-    fn settings_row_description_describes_default_mode() {
-        assert_eq!(
-            SettingsRow::DefaultMode.description(),
-            "Whether the picker opens in Command mode or straight into Search."
-        );
+    fn settings_row_description_reflects_default_mode() {
+        let mut st = settings_state();
+        assert_eq!(SettingsRow::DefaultMode.description(&st), "On launch, rolomux opens in Command mode.");
+        st.default_mode = DefaultMode::Search;
+        assert_eq!(SettingsRow::DefaultMode.description(&st), "On launch, rolomux opens straight into Search.");
     }
 
     #[test]
-    fn settings_row_description_describes_start_focus_mode() {
+    fn settings_row_description_reflects_start_focus_mode() {
+        let mut st = settings_state();
         assert_eq!(
-            SettingsRow::StartFocusMode.description(),
-            "Whether the picker starts in focus mode: Remember the last state, Always start in it, or Never start in it."
+            SettingsRow::StartFocusMode.description(&st),
+            "The picker starts in focus mode based on how you last left it."
         );
+        st.start_focus_mode = StartFocusMode::Always;
+        assert_eq!(SettingsRow::StartFocusMode.description(&st), "The picker always starts in focus mode.");
+        st.start_focus_mode = StartFocusMode::Never;
+        assert_eq!(SettingsRow::StartFocusMode.description(&st), "The picker never starts in focus mode.");
     }
 
     #[test]
     fn settings_row_description_child_rows_reuse_parent_text() {
+        let st = settings_state();
         assert_eq!(
-            SettingsRow::BorderColorOption(0).description(),
-            SettingsRow::BorderColor.description()
+            SettingsRow::BorderColorOption(0).description(&st),
+            SettingsRow::BorderColor.description(&st)
         );
         assert_eq!(
-            SettingsRow::PaletteColor(0).description(),
-            SettingsRow::Palette.description()
+            SettingsRow::PaletteColor(0).description(&st),
+            SettingsRow::Palette.description(&st)
         );
         assert_eq!(
-            SettingsRow::ShortcutColorOption(0).description(),
-            SettingsRow::ShortcutColor.description()
+            SettingsRow::ShortcutColorOption(0).description(&st),
+            SettingsRow::ShortcutColor.description(&st)
+        );
+    }
+
+    #[test]
+    fn settings_row_description_reflects_inbox_icon() {
+        let mut st = settings_state();
+        assert_eq!(st.inbox_icon, "\u{229b}", "default glyph");
+        assert_eq!(
+            SettingsRow::InboxIcon.description(&st),
+            "The inbox group's header is prefixed with '\u{229b}'."
+        );
+        st.inbox_icon = "\u{2606}".to_string();
+        assert_eq!(
+            SettingsRow::InboxIcon.description(&st),
+            "The inbox group's header is prefixed with '\u{2606}'."
+        );
+    }
+
+    #[test]
+    fn settings_row_description_reflects_dormant_numbering() {
+        let mut st = settings_state();
+        assert!(st.number_dormant_sessions, "default is true");
+        assert_eq!(
+            SettingsRow::DormantNumbering.description(&st),
+            "Visible dormant sessions receive jump numbers (1-20)."
+        );
+        st.number_dormant_sessions = false;
+        assert_eq!(
+            SettingsRow::DormantNumbering.description(&st),
+            "Visible dormant sessions do not receive jump numbers."
+        );
+    }
+
+    #[test]
+    fn settings_row_description_reflects_remember_expanded() {
+        let mut st = settings_state();
+        assert!(!st.remember_expanded_sessions, "default is false");
+        assert_eq!(
+            SettingsRow::RememberExpanded.description(&st),
+            "Expand/collapse state resets each time the popup opens."
+        );
+        st.remember_expanded_sessions = true;
+        assert_eq!(
+            SettingsRow::RememberExpanded.description(&st),
+            "Expand/collapse state persists across popups."
+        );
+    }
+
+    #[test]
+    fn settings_row_description_reflects_session_metric() {
+        let mut st = settings_state();
+        assert_eq!(SettingsRow::SessionMetric.description(&st), "The row's trailing timestamp shows Recency.");
+        st.session_metric = SessionMetric::Age;
+        assert_eq!(SettingsRow::SessionMetric.description(&st), "The row's trailing timestamp shows Age.");
+        st.session_metric = SessionMetric::Hidden;
+        assert_eq!(SettingsRow::SessionMetric.description(&st), "The row's trailing timestamp is hidden.");
+    }
+
+    #[test]
+    fn settings_row_description_reflects_clear_dormant_on_attach() {
+        let mut st = settings_state();
+        assert!(!st.clear_dormant_on_attach, "default is false");
+        assert_eq!(
+            SettingsRow::ClearDormantOnAttach.description(&st),
+            "Attaching to a dormant session doesn't touch its dormant flag."
+        );
+        st.clear_dormant_on_attach = true;
+        assert_eq!(
+            SettingsRow::ClearDormantOnAttach.description(&st),
+            "Attaching to a dormant session automatically clears its dormant flag."
+        );
+    }
+
+    #[test]
+    fn settings_row_description_reflects_new_group_position() {
+        let mut st = settings_state();
+        assert_eq!(st.new_group_position, NewGroupPosition::Bottom, "default is Bottom");
+        assert_eq!(
+            SettingsRow::NewGroupPosition.description(&st),
+            "A newly created group is inserted at the bottom, just above the inbox."
+        );
+        st.new_group_position = NewGroupPosition::Top;
+        assert_eq!(
+            SettingsRow::NewGroupPosition.description(&st),
+            "A newly created group is inserted at the top of the list."
+        );
+    }
+
+    #[test]
+    fn settings_row_description_reflects_shortcut_visibility() {
+        let mut st = settings_state();
+        assert_eq!(st.shortcut_visibility, ShortcutVisibility::Always, "default is Always");
+        assert_eq!(
+            SettingsRow::ShortcutVisibility.description(&st),
+            "The shortcut legend is always visible."
+        );
+        st.shortcut_visibility = ShortcutVisibility::OnDemand;
+        assert_eq!(
+            SettingsRow::ShortcutVisibility.description(&st),
+            "The shortcut legend is hidden until you press ?."
+        );
+    }
+
+    #[test]
+    fn settings_row_description_reflects_dot_color_mode() {
+        let mut st = settings_state();
+        assert_eq!(st.dot_color_mode, DotColorMode::Static, "default is Static");
+        assert_eq!(
+            SettingsRow::DotColorMode.description(&st),
+            "The active-window \u{25cf} uses a fixed color."
+        );
+        st.dot_color_mode = DotColorMode::Group;
+        assert_eq!(
+            SettingsRow::DotColorMode.description(&st),
+            "The active-window \u{25cf} uses its group's color."
+        );
+    }
+
+    #[test]
+    fn settings_row_description_reflects_color_policy() {
+        let mut st = settings_state();
+        assert_eq!(st.new_group_color_policy, ColorPolicy::Rotate, "default is Rotate");
+        assert_eq!(
+            SettingsRow::ColorPolicy.description(&st),
+            "A new group's header color rotates through the active palette."
+        );
+        st.new_group_color_policy = ColorPolicy::Random;
+        assert_eq!(
+            SettingsRow::ColorPolicy.description(&st),
+            "A new group's header color is picked randomly from the palette."
+        );
+        st.new_group_color_policy = ColorPolicy::Static;
+        assert_eq!(
+            SettingsRow::ColorPolicy.description(&st),
+            "A new group's header color is always the same fixed color."
+        );
+    }
+
+    #[test]
+    fn settings_row_description_reflects_attached_color_mode() {
+        let mut st = settings_state();
+        assert_eq!(st.attached_color_mode, AttachedColorMode::Static, "default is Static");
+        assert_eq!(
+            SettingsRow::AttachedColor.description(&st),
+            "The attached session's dot and name use a fixed color."
+        );
+        st.attached_color_mode = AttachedColorMode::Match;
+        assert_eq!(
+            SettingsRow::AttachedColor.description(&st),
+            "The attached session's dot and name match its group's color."
         );
     }
 

@@ -2966,7 +2966,7 @@ mod tests {
     fn draw_settings_shows_description_of_selected_row() {
         let text = render_to_string(&settings_view());
         // Cursor starts on the first row, DefaultMode.
-        assert!(text.contains("Whether the picker opens in Command mode or straight into Search."));
+        assert!(text.contains("On launch, rolomux opens in Command mode."));
     }
 
     #[test]
@@ -2974,7 +2974,7 @@ mod tests {
         let mut st = settings_view();
         st.settings_move_cursor(1); // DormantNumbering
         let text = render_to_string(&st);
-        assert!(text.contains("Whether visible dormant sessions get jump numbers (1-20)."));
+        assert!(text.contains("Visible dormant sessions receive jump numbers (1-20)."));
     }
 
     #[test]
@@ -2983,7 +2983,7 @@ mod tests {
         let lines: Vec<&str> = text.lines().collect();
         let description_idx = lines
             .iter()
-            .position(|l| l.contains("Whether the picker opens in Command mode or straight into Search."))
+            .position(|l| l.contains("On launch, rolomux opens in Command mode."))
             .expect("description line rendered");
         let hint_idx = lines
             .iter()
@@ -3002,7 +3002,7 @@ mod tests {
         let mut found_description = false;
         for y in 0..buf.area.height {
             let line: String = (0..buf.area.width).map(|x| buf[(x, y)].symbol()).collect();
-            if let Some(i) = line.find("Whether the picker opens") {
+            if let Some(i) = line.find("On launch, rolomux opens") {
                 found_description = true;
                 assert_ne!(
                     buf[(i as u16, y)].style().fg,

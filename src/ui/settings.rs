@@ -192,7 +192,7 @@ pub(super) fn draw_settings(frame: &mut Frame, state: &PickerState, inner: Rect)
     frame.render_stateful_widget(list, list_area, &mut list_state);
 
     let rule = "─".repeat(footer_area.width as usize);
-    let current_description = rows[state.settings_cursor().min(rows.len().saturating_sub(1))].description();
+    let current_description = rows[state.settings_cursor().min(rows.len().saturating_sub(1))].description(state);
     let footer = Paragraph::new(vec![
         Line::from(Span::styled(rule, Style::default().fg(DIM))),
         Line::from(Span::styled(current_description, Style::default())),
