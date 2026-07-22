@@ -91,6 +91,8 @@ pub enum StartFocusMode {
     Never,
 }
 
+// Not yet constructed by any caller outside this module's own tests; Task 3
+// wires PickerState/Config to it, at which point this allow should come out.
 #[allow(dead_code)]
 impl StartFocusMode {
     pub fn from_config_str(s: &str) -> StartFocusMode {
