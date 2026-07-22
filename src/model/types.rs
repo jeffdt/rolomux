@@ -108,10 +108,6 @@ impl StartFocusMode {
         }
     }
 
-    // Not yet called by any caller outside this module's own tests; Task 4
-    // wires the Settings UI cycling to it, at which point this allow should
-    // come out.
-    #[allow(dead_code)]
     pub fn next(self) -> StartFocusMode {
         match self {
             StartFocusMode::Remember => StartFocusMode::Always,

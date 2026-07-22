@@ -1,6 +1,6 @@
 use crate::model::{
     ColorPolicy, DefaultMode, DotColorMode, Group, Mode, NewGroupPosition, PickerState, Row, Session,
-    SessionMetric, SettingsRow, ShortcutVisibility, SwapDirection, Window, ALL_NAMED_COLORS,
+    SessionMetric, SettingsRow, ShortcutVisibility, StartFocusMode, SwapDirection, Window, ALL_NAMED_COLORS,
 };
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
@@ -3075,7 +3075,7 @@ mod tests {
     #[test]
     fn draw_settings_new_group_position_shows_top_when_toggled() {
         let mut st = settings_view();
-        st.settings_move_cursor(5); // NewGroupPosition
+        st.settings_move_cursor(6); // NewGroupPosition
         st.settings_step_right();
         let text = render_to_string(&st);
         let row = text
@@ -3184,7 +3184,7 @@ mod tests {
     #[test]
     fn draw_settings_expanded_attached_color_shows_radio_glyphs() {
         let mut st = settings_view();
-        st.settings_move_cursor(8); // AttachedColor
+        st.settings_move_cursor(9); // AttachedColor
         st.settings_step_right(); // expand
         let text = render_to_string(&st);
         assert!(text.contains("●"), "the currently selected color is marked filled");
@@ -3200,7 +3200,7 @@ mod tests {
     #[test]
     fn draw_settings_expanded_border_color_shows_radio_glyphs() {
         let mut st = settings_view();
-        st.settings_move_cursor(9); // BorderColor
+        st.settings_move_cursor(10); // BorderColor
         st.settings_step_right();
         let text = render_to_string(&st);
         assert!(text.contains("●"));
@@ -3210,7 +3210,7 @@ mod tests {
     #[test]
     fn draw_settings_expanded_palette_shows_swatches_and_checkboxes() {
         let mut st = settings_view();
-        st.settings_move_cursor(13); // Palette
+        st.settings_move_cursor(14); // Palette
         st.settings_step_right(); // expand
         // Taller than the usual 80x20: section headers and the added Show
         // shortcuts/Shortcut color/Active window dot color/Inbox icon rows
@@ -3226,7 +3226,7 @@ mod tests {
     #[test]
     fn draw_settings_shows_static_color_value_when_policy_is_static() {
         let mut st = settings_view();
-        st.settings_move_cursor(12); // ColorPolicy row
+        st.settings_move_cursor(13); // ColorPolicy row
         st.settings_step_right(); // Rotate -> Random
         st.settings_step_right(); // Random -> Static
         st.static_color = "magenta".to_string();
@@ -3292,7 +3292,7 @@ mod tests {
     #[test]
     fn draw_settings_gutter_bar_continues_through_expanded_color_options() {
         let mut st = settings_view();
-        st.settings_move_cursor(8); // AttachedColor
+        st.settings_move_cursor(9); // AttachedColor
         st.settings_step_right(); // expand
         let text = render_to_string(&st);
         let row = text
@@ -3307,7 +3307,7 @@ mod tests {
     #[test]
     fn draw_settings_gutter_bar_continues_through_expanded_palette_rows() {
         let mut st = settings_view();
-        st.settings_move_cursor(13); // Palette
+        st.settings_move_cursor(14); // Palette
         st.settings_step_right(); // expand
         // Taller than the usual 80x20: section headers and the added Show
         // shortcuts/Shortcut color/Active window dot color/Inbox icon rows
@@ -3341,7 +3341,9 @@ mod tests {
 
     #[test]
     fn draw_settings_shows_behavior_and_appearance_section_headers() {
-        let text = render_to_string(&settings_view());
+        // Taller than the default 80x20: the added Start in focus mode row
+        // pushes APPEARANCE just past the default viewport.
+        let text = render_to_string_sized(&settings_view(), 80, 21);
         assert!(text.contains("BEHAVIOR"), "Behavior section header is rendered");
         assert!(text.contains("APPEARANCE"), "Appearance section header is rendered");
     }
@@ -3357,10 +3359,10 @@ mod tests {
 
     #[test]
     fn draw_settings_appearance_header_precedes_attached_color_row() {
-        // Taller than the default 80x20: the New group position, Show
-        // shortcuts, and Inbox icon rows push Attached session color further
-        // down the list.
-        let text = render_to_string_sized(&settings_view(), 80, 22);
+        // Taller than the default 80x20: the Start in focus mode, New group
+        // position, Show shortcuts, and Inbox icon rows push Attached
+        // session color further down the list.
+        let text = render_to_string_sized(&settings_view(), 80, 23);
         let lines: Vec<&str> = text.lines().collect();
         let header_idx = lines.iter().position(|l| l.contains("APPEARANCE")).expect("APPEARANCE header rendered");
         let row_idx = lines.iter().position(|l| l.contains("Attached session color")).expect("Attached session color row rendered");
@@ -3386,7 +3388,9 @@ mod tests {
 
     #[test]
     fn draw_settings_blank_line_separates_behavior_and_appearance_sections() {
-        let text = render_to_string(&settings_view());
+        // Taller than the default 80x20: the added Start in focus mode row
+        // pushes APPEARANCE just past the default viewport.
+        let text = render_to_string_sized(&settings_view(), 80, 21);
         let lines: Vec<&str> = text.lines().collect();
         let appearance_idx = lines.iter().position(|l| l.contains("APPEARANCE")).expect("APPEARANCE header rendered");
         let prev_line = lines[appearance_idx - 1];

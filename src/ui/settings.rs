@@ -60,6 +60,13 @@ pub(super) fn draw_settings(frame: &mut Frame, state: &PickerState, inner: Rect)
                     selected,
                 )
             }
+            SettingsRow::StartFocusMode => {
+                settings_value_line(
+                    "Start in focus mode",
+                    start_focus_mode_label(state.start_focus_mode),
+                    selected,
+                )
+            }
             SettingsRow::NewGroupPosition => {
                 settings_value_line(
                     "New group position",
@@ -271,6 +278,14 @@ fn remember_expanded_label(remember_expanded_sessions: bool) -> &'static str {
 
 fn clear_dormant_on_attach_label(clear_dormant_on_attach: bool) -> &'static str {
     if clear_dormant_on_attach { "Yes" } else { "No" }
+}
+
+fn start_focus_mode_label(m: StartFocusMode) -> &'static str {
+    match m {
+        StartFocusMode::Remember => "Remember",
+        StartFocusMode::Always => "Always",
+        StartFocusMode::Never => "Never",
+    }
 }
 
 fn new_group_position_label(p: NewGroupPosition) -> &'static str {
