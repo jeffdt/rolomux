@@ -331,6 +331,8 @@ fn commit_kill(
     path: &std::path::Path,
     state: &mut PickerState,
 ) {
+    let expanded_snapshot = state.expanded_list();
+
     if state.dirty {
         state.apply_to_config(config);
         let _ = config.save_to(path);
@@ -350,7 +352,7 @@ fn commit_kill(
         let _ = config.save_to(path);
     }
 
-    *state = PickerState::build(gathered.sessions, config);
+    *state = PickerState::build_with_expanded(gathered.sessions, config, expanded_snapshot);
 }
 
 fn event_loop(
@@ -952,6 +954,32 @@ mod tests {
         assert_eq!(*tmux.calls.borrow(), vec!["kill-session:alpha".to_string()]);
         assert!(state.pending_kill_warning().is_none());
         assert_eq!(config.groups[0].members, vec!["beta".to_string()], "dead session scrubbed from group membership");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn commit_kill_preserves_expand_state_of_an_unrelated_session() {
+        let dir = std::env::temp_dir().join(format!("rolomux-kill-preserves-expand-{}", std::process::id()));
+        let path = dir.join("config.toml");
+        let mut config = Config::default();
+        let sessions = vec![sess("alpha"), sess("beta")];
+        let mut state = PickerState::build(sessions, &config);
+        state.focus_session("beta");
+        state.expand();
+        assert!(state.is_expanded("beta"), "sanity: beta starts expanded");
+        state.focus_session("alpha");
+
+        let tmux = FakeTmux::with_gather(Gathered { sessions: vec![sess("beta")], current: None });
+
+        handle_kill(&mut state, &tmux, &mut config, &path); // arm
+        handle_kill(&mut state, &tmux, &mut config, &path); // confirm
+
+        assert_eq!(*tmux.calls.borrow(), vec!["kill-session:alpha".to_string()]);
+        assert!(
+            state.is_expanded("beta"),
+            "killing alpha must not collapse beta, which was expanded transiently (remember_expanded_sessions is off by default, so this can only survive via a build_with_expanded snapshot, not config.expanded)"
+        );
 
         let _ = std::fs::remove_dir_all(&dir);
     }
