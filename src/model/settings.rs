@@ -44,11 +44,12 @@ impl SettingsRow {
     /// A short, single-line explanation of what this setting does, shown on
     /// the Settings footer's description line. Rows whose static text used to
     /// read as a "whether X or Y" dichotomy now describe only the row's
-    /// *current* effect (issue #140); a raw color-cycle row (Border, Shortcut,
-    /// Palette, and Attached color's own quick-cycled color) keeps a single
-    /// generic description regardless of state, per that issue's own text.
-    /// Child/option rows reuse their parent setting's text since the option
-    /// itself (a named color, a checkbox) is self-explanatory.
+    /// *current* effect (issue #140), including Attached color's Static/Match
+    /// mode; a row that only ever cycles a raw color (Border, Shortcut,
+    /// Palette) keeps a single generic description regardless of state, per
+    /// that issue's own text. Child/option rows reuse their parent setting's
+    /// text since the option itself (a named color, a checkbox) is
+    /// self-explanatory.
     pub fn description(&self, state: &PickerState) -> String {
         match self {
             SettingsRow::DefaultMode => match state.default_mode {
