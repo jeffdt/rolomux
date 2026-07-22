@@ -105,17 +105,24 @@ pub(super) fn draw_settings(frame: &mut Frame, state: &PickerState, inner: Rect)
                 Line::from(spans)
             }
             SettingsRow::BorderColorPolicy => {
-                settings_value_line(
-                    "Border color policy",
-                    color_policy_label(state.border_color_policy),
-                    selected,
-                )
-            }
-            SettingsRow::BorderColor => {
-                settings_color_line("Border color", &state.border_color, state.border_color_expanded(), selected)
-            }
-            SettingsRow::BorderColorOption(idx) => {
-                settings_color_option_line(ALL_NAMED_COLORS[*idx], &state.border_color, selected)
+                let mut spans = vec![
+                    gutter_span(),
+                    Span::raw(" "),
+                    Span::styled("Border color", Style::default().add_modifier(Modifier::BOLD)),
+                    Span::styled(
+                        format!("  {}", color_policy_label(state.border_color_policy)),
+                        secondary(selected),
+                    ),
+                ];
+                if state.border_color_policy == ColorPolicy::Static {
+                    spans.push(Span::raw("  "));
+                    spans.push(Span::styled(
+                        "██",
+                        Style::default().fg(color_from_name(&state.border_color)),
+                    ));
+                    spans.push(Span::styled(format!(" {}", state.border_color), secondary(selected)));
+                }
+                Line::from(spans)
             }
             SettingsRow::ShortcutColor => {
                 settings_color_line("Shortcut highlight color", &state.shortcut_color, state.shortcut_color_expanded(), selected)
