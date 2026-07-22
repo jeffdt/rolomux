@@ -58,10 +58,8 @@ These are the reasons the project exists. Changes should preserve them.
 
 ## Tech stack
 
-- **Rust** (edition 2021). Single binary, `cargo build`.
-- **ratatui** + **crossterm** for the TUI.
-- **serde** + **toml** for the persisted config.
-- The only runtime dependency beyond the binary itself is **tmux** on PATH.
+The only runtime dependency beyond the binary itself is **tmux** on PATH
+(see `Cargo.toml` for the Rust edition and crate dependencies).
 
 ## Durable design decisions
 
@@ -160,67 +158,9 @@ rolomux ships as a prebuilt binary through a personal Homebrew tap, mirroring th
 
 ### Cutting a release
 
-**Every push to `main` that changes shipped behavior must also cut a release.**
-Users install via Homebrew, which only ever sees tagged release binaries, never
-`main`. A commit on `main` with no accompanying release is invisible to anyone
-who runs `brew upgrade`: the code is "shipped" in git but not to users. So
-unless a change is purely internal (docs, tests, CI, scratch under `specs/` or
-`plans/`), finish the job by running the steps below in the same session: bump,
-tag, wait for CI, and update the tap. Don't leave `main` ahead of the latest
-release.
-
-Shipped changes reach `main` via PR (see "Working in this repo"), and the
-version bump rides in that PR. Once it has merged, cut the tag and update the
-tap. The tap is a separate repo, `jeffdt/homebrew-tap`; clone it if it isn't
-already checked out. `scripts/release.sh` expects it at `~/code/homebrew-tap`;
-set `ROLOMUX_TAP_DIR` if it lives elsewhere.
-
-`scripts/release.sh` automates the mechanical steps:
-
-1. On the feature branch, before opening the PR: `scripts/release.sh bump
-   <patch|minor|major>`. Reads the current version from `Cargo.toml`, applies
-   the bump, refreshes `Cargo.lock` (`cargo build --release`), and commits.
-   That commit rides in the PR as usual. Picking `patch` vs `minor` vs `major`
-   is the one call the script doesn't make for you -- same judgment as always
-   (a bug fix is patch, new user-facing behavior like a setting is minor).
-2. After the PR merges: `git checkout main && git pull`, then
-   `scripts/release.sh cut`. It reads the version already on `main` (no bump
-   decision left -- that was step 1), tags and pushes `vX.Y.Z`, waits for
-   `release.yml` (which builds and attaches a single asset named
-   **`rolomux-aarch64-apple-darwin`** to the GitHub Release), downloads and
-   hashes that asset, updates and validates `jeffdt/homebrew-tap`'s
-   `Formula/rolomux.rb`, pushes the tap, and runs `brew update && brew upgrade
-   jeffdt/tap/rolomux` locally, ending on a confirmed `rolomux --version`. It
-   refuses to run off `main`, with a dirty tree, or against a tag that
-   already exists, rather than guessing.
-
-The formula carries `depends_on arch: :arm64` and `depends_on :macos` and a
-top-level `url` (the version is scanned from the URL, e.g.
-`.../download/vX.Y.Z/rolomux-...`; there is no separate `version` line) so the
-tap's `brew test-bot` CI passes -- keep that shape by hand if editing the
-formula outside the script (a nested `on_macos`/`version`-line formula fails
-`readall`/`audit`). `release.sh cut` only ever rewrites the `url` and `sha256`
-lines; it won't touch the `caveats` block's example keybind, so update that by
-hand if it changed.
-
-Two things the script doesn't cover -- finish these by hand after `cut`
-succeeds:
-
-- If `~/.tmux.conf`'s `bind s` was temporarily pointed at a dev build
-  (`target/release/rolomux`) for testing, revert its `exec` to `exec rolomux` and
-  `tmux source-file ~/.tmux.conf`.
-- If this was the final PR for the work (no agreed-upon follow-up or
-  multi-PR split), clean up rather than leaving the worktree lying around:
-  confirm the linked issue actually closed (`Closes #N` closes it on merge,
-  but check `gh issue view N --json state,closed` rather than assuming; `gh
-  issue close N` by hand if it didn't), then run `wt remove` from inside the
-  feature worktree (it deletes the worktree and the now-merged branch, and
-  switches the shell back to the `main` worktree on its own). Offer to `git
-  pull` the merge into that `main` worktree rather than doing it silently.
-
-Currently Apple Silicon only. Supporting Intel means adding
-`x86_64-apple-darwin` to the release matrix, an Intel branch in the formula,
-and updating `scripts/release.sh`'s asset handling.
+**Every push to `main` that changes shipped behavior must also cut a
+release** (Homebrew users never see `main`, only tagged releases). See the
+`cutting-a-release` skill for the full bump/tag/tap workflow.
 
 ## Working in this repo
 
@@ -244,61 +184,10 @@ and updating `scripts/release.sh`'s asset handling.
 - Build/test loop: `RUSTFLAGS="-D warnings" cargo test`, then
   `cargo build --release`.
 - **Leave a live preview when a feature is done.** Once a feature is
-  implemented and tests pass, launch the freshly built binary in a new window
-  of the *current* tmux session so the change is waiting on screen as a real
-  running picker, not just green test output. Use the `mux` wrapper
-  (`~/.claude/scripts/mux`; see the `tmux` skill) rather than raw `tmux`:
-  `cargo build --release` then
-  `tab=$(mux spawn --workspace caller --cwd "$PWD" --cmd "$PWD/target/release/rolomux" --title rolomux-preview)`
-  then `tmux set-window-option -t "$tab" remain-on-exit on` (`mux` has no
-  set-option verb, so that one step stays raw tmux, targeted by the exact tab
-  token `mux spawn` printed, never ambiguous). `--workspace caller` targets
-  the calling pane's own session robustly; omit `--focus` so the new window
-  doesn't steal focus. Do NOT hand `mux spawn --cmd` a command wrapped in
-  `exec`: rolomux exits on any selection/quit keypress, and an `exec`'d window
-  vanishes with the process, so the preview disappears the moment it's
-  touched; `--cmd` alone runs it as a plain foreground command in a fresh
-  shell, so `remain-on-exit` can keep the window open afterward. This is for
-  unattended runs: the picker sits at its prompt waiting for input, so when
-  the user returns to the session the feature is previewable straight from the
-  command line. rolomux detects the current session normally in a plain pane
-  (`$TMUX` is set), so no popup is required.
-
-  When the feature lives in a `wt switch --create` worktree, pin the absolute
-  worktree path first instead of trusting the agent shell's current directory
-  or any tool-side cwd override. `wt` can report `Cannot change directory`,
-  leaving `$PWD` in the original checkout. Use the same absolute path for both
-  `mux spawn --cwd` and `--cmd`, e.g. `preview_dir=/path/to/worktree; tab=$(mux
-  spawn --workspace caller --cwd "$preview_dir" --cmd
-  "$preview_dir/target/release/rolomux" --title rolomux-preview)`. After
-  spawning, verify the tab is live and pointed at the intended worktree with
-  `tmux list-windows -a -F '#{window_id} #{window_name} #{pane_current_command}
-  #{pane_current_path}'`.
-
-  If the feature touches anything that persists to config (a settings row, group
-  edits, the dormant list), isolate the preview from the real
-  `~/.config/rolomux/config.toml` by pointing `XDG_CONFIG_HOME` at a scratch
-  directory inside the worktree, folded into the same `--cmd` string:
-  `--cmd "XDG_CONFIG_HOME=$preview_dir/.preview-config
-  $preview_dir/target/release/rolomux"`. rolomux has no built-in isolation flag,
-  so without this any poking during verification (toggling a row, cycling a
-  color) silently mutates the user's live config. Skip it only for changes with no
-  config-writing surface at all.
-
-  Once the preview window is confirmed live, report back a one-sentence
-  summary of the problem being solved and a one-sentence description of how
-  to test it (which keys to press, what to look for) -- so the user can jump
-  straight to trying it without re-deriving context from the conversation.
-
-  A prior version of this note told agents to run bare
-  `tmux split-window`/`new-window` with no `-t`. Don't: an agent's Bash tool
-  runs as a detached subprocess with no controlling tty, so that resolves
-  "current window" against whatever window is currently active in the
-  session, not the window this session is actually attached to, and the
-  preview can silently land somewhere else. `mux spawn --workspace caller`
-  avoids the whole class of bug by resolving the session robustly and always
-  creating a fresh window rather than depending on tmux's ambient "current
-  window."
+  implemented and tests pass, launch the freshly built binary in a new tmux
+  window so the change is waiting on screen as a real running picker, not
+  just green test output. See the `live-preview` skill for the exact `mux
+  spawn` invocation, worktree-path pinning, and config isolation rules.
 - **Mock up visual/rendering changes before writing the spec.** When a design
   discussion touches how something renders (colors, layout, new glyphs/columns),
   don't rely on a text description alone — render an ANSI mockup (never the
