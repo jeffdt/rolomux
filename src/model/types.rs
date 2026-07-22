@@ -78,6 +78,46 @@ impl SessionMetric {
     }
 }
 
+/// Governs the `focus_mode` boolean a fresh popup starts with. `Remember`
+/// (default) seeds it from the persisted `Config::focus_mode`, exactly like
+/// every prior version of this picker; `Always`/`Never` override that with a
+/// fixed value regardless of what was last saved. Same 3-state-cycle shape as
+/// `SessionMetric`: `next()` only, no distinct "previous".
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum StartFocusMode {
+    #[default]
+    Remember,
+    Always,
+    Never,
+}
+
+#[allow(dead_code)]
+impl StartFocusMode {
+    pub fn from_config_str(s: &str) -> StartFocusMode {
+        match s {
+            "always" => StartFocusMode::Always,
+            "never" => StartFocusMode::Never,
+            _ => StartFocusMode::Remember,
+        }
+    }
+
+    pub fn as_config_str(self) -> &'static str {
+        match self {
+            StartFocusMode::Remember => "remember",
+            StartFocusMode::Always => "always",
+            StartFocusMode::Never => "never",
+        }
+    }
+
+    pub fn next(self) -> StartFocusMode {
+        match self {
+            StartFocusMode::Remember => StartFocusMode::Always,
+            StartFocusMode::Always => StartFocusMode::Never,
+            StartFocusMode::Never => StartFocusMode::Remember,
+        }
+    }
+}
+
 /// Governs the header color assigned when a new group is created
 /// (`PickerState::group_new`). Never retroactively recolors existing groups.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -542,6 +582,25 @@ mod tests {
         assert_eq!(SessionMetric::from_config_str("recency"), SessionMetric::Recency);
         assert_eq!(SessionMetric::from_config_str("garbage"), SessionMetric::Recency);
         assert_eq!(SessionMetric::default(), SessionMetric::Recency);
+    }
+
+    #[test]
+    fn start_focus_mode_next_cycles_through_all_three_and_wraps() {
+        assert_eq!(StartFocusMode::Remember.next(), StartFocusMode::Always);
+        assert_eq!(StartFocusMode::Always.next(), StartFocusMode::Never);
+        assert_eq!(StartFocusMode::Never.next(), StartFocusMode::Remember);
+        assert_eq!(StartFocusMode::Remember.as_config_str(), "remember");
+        assert_eq!(StartFocusMode::Always.as_config_str(), "always");
+        assert_eq!(StartFocusMode::Never.as_config_str(), "never");
+    }
+
+    #[test]
+    fn start_focus_mode_parses_with_remember_fallback() {
+        assert_eq!(StartFocusMode::from_config_str("always"), StartFocusMode::Always);
+        assert_eq!(StartFocusMode::from_config_str("never"), StartFocusMode::Never);
+        assert_eq!(StartFocusMode::from_config_str("remember"), StartFocusMode::Remember);
+        assert_eq!(StartFocusMode::from_config_str("garbage"), StartFocusMode::Remember);
+        assert_eq!(StartFocusMode::default(), StartFocusMode::Remember);
     }
 
     #[test]
