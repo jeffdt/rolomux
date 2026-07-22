@@ -35,6 +35,7 @@ pub struct PickerState {
     expanded: HashSet<String>,
     dormant: HashSet<String>,
     focus_mode: bool,
+    pub start_focus_mode: StartFocusMode,
     pub cursor: usize,
     pub dirty: bool,
     pub mode: Mode,
@@ -114,7 +115,11 @@ impl PickerState {
                 HashSet::new()
             },
             dormant: config.dormant.iter().cloned().collect(),
-            focus_mode: config.focus_mode,
+            focus_mode: match config.start_focus_mode {
+                StartFocusMode::Remember => config.focus_mode,
+                StartFocusMode::Always => true,
+                StartFocusMode::Never => false,
+            },
             cursor: 0,
             dirty: false,
             mode: config.default_mode.as_mode(),
@@ -128,6 +133,7 @@ impl PickerState {
             swap_indicator: None,
             group_reorder_blocked: false,
             default_mode: config.default_mode,
+            start_focus_mode: config.start_focus_mode,
             number_dormant_sessions: config.number_dormant_sessions,
             remember_expanded_sessions: config.remember_expanded_sessions,
             clear_dormant_on_attach: config.clear_dormant_on_attach,
@@ -339,6 +345,7 @@ impl PickerState {
         config.groups = self.groups.clone();
         config.dormant = self.dormant_list();
         config.focus_mode = self.focus_mode();
+        config.start_focus_mode = self.start_focus_mode;
         config.default_mode = self.default_mode;
         config.number_dormant_sessions = self.number_dormant_sessions;
         config.new_group_position = self.new_group_position;

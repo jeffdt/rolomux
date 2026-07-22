@@ -253,6 +253,47 @@ mod tests {
     }
 
     #[test]
+    fn start_focus_mode_always_overrides_a_saved_false_focus_mode() {
+        let sessions = vec![s("a", 30, 1), s("b", 20, 2)];
+        let cfg = Config {
+            groups: vec![],
+            dormant: vec!["a".into()],
+            focus_mode: false,
+            start_focus_mode: StartFocusMode::Always,
+            ..Default::default()
+        };
+        let state = PickerState::build(sessions, &cfg);
+        assert!(state.focus_mode(), "Always forces focus mode on regardless of the saved value");
+    }
+
+    #[test]
+    fn start_focus_mode_never_overrides_a_saved_true_focus_mode() {
+        let sessions = vec![s("a", 30, 1), s("b", 20, 2)];
+        let cfg = Config {
+            groups: vec![],
+            dormant: vec!["a".into()],
+            focus_mode: true,
+            start_focus_mode: StartFocusMode::Never,
+            ..Default::default()
+        };
+        let state = PickerState::build(sessions, &cfg);
+        assert!(!state.focus_mode(), "Never forces focus mode off regardless of the saved value");
+    }
+
+    #[test]
+    fn start_focus_mode_remember_uses_the_saved_focus_mode() {
+        let sessions = vec![s("a", 30, 1)];
+        let cfg = Config {
+            groups: vec![],
+            focus_mode: true,
+            start_focus_mode: StartFocusMode::Remember,
+            ..Default::default()
+        };
+        let state = PickerState::build(sessions, &cfg);
+        assert!(state.focus_mode(), "Remember (default) reproduces today's behavior exactly");
+    }
+
+    #[test]
     fn session_visible_true_for_attached_dormant_session_in_focus_mode() {
         let mut sessions = vec![s("a", 30, 1)];
         sessions[0].attached = true;
