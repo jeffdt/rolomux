@@ -2,7 +2,7 @@ use crate::model::{Action, Session, Window};
 use std::io;
 use std::process::Command;
 
-pub const FMT: &str = "#{session_name}\x1f#{session_activity}\x1f#{session_created}\x1f#{session_attached}\x1f#{window_index}\x1f#{window_name}\x1f#{window_active}\x1f#{session_id}";
+pub const FMT: &str = "#{session_name}\x1f#{session_activity}\x1f#{session_created}\x1f#{session_attached}\x1f#{window_index}\x1f#{window_name}\x1f#{window_active}\x1f#{session_id}\x1f#{window_id}";
 
 /// Result of a single gather: the sessions plus the name of the session the
 /// popup was launched from (when it can be resolved from `$TMUX`).
@@ -20,6 +20,18 @@ impl Gathered {
     /// tmux server even though the name isn't.
     pub fn session_ids(&self) -> Vec<(String, String)> {
         self.sessions.iter().map(|s| (s.name.clone(), s.id.clone())).collect()
+    }
+
+    /// `(session_name, window_index, tmux #{window_id})` for every live
+    /// window, e.g. `("work", 2, "@12")`. Feeds `Config::reconcile`'s
+    /// per-window dormant recovery, the same idea as `session_ids` one
+    /// altitude down.
+    #[allow(dead_code)]
+    pub fn window_ids(&self) -> Vec<(String, u32, String)> {
+        self.sessions
+            .iter()
+            .flat_map(|s| s.windows.iter().map(move |w| (s.name.clone(), w.index, w.id.clone())))
+            .collect()
     }
 }
 
@@ -330,7 +342,7 @@ pub fn current_session(raw: &str, tmux_env: Option<&str>) -> Option<String> {
     }
     for line in raw.lines() {
         let f: Vec<&str> = line.split('\u{1f}').collect();
-        if f.len() == 8 && f[7].trim_start_matches('$') == id_num {
+        if f.len() == 9 && f[7].trim_start_matches('$') == id_num {
             return Some(f[0].to_string());
         }
     }
@@ -358,12 +370,12 @@ pub fn parse_windows(raw: &str) -> Vec<Session> {
             continue;
         }
         let f: Vec<&str> = line.split('\u{1f}').collect();
-        if f.len() != 8 {
+        if f.len() != 9 {
             continue;
         }
         let name = f[0].to_string();
         let window = Window {
-            id: String::new(),
+            id: f[8].to_string(),
             index: f[4].parse().unwrap_or(0),
             name: f[5].to_string(),
             active: f[6] == "1",
@@ -489,11 +501,11 @@ mod tests {
     #[test]
     fn parses_two_sessions_grouping_windows_in_order() {
         // Fields separated by the unit separator \x1f; one line per window.
-        // Trailing field is #{session_id}.
+        // Trailing field is #{window_id}; #{session_id} is second-to-last.
         let raw = "\
-work\u{1f}100\u{1f}10\u{1f}1\u{1f}0\u{1f}editor\u{1f}1\u{1f}$3
-work\u{1f}100\u{1f}10\u{1f}1\u{1f}1\u{1f}my logs\u{1f}0\u{1f}$3
-scratch\u{1f}50\u{1f}5\u{1f}0\u{1f}0\u{1f}shell\u{1f}1\u{1f}$8
+work\u{1f}100\u{1f}10\u{1f}1\u{1f}0\u{1f}editor\u{1f}1\u{1f}$3\u{1f}@1
+work\u{1f}100\u{1f}10\u{1f}1\u{1f}1\u{1f}my logs\u{1f}0\u{1f}$3\u{1f}@2
+scratch\u{1f}50\u{1f}5\u{1f}0\u{1f}0\u{1f}shell\u{1f}1\u{1f}$8\u{1f}@3
 ";
         let sessions = parse_windows(raw);
         assert_eq!(
@@ -505,8 +517,8 @@ scratch\u{1f}50\u{1f}5\u{1f}0\u{1f}0\u{1f}shell\u{1f}1\u{1f}$8
                     created: 10,
                     attached: true,
                     windows: vec![
-                        Window { id: String::new(), index: 0, name: "editor".into(), active: true },
-                        Window { id: String::new(), index: 1, name: "my logs".into(), active: false },
+                        Window { id: "@1".into(), index: 0, name: "editor".into(), active: true },
+                        Window { id: "@2".into(), index: 1, name: "my logs".into(), active: false },
                     ],
                 },
                 Session { id: "$8".into(),
@@ -514,7 +526,7 @@ scratch\u{1f}50\u{1f}5\u{1f}0\u{1f}0\u{1f}shell\u{1f}1\u{1f}$8
                     activity: 50,
                     created: 5,
                     attached: false,
-                    windows: vec![Window { id: String::new(), index: 0, name: "shell".into(), active: true }],
+                    windows: vec![Window { id: "@3".into(), index: 0, name: "shell".into(), active: true }],
                 },
             ]
         );
@@ -523,9 +535,9 @@ scratch\u{1f}50\u{1f}5\u{1f}0\u{1f}0\u{1f}shell\u{1f}1\u{1f}$8
     #[test]
     fn parse_windows_populates_one_session_id_per_session() {
         let raw = "\
-work\u{1f}100\u{1f}10\u{1f}1\u{1f}0\u{1f}editor\u{1f}1\u{1f}$3
-work\u{1f}100\u{1f}10\u{1f}1\u{1f}1\u{1f}my logs\u{1f}0\u{1f}$3
-scratch\u{1f}50\u{1f}5\u{1f}0\u{1f}0\u{1f}shell\u{1f}1\u{1f}$8
+work\u{1f}100\u{1f}10\u{1f}1\u{1f}0\u{1f}editor\u{1f}1\u{1f}$3\u{1f}@1
+work\u{1f}100\u{1f}10\u{1f}1\u{1f}1\u{1f}my logs\u{1f}0\u{1f}$3\u{1f}@2
+scratch\u{1f}50\u{1f}5\u{1f}0\u{1f}0\u{1f}shell\u{1f}1\u{1f}$8\u{1f}@3
 ";
         let sessions = parse_windows(raw);
         assert_eq!(sessions.len(), 2, "two sessions, ids collapse per-session not per-window");
@@ -533,9 +545,34 @@ scratch\u{1f}50\u{1f}5\u{1f}0\u{1f}0\u{1f}shell\u{1f}1\u{1f}$8
         assert_eq!(sessions[1].id, "$8");
     }
 
+    #[test]
+    fn gathered_window_ids_lists_every_live_window() {
+        let g = Gathered {
+            sessions: vec![Session {
+                id: "$3".into(),
+                name: "work".into(),
+                activity: 0,
+                created: 0,
+                attached: true,
+                windows: vec![
+                    Window { id: "@1".into(), index: 0, name: "editor".into(), active: true },
+                    Window { id: "@2".into(), index: 1, name: "logs".into(), active: false },
+                ],
+            }],
+            current: None,
+        };
+        assert_eq!(
+            g.window_ids(),
+            vec![
+                ("work".to_string(), 0, "@1".to_string()),
+                ("work".to_string(), 1, "@2".to_string()),
+            ]
+        );
+    }
+
     const SAMPLE: &str = "\
-work\u{1f}100\u{1f}10\u{1f}1\u{1f}0\u{1f}editor\u{1f}1\u{1f}$3
-scratch\u{1f}50\u{1f}5\u{1f}0\u{1f}0\u{1f}shell\u{1f}1\u{1f}$8
+work\u{1f}100\u{1f}10\u{1f}1\u{1f}0\u{1f}editor\u{1f}1\u{1f}$3\u{1f}@1
+scratch\u{1f}50\u{1f}5\u{1f}0\u{1f}0\u{1f}shell\u{1f}1\u{1f}$8\u{1f}@2
 ";
 
     #[test]
@@ -544,8 +581,8 @@ scratch\u{1f}50\u{1f}5\u{1f}0\u{1f}0\u{1f}shell\u{1f}1\u{1f}$8
         // (backslash-zero-three-seven), with records still newline-separated.
         // This is the exact shape from a real 3.5a field report.
         let escaped =
-            "0\\0371782948598\\0371782748885\\0371\\0371\\0372.1.198\\0371\\037$0\n\
-             0\\0371782948598\\0371782748885\\0371\\0372\\037zsh\\0370\\037$0\n";
+            "0\\0371782948598\\0371782748885\\0371\\0371\\0372.1.198\\0371\\037$0\\037@1\n\
+             0\\0371782948598\\0371782748885\\0371\\0372\\037zsh\\0370\\037$0\\037@2\n";
         let normalized = normalize_separators(escaped);
         assert!(normalized.contains('\u{1f}'), "escape converted to real separator");
         assert!(!normalized.contains("\\037"), "no literal escape remains");
@@ -562,7 +599,7 @@ scratch\u{1f}50\u{1f}5\u{1f}0\u{1f}0\u{1f}shell\u{1f}1\u{1f}$8
     #[test]
     fn normalize_separators_passes_raw_byte_form_through_unallocated() {
         // tmux versions that emit the raw 0x1F byte are borrowed, not copied.
-        let raw = "work\u{1f}100\u{1f}10\u{1f}1\u{1f}0\u{1f}editor\u{1f}1\u{1f}$3";
+        let raw = "work\u{1f}100\u{1f}10\u{1f}1\u{1f}0\u{1f}editor\u{1f}1\u{1f}$3\u{1f}@1";
         assert!(matches!(normalize_separators(raw), std::borrow::Cow::Borrowed(_)));
         let sessions = parse_windows(&normalize_separators(raw));
         assert_eq!(sessions.len(), 1);
