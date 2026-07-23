@@ -24,10 +24,27 @@ use std::path::{Path, PathBuf};
 // boolean, no semantic change. `hide_dormant` becomes migration-input-only.
 pub const CONFIG_VERSION: u32 = 4;
 
+/// A single window-level dormant entry: `session`/`index` locate it the
+/// same way `SwitchWindow`/`focus_window` address any window, and `id`
+/// (tmux `#{window_id}`) is what `reconcile` uses to recover the entry
+/// across an index reuse (closing a window frees its index; the next
+/// created window can reuse it) or a `move-window` to a different
+/// session. `#[serde(default)]` on `id` so a hand-edited entry missing it
+/// loads cleanly (and self-heals: reconcile treats an empty id as "not
+/// found live" and drops the entry next launch).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct DormantWindow {
+    pub session: String,
+    pub index: u32,
+    #[serde(default)]
+    pub id: String,
+}
+
 #[derive(Debug, Clone)]
 pub struct Config {
     pub groups: Vec<Group>,
     pub dormant: Vec<String>,
+    pub dormant_windows: Vec<DormantWindow>,
     pub focus_mode: bool,
     pub default_mode: DefaultMode,
     pub number_dormant_sessions: bool,
@@ -68,6 +85,7 @@ impl Default for Config {
         Config {
             groups: Vec::new(),
             dormant: Vec::new(),
+            dormant_windows: Vec::new(),
             focus_mode: false,
             default_mode: DefaultMode::default(),
             number_dormant_sessions: true,
@@ -187,6 +205,8 @@ struct RawConfig {
     // still loads cleanly, and the value is dropped on next save.
     #[serde(default)]
     dormant: Vec<String>,
+    #[serde(default)]
+    dormant_windows: Vec<DormantWindow>,
     // migration input only, superseded by `focus_mode` at version 4
     #[serde(default)]
     hide_dormant: bool,
@@ -215,6 +235,7 @@ struct OutConfig {
     config_version: u32,
     groups: Vec<OutGroup>,
     dormant: Vec<String>,
+    dormant_windows: Vec<DormantWindow>,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     focus_mode: bool,
     settings: OutSettings,
@@ -327,6 +348,7 @@ impl Config {
         Config {
             groups,
             dormant: raw.dormant,
+            dormant_windows: raw.dormant_windows,
             focus_mode,
             default_mode,
             number_dormant_sessions: raw.settings.number_dormant_sessions.unwrap_or(true),
@@ -358,6 +380,8 @@ impl Config {
         }
         let mut dormant = self.dormant.clone();
         dormant.sort();
+        let mut dormant_windows = self.dormant_windows.clone();
+        dormant_windows.sort_by(|a, b| a.session.cmp(&b.session).then(a.index.cmp(&b.index)));
         let mut expanded = self.expanded.clone();
         expanded.sort();
         let session_ids: BTreeMap<String, String> = self.session_ids.clone().into_iter().collect();
@@ -375,6 +399,7 @@ impl Config {
                 })
                 .collect(),
             dormant,
+            dormant_windows,
             focus_mode: self.focus_mode,
             settings: OutSettings {
                 default_mode: self.default_mode.as_config_str().to_string(),
@@ -1299,6 +1324,42 @@ inbox = true
         std::fs::write(&path, "config_version = 4\n").unwrap();
         let cfg = Config::load_from(&path);
         assert_eq!(cfg.attached_color_mode, AttachedColorMode::Static);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn round_trips_dormant_windows() {
+        let dir = std::env::temp_dir().join(format!("rolomux-dormant-windows-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.toml");
+        let cfg = Config {
+            dormant_windows: vec![
+                DormantWindow { session: "work".into(), index: 2, id: "@5".into() },
+                DormantWindow { session: "scratch".into(), index: 0, id: "@1".into() },
+            ],
+            ..Default::default()
+        };
+        cfg.save_to(&path).unwrap();
+        let reloaded = Config::load_from(&path);
+        assert_eq!(
+            reloaded.dormant_windows,
+            vec![
+                DormantWindow { session: "scratch".into(), index: 0, id: "@1".into() },
+                DormantWindow { session: "work".into(), index: 2, id: "@5".into() },
+            ],
+            "round-trips through save/load, sorted by (session, index) for a stable diff"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn missing_dormant_windows_field_defaults_to_empty() {
+        let dir = std::env::temp_dir().join(format!("rolomux-no-dormant-windows-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.toml");
+        std::fs::write(&path, format!("config_version = {CONFIG_VERSION}\n")).unwrap();
+        let cfg = Config::load_from(&path);
+        assert!(cfg.dormant_windows.is_empty(), "a config written before this feature loads cleanly");
         std::fs::remove_dir_all(&dir).ok();
     }
 }
