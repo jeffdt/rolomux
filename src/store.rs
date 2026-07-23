@@ -24,10 +24,27 @@ use std::path::{Path, PathBuf};
 // boolean, no semantic change. `hide_dormant` becomes migration-input-only.
 pub const CONFIG_VERSION: u32 = 4;
 
+/// A single window-level dormant entry: `session`/`index` locate it the
+/// same way `SwitchWindow`/`focus_window` address any window, and `id`
+/// (tmux `#{window_id}`) is what `reconcile` uses to recover the entry
+/// across an index reuse (closing a window frees its index; the next
+/// created window can reuse it) or a `move-window` to a different
+/// session. `#[serde(default)]` on `id` so a hand-edited entry missing it
+/// loads cleanly (and self-heals: reconcile treats an empty id as "not
+/// found live" and drops the entry next launch).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct DormantWindow {
+    pub session: String,
+    pub index: u32,
+    #[serde(default)]
+    pub id: String,
+}
+
 #[derive(Debug, Clone)]
 pub struct Config {
     pub groups: Vec<Group>,
     pub dormant: Vec<String>,
+    pub dormant_windows: Vec<DormantWindow>,
     pub focus_mode: bool,
     pub default_mode: DefaultMode,
     pub number_dormant_sessions: bool,
@@ -68,6 +85,7 @@ impl Default for Config {
         Config {
             groups: Vec::new(),
             dormant: Vec::new(),
+            dormant_windows: Vec::new(),
             focus_mode: false,
             default_mode: DefaultMode::default(),
             number_dormant_sessions: true,
@@ -187,6 +205,8 @@ struct RawConfig {
     // still loads cleanly, and the value is dropped on next save.
     #[serde(default)]
     dormant: Vec<String>,
+    #[serde(default)]
+    dormant_windows: Vec<DormantWindow>,
     // migration input only, superseded by `focus_mode` at version 4
     #[serde(default)]
     hide_dormant: bool,
@@ -215,6 +235,7 @@ struct OutConfig {
     config_version: u32,
     groups: Vec<OutGroup>,
     dormant: Vec<String>,
+    dormant_windows: Vec<DormantWindow>,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     focus_mode: bool,
     settings: OutSettings,
@@ -327,6 +348,7 @@ impl Config {
         Config {
             groups,
             dormant: raw.dormant,
+            dormant_windows: raw.dormant_windows,
             focus_mode,
             default_mode,
             number_dormant_sessions: raw.settings.number_dormant_sessions.unwrap_or(true),
@@ -358,6 +380,8 @@ impl Config {
         }
         let mut dormant = self.dormant.clone();
         dormant.sort();
+        let mut dormant_windows = self.dormant_windows.clone();
+        dormant_windows.sort_by(|a, b| a.session.cmp(&b.session).then(a.index.cmp(&b.index)));
         let mut expanded = self.expanded.clone();
         expanded.sort();
         let session_ids: BTreeMap<String, String> = self.session_ids.clone().into_iter().collect();
@@ -375,6 +399,7 @@ impl Config {
                 })
                 .collect(),
             dormant,
+            dormant_windows,
             focus_mode: self.focus_mode,
             settings: OutSettings {
                 default_mode: self.default_mode.as_config_str().to_string(),
@@ -414,7 +439,7 @@ impl Config {
         names
     }
 
-    pub fn reconcile(&mut self, live: &[(String, String)]) -> bool {
+    pub fn reconcile(&mut self, live: &[(String, String)], live_windows: &[(String, u32, String)]) -> bool {
         let live_by_name: HashMap<&str, &str> =
             live.iter().map(|(n, i)| (n.as_str(), i.as_str())).collect();
         let live_by_id: HashMap<&str, &str> =
@@ -482,7 +507,34 @@ impl Config {
         let ids_changed = new_ids != self.session_ids;
         self.session_ids = new_ids;
 
-        before != after || !renames.is_empty() || ids_changed
+        let windows_before = self.dormant_windows.clone();
+        let mut live_window_by_loc: HashMap<(&str, u32), &str> = HashMap::new();
+        for (name, idx, id) in live_windows {
+            live_window_by_loc.insert((name.as_str(), *idx), id.as_str());
+        }
+        let mut new_dormant_windows: Vec<DormantWindow> = Vec::new();
+        for w in &self.dormant_windows {
+            let still_at_recorded_spot =
+                live_window_by_loc.get(&(w.session.as_str(), w.index)) == Some(&w.id.as_str());
+            if still_at_recorded_spot {
+                new_dormant_windows.push(w.clone());
+                continue;
+            }
+            if let Some((new_session, new_index, _)) =
+                live_windows.iter().find(|(_, _, id)| id == &w.id)
+            {
+                new_dormant_windows.push(DormantWindow {
+                    session: new_session.clone(),
+                    index: *new_index,
+                    id: w.id.clone(),
+                });
+            }
+            // else: the id isn't live anywhere -- the window is genuinely gone, drop it.
+        }
+        self.dormant_windows = new_dormant_windows;
+        let windows_changed = self.dormant_windows != windows_before;
+
+        before != after || !renames.is_empty() || ids_changed || windows_changed
     }
 }
 
@@ -616,7 +668,7 @@ mod tests {
             dormant: vec!["a".into(), "gone".into()],
             ..Default::default()
         };
-        let changed = cfg.reconcile(&live_ids(&["a"]));
+        let changed = cfg.reconcile(&live_ids(&["a"]), &[]);
         assert!(changed);
         assert_eq!(cfg.dormant, vec!["a".to_string()]);
     }
@@ -675,7 +727,7 @@ mod tests {
             ..Default::default()
         };
         let live = live_ids(&["a", "b"]);
-        let changed = cfg.reconcile(&live);
+        let changed = cfg.reconcile(&live, &[]);
         assert!(changed);
         assert_eq!(cfg.groups[0].members, vec!["a".to_string(), "b".to_string()]);
     }
@@ -800,10 +852,10 @@ mod tests {
             ..Default::default()
         };
         let live = live_ids(&["a"]);
-        assert!(cfg.reconcile(&live));
+        assert!(cfg.reconcile(&live, &[]));
         assert_eq!(cfg.groups[0].members, vec!["a".to_string()]);
         // Even if all members die, the group survives.
-        assert!(cfg.reconcile(&[]));
+        assert!(cfg.reconcile(&[], &[]));
         assert_eq!(cfg.groups.len(), 1);
         assert!(cfg.groups[0].members.is_empty());
     }
@@ -1046,7 +1098,7 @@ inbox = true
             expanded: vec!["a".into(), "gone".into()],
             ..Default::default()
         };
-        let changed = cfg.reconcile(&live_ids(&["a"]));
+        let changed = cfg.reconcile(&live_ids(&["a"]), &[]);
         assert!(changed);
         assert_eq!(cfg.expanded, vec!["a".to_string()]);
     }
@@ -1091,6 +1143,10 @@ inbox = true
         names.iter().map(|n| (n.to_string(), format!("id-{n}"))).collect()
     }
 
+    fn live_windows(entries: &[(&str, u32, &str)]) -> Vec<(String, u32, String)> {
+        entries.iter().map(|(s, i, id)| (s.to_string(), *i, id.to_string())).collect()
+    }
+
     #[test]
     fn reconcile_detects_rename_via_session_id_and_preserves_group_membership() {
         let mut cfg = Config {
@@ -1098,7 +1154,7 @@ inbox = true
             session_ids: HashMap::from([("old-name".to_string(), "$3".to_string())]),
             ..Default::default()
         };
-        let changed = cfg.reconcile(&[("new-name".to_string(), "$3".to_string())]);
+        let changed = cfg.reconcile(&[("new-name".to_string(), "$3".to_string())], &[]);
         assert!(changed);
         assert_eq!(cfg.groups[0].members, vec!["new-name".to_string()]);
         assert_eq!(cfg.session_ids.get("new-name"), Some(&"$3".to_string()));
@@ -1112,7 +1168,7 @@ inbox = true
             session_ids: HashMap::from([("old-name".to_string(), "$5".to_string())]),
             ..Default::default()
         };
-        let changed = cfg.reconcile(&[("new-name".to_string(), "$5".to_string())]);
+        let changed = cfg.reconcile(&[("new-name".to_string(), "$5".to_string())], &[]);
         assert!(changed);
         assert_eq!(cfg.dormant, vec!["new-name".to_string()]);
     }
@@ -1124,7 +1180,7 @@ inbox = true
             session_ids: HashMap::from([("old-name".to_string(), "$7".to_string())]),
             ..Default::default()
         };
-        let changed = cfg.reconcile(&[("new-name".to_string(), "$7".to_string())]);
+        let changed = cfg.reconcile(&[("new-name".to_string(), "$7".to_string())], &[]);
         assert!(changed);
         assert_eq!(cfg.expanded, vec!["new-name".to_string()]);
     }
@@ -1138,7 +1194,7 @@ inbox = true
         };
         // "other" is live but its id doesn't match "gone"'s last-known id, so
         // this is a dead session, not a detected rename.
-        let changed = cfg.reconcile(&live_ids(&["other"]));
+        let changed = cfg.reconcile(&live_ids(&["other"]), &[]);
         assert!(changed);
         assert!(cfg.groups[0].members.is_empty());
         assert!(cfg.session_ids.is_empty());
@@ -1154,7 +1210,7 @@ inbox = true
             ]),
             ..Default::default()
         };
-        assert!(cfg.reconcile(&live_ids(&["a"])));
+        assert!(cfg.reconcile(&live_ids(&["a"]), &[]));
         assert_eq!(cfg.session_ids.len(), 1);
         assert_eq!(cfg.session_ids.get("a"), Some(&"id-a".to_string()));
         assert!(!cfg.session_ids.contains_key("stale"));
@@ -1175,8 +1231,69 @@ inbox = true
             ..Default::default()
         };
         // "$2" died; "foo"/"$1" was renamed to "oldbar" via plain tmux.
-        cfg.reconcile(&[("oldbar".to_string(), "$1".to_string())]);
+        cfg.reconcile(&[("oldbar".to_string(), "$1".to_string())], &[]);
         assert_eq!(cfg.groups[0].members, vec!["oldbar".to_string()]);
+    }
+
+    #[test]
+    fn reconcile_drops_a_dormant_window_entry_whose_window_closed() {
+        let mut cfg = Config {
+            dormant_windows: vec![
+                DormantWindow { session: "work".into(), index: 0, id: "@1".into() },
+                DormantWindow { session: "work".into(), index: 1, id: "@2".into() },
+            ],
+            ..Default::default()
+        };
+        // Window @2 (index 1) closed; @1 is still live at the same spot.
+        let changed = cfg.reconcile(
+            &live_ids(&["work"]),
+            &live_windows(&[("work", 0, "@1")]),
+        );
+        assert!(changed);
+        assert_eq!(cfg.dormant_windows, vec![DormantWindow { session: "work".into(), index: 0, id: "@1".into() }]);
+    }
+
+    #[test]
+    fn reconcile_relocates_a_dormant_window_entry_whose_index_was_reused() {
+        // @2 used to be at index 1; it's now at index 3 (something closed
+        // and index 1 got reused by an unrelated new window with a
+        // different id) -- the entry must follow its id, not stay pinned
+        // to the stale index.
+        let mut cfg = Config {
+            dormant_windows: vec![DormantWindow { session: "work".into(), index: 1, id: "@2".into() }],
+            ..Default::default()
+        };
+        let changed = cfg.reconcile(
+            &live_ids(&["work"]),
+            &live_windows(&[("work", 1, "@99"), ("work", 3, "@2")]),
+        );
+        assert!(changed);
+        assert_eq!(cfg.dormant_windows, vec![DormantWindow { session: "work".into(), index: 3, id: "@2".into() }]);
+    }
+
+    #[test]
+    fn reconcile_relocates_a_dormant_window_entry_moved_to_a_different_session() {
+        let mut cfg = Config {
+            dormant_windows: vec![DormantWindow { session: "work".into(), index: 0, id: "@7".into() }],
+            ..Default::default()
+        };
+        let changed = cfg.reconcile(
+            &live_ids(&["work", "personal"]),
+            &live_windows(&[("personal", 2, "@7")]),
+        );
+        assert!(changed);
+        assert_eq!(cfg.dormant_windows, vec![DormantWindow { session: "personal".into(), index: 2, id: "@7".into() }]);
+    }
+
+    #[test]
+    fn reconcile_leaves_dormant_windows_untouched_when_nothing_changed() {
+        let mut cfg = Config {
+            dormant_windows: vec![DormantWindow { session: "work".into(), index: 0, id: "@1".into() }],
+            ..Default::default()
+        };
+        let changed = cfg.reconcile(&live_ids(&["work"]), &live_windows(&[("work", 0, "@1")]));
+        assert!(!changed);
+        assert_eq!(cfg.dormant_windows, vec![DormantWindow { session: "work".into(), index: 0, id: "@1".into() }]);
     }
 
     #[test]
@@ -1299,6 +1416,42 @@ inbox = true
         std::fs::write(&path, "config_version = 4\n").unwrap();
         let cfg = Config::load_from(&path);
         assert_eq!(cfg.attached_color_mode, AttachedColorMode::Static);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn round_trips_dormant_windows() {
+        let dir = std::env::temp_dir().join(format!("rolomux-dormant-windows-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.toml");
+        let cfg = Config {
+            dormant_windows: vec![
+                DormantWindow { session: "work".into(), index: 2, id: "@5".into() },
+                DormantWindow { session: "scratch".into(), index: 0, id: "@1".into() },
+            ],
+            ..Default::default()
+        };
+        cfg.save_to(&path).unwrap();
+        let reloaded = Config::load_from(&path);
+        assert_eq!(
+            reloaded.dormant_windows,
+            vec![
+                DormantWindow { session: "scratch".into(), index: 0, id: "@1".into() },
+                DormantWindow { session: "work".into(), index: 2, id: "@5".into() },
+            ],
+            "round-trips through save/load, sorted by (session, index) for a stable diff"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn missing_dormant_windows_field_defaults_to_empty() {
+        let dir = std::env::temp_dir().join(format!("rolomux-no-dormant-windows-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.toml");
+        std::fs::write(&path, format!("config_version = {CONFIG_VERSION}\n")).unwrap();
+        let cfg = Config::load_from(&path);
+        assert!(cfg.dormant_windows.is_empty(), "a config written before this feature loads cleanly");
         std::fs::remove_dir_all(&dir).ok();
     }
 }

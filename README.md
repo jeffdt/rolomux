@@ -45,7 +45,7 @@ New sessions arrive in INBOX. Over time, you sort, group, and reorder them until
 - **Sort your sessions.** Move your sessions between groups with `⇧J`/`⇧K`. Once sorted, they stay there, in that order.
   New sessions collect in an inbox until you're ready to sort them.
   Groups and their ordering persist across tmux restarts, and they stick around until you delete them.
-- **Dim sessions, then focus past them.** Press `d` to mark a session dormant; it stays in place but renders in a dimmed state to indicate that you're not actively working with it. Press `f` to enter focus mode, hiding dormant sessions and any group left with nothing visible in it; press `f` again to show everything. Dormant sessions are still fully usable when shown, and focus mode helps you understand your workspace at a glance.
+- **Dim sessions, then focus past them.** Press `d` to mark a session dormant; it stays in place but renders in a dimmed state to indicate that you're not actively working with it. Press `f` to enter focus mode, hiding dormant sessions and any group left with nothing visible in it; press `f` again to show everything. Dormant sessions are still fully usable when shown, and focus mode helps you understand your workspace at a glance. `d` also works on an individual window within an expanded session -- its own dormant flag is independent of the session's, shown with strikethrough, and hidden by focus mode unless it's the session's active window (which always stays visible, the same exemption that keeps your attached session visible).
 - **Expandable trees.** Each session can be expanded to peek at the list of windows inside it or jump straight to a specific window.
 - **Lightweight.** One tmux query per launch. No hooks or background processes keeping track of your sessions while you work.
 - **Fuzzy search built in.** Press `/` to filter sessions by name. If this is your preferred way of working, tweak the settings to always launch in search mode.
@@ -75,7 +75,7 @@ bind C new-session \; command-prompt -I "" "rename-session '%%'" \; command-prom
 | `x` | Kill the selected session or window (press again to confirm) |
 | `g` | Open group-management mode |
 | `,` | Open settings |
-| `d` | Toggle dormant (dim) on the selected session |
+| `d` | Toggle dormant (dim) on the selected session, or the selected window if the cursor is on one |
 | `f` | Toggle focus mode (hide dormant sessions and empty groups) |
 | `/` | Enter search mode (type to filter, `↵` switch, `Esc` back) |
 | `?` | Reveal the footer's shortcut legend (only needed when **Show shortcuts** is set to **On demand**; works in command, group, and settings modes) |

@@ -68,7 +68,7 @@ fn main() -> io::Result<()> {
 
     let path = store::config_path();
     let mut config = store::Config::load_from(&path);
-    if config.reconcile(&gathered.session_ids()) {
+    if config.reconcile(&gathered.session_ids(), &gathered.window_ids()) {
         let _ = config.save_to(&path);
     }
 
@@ -146,7 +146,7 @@ fn commit_rename(
     }
 
     let gathered = tmux.gather();
-    if config.reconcile(&gathered.session_ids()) {
+    if config.reconcile(&gathered.session_ids(), &gathered.window_ids()) {
         let _ = config.save_to(path);
     }
 
@@ -259,7 +259,7 @@ fn commit_window_move(
     }
 
     let gathered = tmux.gather();
-    if config.reconcile(&gathered.session_ids()) {
+    if config.reconcile(&gathered.session_ids(), &gathered.window_ids()) {
         let _ = config.save_to(path);
     }
 
@@ -348,7 +348,7 @@ fn commit_kill(
     }
 
     let gathered = tmux.gather();
-    if config.reconcile(&gathered.session_ids()) {
+    if config.reconcile(&gathered.session_ids(), &gathered.window_ids()) {
         let _ = config.save_to(path);
     }
 
@@ -525,7 +525,7 @@ mod tests {
             activity: 1,
             created: 1,
             attached: false,
-            windows: vec![Window { index: 0, name: "w".into(), active: true }],
+            windows: vec![Window { id: String::new(), index: 0, name: "w".into(), active: true }],
         }
     }
 
@@ -612,8 +612,8 @@ mod tests {
         };
 
         let windows_before = vec![
-            Window { index: 0, name: "editor".into(), active: true },
-            Window { index: 1, name: "old-window".into(), active: false },
+            Window { id: String::new(), index: 0, name: "editor".into(), active: true },
+            Window { id: String::new(), index: 1, name: "old-window".into(), active: false },
         ];
         let sessions = vec![Session { id: String::new(), name: "host".into(), activity: 1, created: 1, attached: false, windows: windows_before }];
         let mut state = PickerState::build(sessions, &config);
@@ -625,8 +625,8 @@ mod tests {
         let pending = state.take_rename_commit().expect("changed name commits");
 
         let windows_after = vec![
-            Window { index: 0, name: "editor".into(), active: true },
-            Window { index: 1, name: "new-window".into(), active: false },
+            Window { id: String::new(), index: 0, name: "editor".into(), active: true },
+            Window { id: String::new(), index: 1, name: "new-window".into(), active: false },
         ];
         let tmux = FakeTmux::with_gather(Gathered {
             sessions: vec![Session { id: String::new(), name: "host".into(), activity: 1, created: 1, attached: false, windows: windows_after }],
@@ -652,8 +652,8 @@ mod tests {
         let mut config = Config::default();
 
         let windows_before = vec![
-            Window { index: 0, name: "a".into(), active: true },
-            Window { index: 1, name: "b".into(), active: false },
+            Window { id: String::new(), index: 0, name: "a".into(), active: true },
+            Window { id: String::new(), index: 1, name: "b".into(), active: false },
         ];
         let sessions = vec![Session { id: String::new(), name: "work".into(), activity: 1, created: 1, attached: false, windows: windows_before }];
         let mut state = PickerState::build(sessions, &config);
@@ -663,8 +663,8 @@ mod tests {
         // swap-window exchanges the two indices -- "b" (was at 1) ends up
         // at 0, "a" (was at 0) ends up at 1 -- verified empirically.
         let windows_after = vec![
-            Window { index: 0, name: "b".into(), active: false },
-            Window { index: 1, name: "a".into(), active: true },
+            Window { id: String::new(), index: 0, name: "b".into(), active: false },
+            Window { id: String::new(), index: 1, name: "a".into(), active: true },
         ];
         let tmux = FakeTmux::with_gather(Gathered {
             sessions: vec![Session { id: String::new(), name: "work".into(), activity: 1, created: 1, attached: false, windows: windows_after }],
@@ -696,9 +696,9 @@ mod tests {
         let mut config = Config::default();
 
         let windows_before = vec![
-            Window { index: 0, name: "a".into(), active: false },
-            Window { index: 1, name: "b".into(), active: false },
-            Window { index: 2, name: "c".into(), active: true }, // the client's real window, uninvolved
+            Window { id: String::new(), index: 0, name: "a".into(), active: false },
+            Window { id: String::new(), index: 1, name: "b".into(), active: false },
+            Window { id: String::new(), index: 2, name: "c".into(), active: true }, // the client's real window, uninvolved
         ];
         let sessions = vec![Session { id: String::new(), name: "work".into(), activity: 1, created: 1, attached: true, windows: windows_before }];
         let mut state = PickerState::build(sessions, &config);
@@ -709,9 +709,9 @@ mod tests {
         // -- verified empirically -- so "c" shows as no longer active in
         // this post-move gather even though it was never touched.
         let windows_after = vec![
-            Window { index: 0, name: "b".into(), active: false },
-            Window { index: 1, name: "a".into(), active: false },
-            Window { index: 2, name: "c".into(), active: false },
+            Window { id: String::new(), index: 0, name: "b".into(), active: false },
+            Window { id: String::new(), index: 1, name: "a".into(), active: false },
+            Window { id: String::new(), index: 2, name: "c".into(), active: false },
         ];
         let tmux = FakeTmux::with_gather(Gathered {
             sessions: vec![Session { id: String::new(), name: "work".into(), activity: 1, created: 1, attached: true, windows: windows_after }],
@@ -747,13 +747,13 @@ mod tests {
             Session { id: String::new(),
                 name: "alpha".into(), activity: 1, created: 1, attached: true,
                 windows: vec![
-                    Window { index: 0, name: "a1".into(), active: true },
-                    Window { index: 1, name: "a2".into(), active: false },
+                    Window { id: String::new(), index: 0, name: "a1".into(), active: true },
+                    Window { id: String::new(), index: 1, name: "a2".into(), active: false },
                 ],
             },
             Session { id: String::new(),
                 name: "beta".into(), activity: 2, created: 2, attached: false,
-                windows: vec![Window { index: 0, name: "b1".into(), active: true }],
+                windows: vec![Window { id: String::new(), index: 0, name: "b1".into(), active: true }],
             },
         ];
         let mut state = PickerState::build(sessions, &config);
@@ -763,12 +763,12 @@ mod tests {
 
         let tmux = FakeTmux::with_gather(Gathered {
             sessions: vec![
-                Session { id: String::new(), name: "alpha".into(), activity: 1, created: 1, attached: false, windows: vec![Window { index: 0, name: "a1".into(), active: true }] },
+                Session { id: String::new(), name: "alpha".into(), activity: 1, created: 1, attached: false, windows: vec![Window { id: String::new(), index: 0, name: "a1".into(), active: true }] },
                 Session { id: String::new(),
                     name: "beta".into(), activity: 2, created: 2, attached: true,
                     windows: vec![
-                        Window { index: 0, name: "a2".into(), active: true },
-                        Window { index: 1, name: "b1".into(), active: false },
+                        Window { id: String::new(), index: 0, name: "a2".into(), active: true },
+                        Window { id: String::new(), index: 1, name: "b1".into(), active: false },
                     ],
                 },
             ],
@@ -804,13 +804,13 @@ mod tests {
             Session { id: String::new(),
                 name: "alpha".into(), activity: 1, created: 1, attached: false,
                 windows: vec![
-                    Window { index: 0, name: "a1".into(), active: true },
-                    Window { index: 1, name: "a2".into(), active: false },
+                    Window { id: String::new(), index: 0, name: "a1".into(), active: true },
+                    Window { id: String::new(), index: 1, name: "a2".into(), active: false },
                 ],
             },
             Session { id: String::new(),
                 name: "beta".into(), activity: 2, created: 2, attached: false,
-                windows: vec![Window { index: 0, name: "b1".into(), active: true }],
+                windows: vec![Window { id: String::new(), index: 0, name: "b1".into(), active: true }],
             },
         ];
         let mut state = PickerState::build(sessions, &config);
@@ -822,12 +822,12 @@ mod tests {
         // index (0) and shifts the anchor to 1 -- verified empirically.
         let tmux = FakeTmux::with_gather(Gathered {
             sessions: vec![
-                Session { id: String::new(), name: "alpha".into(), activity: 1, created: 1, attached: false, windows: vec![Window { index: 0, name: "a1".into(), active: true }] },
+                Session { id: String::new(), name: "alpha".into(), activity: 1, created: 1, attached: false, windows: vec![Window { id: String::new(), index: 0, name: "a1".into(), active: true }] },
                 Session { id: String::new(),
                     name: "beta".into(), activity: 2, created: 2, attached: false,
                     windows: vec![
-                        Window { index: 0, name: "a2".into(), active: false },
-                        Window { index: 1, name: "b1".into(), active: true },
+                        Window { id: String::new(), index: 0, name: "a2".into(), active: false },
+                        Window { id: String::new(), index: 1, name: "b1".into(), active: true },
                     ],
                 },
             ],
@@ -858,8 +858,8 @@ mod tests {
         };
 
         let sessions = vec![
-            Session { id: String::new(), name: "alpha".into(), activity: 1, created: 1, attached: false, windows: vec![Window { index: 0, name: "a1".into(), active: true }] },
-            Session { id: String::new(), name: "beta".into(), activity: 2, created: 2, attached: false, windows: vec![Window { index: 0, name: "b1".into(), active: true }] },
+            Session { id: String::new(), name: "alpha".into(), activity: 1, created: 1, attached: false, windows: vec![Window { id: String::new(), index: 0, name: "a1".into(), active: true }] },
+            Session { id: String::new(), name: "beta".into(), activity: 2, created: 2, attached: false, windows: vec![Window { id: String::new(), index: 0, name: "b1".into(), active: true }] },
         ];
         let mut state = PickerState::build(sessions, &config);
         state.focus_session("alpha");
@@ -870,8 +870,8 @@ mod tests {
             sessions: vec![Session { id: String::new(),
                 name: "beta".into(), activity: 2, created: 2, attached: false,
                 windows: vec![
-                    Window { index: 0, name: "b1".into(), active: true },
-                    Window { index: 1, name: "a1".into(), active: false },
+                    Window { id: String::new(), index: 0, name: "b1".into(), active: true },
+                    Window { id: String::new(), index: 1, name: "a1".into(), active: false },
                 ],
             }],
             current: None,
@@ -898,8 +898,8 @@ mod tests {
         };
 
         let sessions = vec![
-            Session { id: String::new(), name: "alpha".into(), activity: 1, created: 1, attached: true, windows: vec![Window { index: 0, name: "a1".into(), active: true }] },
-            Session { id: String::new(), name: "beta".into(), activity: 2, created: 2, attached: false, windows: vec![Window { index: 0, name: "b1".into(), active: true }] },
+            Session { id: String::new(), name: "alpha".into(), activity: 1, created: 1, attached: true, windows: vec![Window { id: String::new(), index: 0, name: "a1".into(), active: true }] },
+            Session { id: String::new(), name: "beta".into(), activity: 2, created: 2, attached: false, windows: vec![Window { id: String::new(), index: 0, name: "b1".into(), active: true }] },
         ];
         let mut state = PickerState::build(sessions, &config);
         state.focus_session("alpha");
@@ -908,12 +908,12 @@ mod tests {
 
         let tmux = FakeTmux::with_gather(Gathered {
             sessions: vec![
-                Session { id: String::new(), name: "alpha".into(), activity: 1, created: 1, attached: true, windows: vec![Window { index: 0, name: "(empty)".into(), active: true }] },
+                Session { id: String::new(), name: "alpha".into(), activity: 1, created: 1, attached: true, windows: vec![Window { id: String::new(), index: 0, name: "(empty)".into(), active: true }] },
                 Session { id: String::new(),
                     name: "beta".into(), activity: 2, created: 2, attached: false,
                     windows: vec![
-                        Window { index: 0, name: "b1".into(), active: true },
-                        Window { index: 1, name: "a1".into(), active: false },
+                        Window { id: String::new(), index: 0, name: "b1".into(), active: true },
+                        Window { id: String::new(), index: 1, name: "a1".into(), active: false },
                     ],
                 },
             ],
@@ -990,15 +990,15 @@ mod tests {
         let path = dir.join("config.toml");
         let mut config = Config::default();
         let windows_before = vec![
-            Window { index: 0, name: "editor".into(), active: true },
-            Window { index: 1, name: "logs".into(), active: false },
+            Window { id: String::new(), index: 0, name: "editor".into(), active: true },
+            Window { id: String::new(), index: 1, name: "logs".into(), active: false },
         ];
         let sessions = vec![Session { id: String::new(), name: "alpha".into(), activity: 1, created: 1, attached: false, windows: windows_before }];
         let mut state = PickerState::build(sessions, &config);
         state.expand();
         state.move_cursor(2); // rows: [session, window 0 "editor", window 1 "logs"]
 
-        let windows_after = vec![Window { index: 0, name: "editor".into(), active: true }];
+        let windows_after = vec![Window { id: String::new(), index: 0, name: "editor".into(), active: true }];
         let tmux = FakeTmux::with_gather(Gathered {
             sessions: vec![Session { id: String::new(), name: "alpha".into(), activity: 1, created: 1, attached: false, windows: windows_after }],
             current: None,
@@ -1018,7 +1018,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("rolomux-kill-session-risky-{}", std::process::id()));
         let path = dir.join("config.toml");
         let mut config = Config::default();
-        let sessions = vec![Session { id: String::new(), name: "alpha".into(), activity: 1, created: 1, attached: true, windows: vec![Window { index: 0, name: "w".into(), active: true }] }];
+        let sessions = vec![Session { id: String::new(), name: "alpha".into(), activity: 1, created: 1, attached: true, windows: vec![Window { id: String::new(), index: 0, name: "w".into(), active: true }] }];
         let mut state = PickerState::build(sessions, &config);
 
         let tmux = FakeTmux::with_gather(Gathered { sessions: vec![], current: None });
@@ -1036,7 +1036,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("rolomux-kill-only-window-risky-{}", std::process::id()));
         let path = dir.join("config.toml");
         let mut config = Config::default();
-        let sessions = vec![Session { id: String::new(), name: "alpha".into(), activity: 1, created: 1, attached: true, windows: vec![Window { index: 0, name: "w".into(), active: true }] }];
+        let sessions = vec![Session { id: String::new(), name: "alpha".into(), activity: 1, created: 1, attached: true, windows: vec![Window { id: String::new(), index: 0, name: "w".into(), active: true }] }];
         let mut state = PickerState::build(sessions, &config);
         state.expand();
         state.move_cursor(1); // the only window in alpha

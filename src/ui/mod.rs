@@ -309,7 +309,8 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
                 }
                 let last = *wi + 1 == sess.windows.len();
                 let rename_buf = if selected && state.renaming() { state.rename_edit_buffer() } else { None };
-                let dormant = state.is_dormant(&sess.name);
+                let window_dormant = state.is_window_dormant(&sess.name, sess.windows[*wi].index);
+                let dormant = state.is_dormant(&sess.name) || window_dormant;
                 let dot_color = match state.dot_color_mode {
                     DotColorMode::Group => current_gutter_color,
                     DotColorMode::Static => dot_static_color,
@@ -320,6 +321,7 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
                     selected,
                     Some(current_gutter_color),
                     dormant,
+                    window_dormant,
                     rename_buf,
                     dot_color,
                     state.window_swap_marker(&sess.name, sess.windows[*wi].index),
@@ -446,7 +448,8 @@ fn draw_search(frame: &mut Frame, state: &PickerState, inner: Rect) {
                         selected_line = Some(items.len());
                     }
                     let last = *wi + 1 == sess.windows.len();
-                    let dormant = state.is_dormant(&sess.name);
+                    let window_dormant = state.is_window_dormant(&sess.name, sess.windows[*wi].index);
+                    let dormant = state.is_dormant(&sess.name) || window_dormant;
                     let dot_color = match state.dot_color_mode {
                         DotColorMode::Group => state
                             .group_index_of(&sess.name)
@@ -454,7 +457,7 @@ fn draw_search(frame: &mut Frame, state: &PickerState, inner: Rect) {
                             .unwrap_or(dot_static_color),
                         DotColorMode::Static => dot_static_color,
                     };
-                    items.push(window_item(&sess.windows[*wi], last, selected, None, dormant, None, dot_color, None, false));
+                    items.push(window_item(&sess.windows[*wi], last, selected, None, dormant, window_dormant, None, dot_color, None, false));
                 }
             }
         }
@@ -671,9 +674,13 @@ fn window_count(wins: usize) -> String {
     format!("{wins} {label}")
 }
 
-fn hidden_status(count: usize) -> String {
-    let label = if count == 1 { "session" } else { "sessions" };
-    format!("{count} {label} hidden")
+fn hidden_status(sessions: usize, windows: usize) -> String {
+    let session_label = if sessions == 1 { "session" } else { "sessions" };
+    if windows == 0 {
+        return format!("{sessions} {session_label} hidden");
+    }
+    let window_label = if windows == 1 { "window" } else { "windows" };
+    format!("{sessions} {session_label}, {windows} {window_label} hidden")
 }
 
 fn footer_rule(width: u16, state: &PickerState) -> String {
@@ -681,7 +688,10 @@ fn footer_rule(width: u16, state: &PickerState) -> String {
     if !state.focus_mode() {
         return "─".repeat(width);
     }
-    let label = format!("─ {} ", hidden_status(state.hidden_dormant_count()));
+    let label = format!(
+        "─ {} ",
+        hidden_status(state.hidden_dormant_count(), state.hidden_dormant_window_count())
+    );
     let label_width = label.chars().count();
     if label_width >= width {
         return label.chars().take(width).collect();
@@ -900,6 +910,7 @@ fn window_item(
     selected: bool,
     gutter: Option<Color>,
     dormant: bool,
+    individually_dormant: bool,
     rename_buf: Option<&str>,
     dot_color: Color,
     swap_marker: Option<(SwapDirection, bool)>,
@@ -919,7 +930,12 @@ fn window_item(
     };
     let dot = if win.active { "●" } else { " " };
     let dot_style = if dormant { dormant_session(selected) } else { Style::default().fg(dot_color) };
-    let name_style = if dormant { dormant_session(selected) } else { Style::default() };
+    let base_name_style = if dormant { dormant_session(selected) } else { Style::default() };
+    let name_style = if individually_dormant {
+        base_name_style.add_modifier(Modifier::CROSSED_OUT)
+    } else {
+        base_name_style
+    };
     if let Some(buf) = rename_buf {
         let mut spans = Vec::new();
         if let Some(color) = gutter {
@@ -998,9 +1014,9 @@ mod tests {
     fn draw_shows_headers_and_session_names() {
         let sessions = vec![
             Session { id: String::new(), name: "pr-review".into(), activity: 30, created: 1, attached: false,
-                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+                      windows: vec![Window { id: String::new(), index: 0, name: "w".into(), active: true }] },
             Session { id: String::new(), name: "scratch".into(), activity: 20, created: 2, attached: false,
-                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+                      windows: vec![Window { id: String::new(), index: 0, name: "w".into(), active: true }] },
         ];
         let cfg = Config {
             dormant: vec![], groups: vec![Group { name: "PINNED".into(), members: vec!["pr-review".into()], color: String::new(), ..Default::default() }],
@@ -1126,7 +1142,7 @@ mod tests {
     fn draw_shows_pending_window_move_warning_in_footer() {
         let sessions = vec![Session { id: String::new(),
             name: "work".into(), activity: 1, created: 1, attached: false,
-            windows: vec![Window { index: 0, name: "only".into(), active: true }],
+            windows: vec![Window { id: String::new(), index: 0, name: "only".into(), active: true }],
         }];
         let cfg = Config::default();
         let mut st = PickerState::build(sessions, &cfg);
@@ -1143,7 +1159,7 @@ mod tests {
     fn draw_shows_pending_window_move_warning_in_red_not_dim() {
         let sessions = vec![Session { id: String::new(),
             name: "work".into(), activity: 1, created: 1, attached: false,
-            windows: vec![Window { index: 0, name: "only".into(), active: true }],
+            windows: vec![Window { id: String::new(), index: 0, name: "only".into(), active: true }],
         }];
         let cfg = Config::default();
         let mut st = PickerState::build(sessions, &cfg);
@@ -1171,7 +1187,7 @@ mod tests {
     fn draw_shows_pending_kill_warning_in_footer() {
         let sessions = vec![Session { id: String::new(),
             name: "work".into(), activity: 1, created: 1, attached: false,
-            windows: vec![Window { index: 0, name: "only".into(), active: true }],
+            windows: vec![Window { id: String::new(), index: 0, name: "only".into(), active: true }],
         }];
         let cfg = Config::default();
         let mut st = PickerState::build(sessions, &cfg);
@@ -1185,7 +1201,7 @@ mod tests {
     fn draw_shows_pending_kill_warning_in_red_not_dim() {
         let sessions = vec![Session { id: String::new(),
             name: "work".into(), activity: 1, created: 1, attached: false,
-            windows: vec![Window { index: 0, name: "only".into(), active: true }],
+            windows: vec![Window { id: String::new(), index: 0, name: "only".into(), active: true }],
         }];
         let cfg = Config::default();
         let mut st = PickerState::build(sessions, &cfg);
@@ -1330,7 +1346,7 @@ mod tests {
     fn draw_marks_cursor_row_with_background() {
         let sessions = vec![
             Session { id: String::new(), name: "alpha".into(), activity: 30, created: 1, attached: false,
-                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+                      windows: vec![Window { id: String::new(), index: 0, name: "w".into(), active: true }] },
         ];
         let cfg = Config { groups: vec![], ..Default::default() };
         let state = PickerState::build(sessions, &cfg);
@@ -1367,7 +1383,7 @@ mod tests {
         // must brighten so nothing renders DarkGray-on-DarkGray (invisible).
         let sessions = vec![
             Session { id: String::new(), name: "alpha".into(), activity: 30, created: 1, attached: false,
-                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+                      windows: vec![Window { id: String::new(), index: 0, name: "w".into(), active: true }] },
         ];
         let cfg = Config { groups: vec![], ..Default::default() };
         let state = PickerState::build(sessions, &cfg); // cursor on alpha (row 0)
@@ -1400,9 +1416,9 @@ mod tests {
     fn command_footer_keeps_f_hint_in_place_when_focus_mode_is_on() {
         let sessions = vec![
             Session { id: String::new(), name: "alpha".into(), activity: 30, created: 1, attached: false,
-                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+                      windows: vec![Window { id: String::new(), index: 0, name: "w".into(), active: true }] },
             Session { id: String::new(), name: "beta".into(), activity: 20, created: 2, attached: false,
-                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+                      windows: vec![Window { id: String::new(), index: 0, name: "w".into(), active: true }] },
         ];
         let cfg = Config { groups: vec![], dormant: vec!["beta".into()], ..Default::default() };
         let mut state = PickerState::build(sessions, &cfg);
@@ -1420,9 +1436,9 @@ mod tests {
     fn search_footer_keeps_ctrl_f_hint_in_place_when_focus_mode_is_on() {
         let sessions = vec![
             Session { id: String::new(), name: "alpha".into(), activity: 30, created: 1, attached: false,
-                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+                      windows: vec![Window { id: String::new(), index: 0, name: "w".into(), active: true }] },
             Session { id: String::new(), name: "beta".into(), activity: 20, created: 2, attached: false,
-                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+                      windows: vec![Window { id: String::new(), index: 0, name: "w".into(), active: true }] },
         ];
         let cfg = Config { groups: vec![], dormant: vec!["beta".into()], ..Default::default() };
         let mut state = PickerState::build(sessions, &cfg);
@@ -1443,9 +1459,9 @@ mod tests {
     fn draw_hides_dormant_sessions_and_shows_command_reminder() {
         let sessions = vec![
             Session { id: String::new(), name: "alpha".into(), activity: 30, created: 1, attached: false,
-                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+                      windows: vec![Window { id: String::new(), index: 0, name: "w".into(), active: true }] },
             Session { id: String::new(), name: "beta".into(), activity: 20, created: 2, attached: false,
-                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+                      windows: vec![Window { id: String::new(), index: 0, name: "w".into(), active: true }] },
         ];
         let cfg = Config { groups: vec![], dormant: vec!["beta".into()], ..Default::default() };
         let mut state = PickerState::build(sessions, &cfg);
@@ -1462,11 +1478,11 @@ mod tests {
     fn draw_search_hides_dormant_sessions_and_shows_reminder() {
         let sessions = vec![
             Session { id: String::new(), name: "alpha".into(), activity: 30, created: 1, attached: false,
-                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+                      windows: vec![Window { id: String::new(), index: 0, name: "w".into(), active: true }] },
             Session { id: String::new(), name: "beta".into(), activity: 20, created: 2, attached: false,
-                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+                      windows: vec![Window { id: String::new(), index: 0, name: "w".into(), active: true }] },
             Session { id: String::new(), name: "bravo".into(), activity: 10, created: 3, attached: false,
-                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+                      windows: vec![Window { id: String::new(), index: 0, name: "w".into(), active: true }] },
         ];
         let cfg = Config { groups: vec![], dormant: vec!["beta".into(), "bravo".into()], ..Default::default() };
         let mut state = PickerState::build(sessions, &cfg);
@@ -1482,12 +1498,24 @@ mod tests {
     }
 
     #[test]
+    fn hidden_status_omits_windows_clause_when_zero() {
+        assert_eq!(hidden_status(3, 0), "3 sessions hidden");
+        assert_eq!(hidden_status(1, 0), "1 session hidden");
+    }
+
+    #[test]
+    fn hidden_status_includes_windows_clause_when_nonzero() {
+        assert_eq!(hidden_status(3, 2), "3 sessions, 2 windows hidden");
+        assert_eq!(hidden_status(1, 1), "1 session, 1 window hidden");
+    }
+
+    #[test]
     fn attached_dormant_session_stays_visible_and_excluded_from_hidden_count() {
         let sessions = vec![
             Session { id: String::new(), name: "alpha".into(), activity: 30, created: 1, attached: true,
-                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+                      windows: vec![Window { id: String::new(), index: 0, name: "w".into(), active: true }] },
             Session { id: String::new(), name: "beta".into(), activity: 20, created: 2, attached: false,
-                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+                      windows: vec![Window { id: String::new(), index: 0, name: "w".into(), active: true }] },
         ];
         let cfg = Config { groups: vec![], dormant: vec!["alpha".into(), "beta".into()], ..Default::default() };
         let mut state = PickerState::build(sessions, &cfg);
@@ -1503,7 +1531,7 @@ mod tests {
     fn focus_mode_keeps_group_header_when_only_member_is_attached_dormant() {
         let sessions = vec![
             Session { id: String::new(), name: "work".into(), activity: 30, created: 1, attached: true,
-                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+                      windows: vec![Window { id: String::new(), index: 0, name: "w".into(), active: true }] },
         ];
         let cfg = Config {
             groups: vec![Group { name: "PROJECT".into(), members: vec!["work".into()], color: String::new(), ..Default::default() }],
@@ -1522,9 +1550,9 @@ mod tests {
     fn draw_dims_dormant_session_when_unselected_and_grays_it_when_selected() {
         let sessions = vec![
             Session { id: String::new(), name: "alpha".into(), activity: 30, created: 1, attached: false,
-                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+                      windows: vec![Window { id: String::new(), index: 0, name: "w".into(), active: true }] },
             Session { id: String::new(), name: "beta".into(), activity: 20, created: 2, attached: false,
-                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+                      windows: vec![Window { id: String::new(), index: 0, name: "w".into(), active: true }] },
         ];
         let cfg = Config { groups: vec![], dormant: vec!["beta".into()], ..Default::default() };
         let mut state = PickerState::build(sessions, &cfg); // cursor starts on "alpha"
@@ -1567,8 +1595,8 @@ mod tests {
         let sessions = vec![
             Session { id: String::new(), name: "beta".into(), activity: 20, created: 2, attached: false,
                       windows: vec![
-                          Window { index: 0, name: "editor".into(), active: true },
-                          Window { index: 1, name: "shell".into(), active: false },
+                          Window { id: String::new(), index: 0, name: "editor".into(), active: true },
+                          Window { id: String::new(), index: 1, name: "shell".into(), active: false },
                       ] },
         ];
         let cfg = Config { groups: vec![], dormant: vec!["beta".into()], ..Default::default() };
@@ -1592,6 +1620,81 @@ mod tests {
         }
         assert!(name_dim, "dormant session's window name renders dim");
         assert!(dot_dim, "dormant session's active-window dot renders dim, not green");
+    }
+
+    #[test]
+    fn window_row_shows_strikethrough_only_when_individually_dormant() {
+        let sessions = vec![Session {
+            id: String::new(), name: "a".into(), activity: 1, created: 1, attached: false,
+            windows: vec![
+                Window { id: "@1".into(), index: 0, name: "keep".into(), active: true },
+                Window { id: "@2".into(), index: 1, name: "hide".into(), active: false },
+            ],
+        }];
+        let cfg = Config::default();
+        let mut state = PickerState::build(sessions, &cfg);
+        state.expand();
+        state.move_cursor(2); // land on window index 1
+        state.toggle_dormant(); // individually dormant, session not dormant
+
+        let backend = TestBackend::new(80, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| draw(f, &state)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+
+        // Locate each row's y by scanning rather than hardcoding a guessed
+        // offset -- the exact row this lands on depends on how many
+        // header/hint lines precede the session row (e.g. the "create
+        // group" hint shown when there's no named group yet), which isn't
+        // worth re-deriving by hand here.
+        let hide_y = (0u16..20).find(|&y| find_text_x(&buf, y, "hide").is_some()).expect("hide row rendered");
+        let hide_x = find_text_x(&buf, hide_y, "hide").unwrap();
+        assert!(
+            buf[(hide_x, hide_y)].modifier.contains(Modifier::CROSSED_OUT),
+            "an individually-dormant window's name is struck through"
+        );
+
+        let keep_y = (0u16..20).find(|&y| find_text_x(&buf, y, "keep").is_some()).expect("keep row rendered");
+        let keep_x = find_text_x(&buf, keep_y, "keep").unwrap();
+        assert!(
+            !buf[(keep_x, keep_y)].modifier.contains(Modifier::CROSSED_OUT),
+            "a window that isn't individually dormant is never struck through"
+        );
+    }
+
+    #[test]
+    fn window_row_shows_dim_and_strikethrough_when_session_and_window_both_dormant() {
+        let sessions = vec![Session {
+            id: String::new(), name: "a".into(), activity: 1, created: 1, attached: false,
+            windows: vec![
+                Window { id: "@1".into(), index: 0, name: "keep".into(), active: true },
+                Window { id: "@2".into(), index: 1, name: "hide".into(), active: false },
+            ],
+        }];
+        let cfg = Config { groups: vec![], dormant: vec!["a".into()], ..Default::default() };
+        let mut state = PickerState::build(sessions, &cfg);
+        state.expand();
+        state.move_cursor(2); // land on window index 1
+        state.toggle_dormant(); // individually dormant, session also dormant
+        state.move_cursor(-1); // move off the row so selection highlight doesn't mask the dim color
+
+        let backend = TestBackend::new(80, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| draw(f, &state)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+
+        let hide_y = (0u16..20).find(|&y| find_text_x(&buf, y, "hide").is_some()).expect("hide row rendered");
+        let hide_x = find_text_x(&buf, hide_y, "hide").unwrap();
+        let cell = &buf[(hide_x, hide_y)];
+        assert_eq!(
+            cell.style().fg,
+            Some(Color::DarkGray),
+            "a window that's dormant via its dormant parent session still renders dim"
+        );
+        assert!(
+            cell.modifier.contains(Modifier::CROSSED_OUT),
+            "a window that's both session-dormant and individually dormant is still struck through"
+        );
     }
 
     #[test]
@@ -1661,7 +1764,7 @@ mod tests {
                 windows: vec![],
             })
             .collect();
-        sessions[0].windows = vec![Window { index: 0, name: "editor".into(), active: true }];
+        sessions[0].windows = vec![Window { id: String::new(), index: 0, name: "editor".into(), active: true }];
         let cfg = Config::default();
         let mut state = PickerState::build(sessions, &cfg); // cursor starts on "sess01"
         state.expand();
@@ -1680,7 +1783,7 @@ mod tests {
     fn selected_attached_dormant_session_uses_dormant_gray() {
         let sessions = vec![
             Session { id: String::new(), name: "current".into(), activity: 30, created: 1, attached: true,
-                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+                      windows: vec![Window { id: String::new(), index: 0, name: "w".into(), active: true }] },
         ];
         let cfg = Config {
             groups: vec![],
@@ -1711,7 +1814,7 @@ mod tests {
     fn draw_shows_dormant_footer_hint() {
         let sessions = vec![
             Session { id: String::new(), name: "main".into(), activity: 100, created: 1, attached: false,
-                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+                      windows: vec![Window { id: String::new(), index: 0, name: "w".into(), active: true }] },
         ];
         let cfg = Config { groups: vec![], ..Default::default() };
         let state = PickerState::build(sessions, &cfg);
@@ -1735,7 +1838,7 @@ mod tests {
     fn draw_no_longer_renders_pin_star() {
         let sessions = vec![
             Session { id: String::new(), name: "claude".into(), activity: 30, created: 1, attached: false,
-                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+                      windows: vec![Window { id: String::new(), index: 0, name: "w".into(), active: true }] },
         ];
         let cfg = Config { groups: vec![Group { name: "G".into(), members: vec!["claude".into()], color: String::new(), ..Default::default() }], ..Default::default() };
         let text = render_to_string(&PickerState::build(sessions, &cfg));
@@ -1746,11 +1849,11 @@ mod tests {
     fn draw_shows_multiple_group_headers_in_order() {
         let sessions = vec![
             Session { id: String::new(), name: "claude".into(), activity: 30, created: 1, attached: false,
-                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+                      windows: vec![Window { id: String::new(), index: 0, name: "w".into(), active: true }] },
             Session { id: String::new(), name: "tent".into(), activity: 20, created: 2, attached: false,
-                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+                      windows: vec![Window { id: String::new(), index: 0, name: "w".into(), active: true }] },
             Session { id: String::new(), name: "ticket".into(), activity: 10, created: 3, attached: false,
-                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+                      windows: vec![Window { id: String::new(), index: 0, name: "w".into(), active: true }] },
         ];
         let cfg = Config {
             dormant: vec![], groups: vec![
@@ -1775,9 +1878,9 @@ mod tests {
         // and the inbox below.
         let sessions = vec![
             Session { id: String::new(), name: "claude".into(), activity: 30, created: 1, attached: false,
-                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+                      windows: vec![Window { id: String::new(), index: 0, name: "w".into(), active: true }] },
             Session { id: String::new(), name: "loose".into(), activity: 10, created: 2, attached: false,
-                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+                      windows: vec![Window { id: String::new(), index: 0, name: "w".into(), active: true }] },
         ];
         let cfg = Config {
             dormant: vec![], groups: vec![
@@ -1819,9 +1922,9 @@ mod tests {
     fn focus_mode_hides_group_header_when_all_members_are_dormant() {
         let sessions = vec![
             Session { id: String::new(), name: "claude".into(), activity: 30, created: 1, attached: false,
-                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+                      windows: vec![Window { id: String::new(), index: 0, name: "w".into(), active: true }] },
             Session { id: String::new(), name: "old-deploy".into(), activity: 10, created: 2, attached: false,
-                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+                      windows: vec![Window { id: String::new(), index: 0, name: "w".into(), active: true }] },
         ];
         let cfg = Config {
             dormant: vec!["old-deploy".into()],
@@ -1843,7 +1946,7 @@ mod tests {
     fn focus_mode_hides_truly_empty_group_header() {
         let sessions = vec![
             Session { id: String::new(), name: "claude".into(), activity: 30, created: 1, attached: false,
-                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+                      windows: vec![Window { id: String::new(), index: 0, name: "w".into(), active: true }] },
         ];
         let cfg = Config {
             dormant: vec![],
@@ -1867,9 +1970,9 @@ mod tests {
     fn focus_mode_hides_inbox_header_when_it_has_no_visible_sessions() {
         let sessions = vec![
             Session { id: String::new(), name: "claude".into(), activity: 30, created: 1, attached: false,
-                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+                      windows: vec![Window { id: String::new(), index: 0, name: "w".into(), active: true }] },
             Session { id: String::new(), name: "loose".into(), activity: 10, created: 2, attached: false,
-                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+                      windows: vec![Window { id: String::new(), index: 0, name: "w".into(), active: true }] },
         ];
         let cfg = Config {
             dormant: vec!["loose".into()],
@@ -1891,7 +1994,7 @@ mod tests {
     fn draw_command_shows_inline_rename_field() {
         let sessions = vec![
             Session { id: String::new(), name: "alpha".into(), activity: 30, created: 1, attached: false,
-                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+                      windows: vec![Window { id: String::new(), index: 0, name: "w".into(), active: true }] },
         ];
         let cfg = Config { groups: vec![], ..Default::default() };
         let mut st = PickerState::build(sessions, &cfg);
@@ -1907,7 +2010,7 @@ mod tests {
     fn draw_shows_footer_hints() {
         let sessions = vec![
             Session { id: String::new(), name: "main".into(), activity: 100, created: 1, attached: false,
-                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+                      windows: vec![Window { id: String::new(), index: 0, name: "w".into(), active: true }] },
         ];
         let cfg = Config { groups: vec![], ..Default::default() };
         let state = PickerState::build(sessions, &cfg);
@@ -1926,7 +2029,7 @@ mod tests {
     fn draw_footer_hint_fits_within_real_popup_width_untruncated() {
         let sessions = vec![
             Session { id: String::new(), name: "main".into(), activity: 100, created: 1, attached: false,
-                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+                      windows: vec![Window { id: String::new(), index: 0, name: "w".into(), active: true }] },
         ];
         let cfg = Config { groups: vec![], ..Default::default() };
         let state = PickerState::build(sessions, &cfg);
@@ -2032,9 +2135,9 @@ mod tests {
     fn draw_numbers_sessions_in_left_gutter() {
         let sessions = vec![
             Session { id: String::new(), name: "main".into(), activity: 30, created: 1, attached: false,
-                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+                      windows: vec![Window { id: String::new(), index: 0, name: "w".into(), active: true }] },
             Session { id: String::new(), name: "other".into(), activity: 20, created: 2, attached: false,
-                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+                      windows: vec![Window { id: String::new(), index: 0, name: "w".into(), active: true }] },
         ];
         let cfg = Config { groups: vec![], ..Default::default() };
         let state = PickerState::build(sessions, &cfg); // main #1, other #2
@@ -2067,7 +2170,7 @@ mod tests {
                 activity: 0,
                 created: i as i64,
                 attached: false,
-                windows: vec![Window { index: 0, name: "w".into(), active: true }],
+                windows: vec![Window { id: String::new(), index: 0, name: "w".into(), active: true }],
             })
             .collect();
         let cfg = Config { groups: vec![], ..Default::default() };
@@ -2111,11 +2214,11 @@ mod tests {
     fn draw_skips_dormant_jump_numbers_when_configured() {
         let sessions = vec![
             Session { id: String::new(), name: "alpha".into(), activity: 30, created: 1, attached: false,
-                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+                      windows: vec![Window { id: String::new(), index: 0, name: "w".into(), active: true }] },
             Session { id: String::new(), name: "beta".into(), activity: 20, created: 2, attached: false,
-                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+                      windows: vec![Window { id: String::new(), index: 0, name: "w".into(), active: true }] },
             Session { id: String::new(), name: "gamma".into(), activity: 10, created: 3, attached: false,
-                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+                      windows: vec![Window { id: String::new(), index: 0, name: "w".into(), active: true }] },
         ];
         let cfg = Config {
             groups: vec![],
@@ -2171,9 +2274,9 @@ mod tests {
         // its own, so the middot separators stay vertically aligned (issue #3).
         let sessions = vec![
             Session { id: String::new(), name: "a-very-long-session-name-here".into(), activity: 30, created: 1,
-                      attached: false, windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+                      attached: false, windows: vec![Window { id: String::new(), index: 0, name: "w".into(), active: true }] },
             Session { id: String::new(), name: "short".into(), activity: 20, created: 2, attached: false,
-                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+                      windows: vec![Window { id: String::new(), index: 0, name: "w".into(), active: true }] },
         ];
         let cfg = Config { groups: vec![], ..Default::default() };
         let state = PickerState::build(sessions, &cfg);
@@ -2196,13 +2299,13 @@ mod tests {
         // "9 windows" is wider than "1 window"; the count field must be padded
         // to a uniform width so the middot and age stay aligned (issue #3).
         let many: Vec<Window> = (0..9)
-            .map(|i| Window { index: i, name: "w".into(), active: i == 0 })
+            .map(|i| Window { id: String::new(), index: i, name: "w".into(), active: i == 0 })
             .collect();
         let sessions = vec![
             Session { id: String::new(), name: "alpha".into(), activity: 30, created: 1, attached: false,
                       windows: many },
             Session { id: String::new(), name: "beta".into(), activity: 20, created: 2, attached: false,
-                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+                      windows: vec![Window { id: String::new(), index: 0, name: "w".into(), active: true }] },
         ];
         let cfg = Config { groups: vec![], ..Default::default() };
         let state = PickerState::build(sessions, &cfg);
@@ -2321,8 +2424,8 @@ mod tests {
         let sessions = vec![Session {
             id: String::new(), name: "work".into(), activity: 1, created: 1, attached: false,
             windows: vec![
-                Window { index: 0, name: "alpha".into(), active: true },
-                Window { index: 1, name: "beta".into(), active: false },
+                Window { id: String::new(), index: 0, name: "alpha".into(), active: true },
+                Window { id: String::new(), index: 1, name: "beta".into(), active: false },
             ],
         }];
         let cfg = Config::default();
@@ -2421,9 +2524,9 @@ mod tests {
         // preserving the original compact layout.
         let sessions = vec![
             Session { id: String::new(), name: "main".into(), activity: 30, created: 1, attached: false,
-                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+                      windows: vec![Window { id: String::new(), index: 0, name: "w".into(), active: true }] },
             Session { id: String::new(), name: "other".into(), activity: 20, created: 2, attached: false,
-                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+                      windows: vec![Window { id: String::new(), index: 0, name: "w".into(), active: true }] },
         ];
         let cfg = Config { groups: vec![], ..Default::default() };
         let state = PickerState::build(sessions, &cfg);
@@ -2447,7 +2550,7 @@ mod tests {
     fn draw_insets_frame_by_popup_margin() {
         let sessions = vec![
             Session { id: String::new(), name: "alpha".into(), activity: 30, created: 1, attached: false,
-                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+                      windows: vec![Window { id: String::new(), index: 0, name: "w".into(), active: true }] },
         ];
         let cfg = Config { groups: vec![], ..Default::default() };
         let state = PickerState::build(sessions, &cfg);
@@ -2481,9 +2584,9 @@ mod tests {
     fn searching_state(query: &str) -> PickerState {
         let sessions = vec![
             Session { id: String::new(), name: "pr-review".into(), activity: 30, created: 1, attached: false,
-                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+                      windows: vec![Window { id: String::new(), index: 0, name: "w".into(), active: true }] },
             Session { id: String::new(), name: "scratch".into(), activity: 20, created: 2, attached: false,
-                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+                      windows: vec![Window { id: String::new(), index: 0, name: "w".into(), active: true }] },
         ];
         let cfg = Config {
             dormant: vec![], groups: vec![Group { name: "PINNED".into(), members: vec!["pr-review".into()], color: String::new(), ..Default::default() }],
@@ -2532,7 +2635,7 @@ mod tests {
         // would pass even if the uppercasing were silently dropped).
         let sessions = vec![Session { id: String::new(),
             name: "pr-review".into(), activity: 30, created: 1, attached: false,
-            windows: vec![Window { index: 0, name: "w".into(), active: true }],
+            windows: vec![Window { id: String::new(), index: 0, name: "w".into(), active: true }],
         }];
         let cfg = Config {
             dormant: vec![], groups: vec![Group { name: "work".into(), members: vec!["pr-review".into()], color: String::new(), ..Default::default() }],
@@ -2601,9 +2704,9 @@ mod tests {
         let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
         let sessions = vec![
             Session { id: String::new(), name: "short-age".into(), activity: now - 5 * 3600, created: 1, attached: false,
-                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+                      windows: vec![Window { id: String::new(), index: 0, name: "w".into(), active: true }] },
             Session { id: String::new(), name: "long-age".into(), activity: now - 40 * 60, created: 2, attached: false,
-                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+                      windows: vec![Window { id: String::new(), index: 0, name: "w".into(), active: true }] },
         ];
         let cfg = Config {
             dormant: vec![], groups: vec![Group {
@@ -2640,7 +2743,7 @@ mod tests {
             activity: now - 30, // "30s"
             created: now - 7200, // "2h"
             attached: false,
-            windows: vec![Window { index: 0, name: "w".into(), active: true }],
+            windows: vec![Window { id: String::new(), index: 0, name: "w".into(), active: true }],
         }];
         let cfg = Config::default();
         let mut state = PickerState::build(sessions, &cfg);
@@ -2663,8 +2766,8 @@ mod tests {
             created: 1,
             attached: false,
             windows: vec![
-                Window { index: 0, name: "w".into(), active: true },
-                Window { index: 1, name: "w2".into(), active: false },
+                Window { id: String::new(), index: 0, name: "w".into(), active: true },
+                Window { id: String::new(), index: 1, name: "w2".into(), active: false },
             ],
         }];
         let cfg = Config::default();
@@ -2682,9 +2785,9 @@ mod tests {
         // age_pad computation must not panic or misalign group tags.
         let sessions = vec![
             Session { id: String::new(), name: "short-age".into(), activity: 1, created: 1, attached: false,
-                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+                      windows: vec![Window { id: String::new(), index: 0, name: "w".into(), active: true }] },
             Session { id: String::new(), name: "long-age".into(), activity: 2, created: 2, attached: false,
-                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+                      windows: vec![Window { id: String::new(), index: 0, name: "w".into(), active: true }] },
         ];
         let cfg = Config {
             groups: vec![Group {
@@ -2712,9 +2815,9 @@ mod tests {
         // back to the positional default (HEADER_COLORS[0] == cyan == ACCENT).
         let sessions = vec![
             Session { id: String::new(), name: "claude".into(), activity: 30, created: 1, attached: false,
-                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+                      windows: vec![Window { id: String::new(), index: 0, name: "w".into(), active: true }] },
             Session { id: String::new(), name: "tent".into(), activity: 20, created: 2, attached: false,
-                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+                      windows: vec![Window { id: String::new(), index: 0, name: "w".into(), active: true }] },
         ];
         let cfg = Config {
             dormant: vec![], groups: vec![
@@ -2748,9 +2851,9 @@ mod tests {
     fn groups_view(edit: bool) -> PickerState {
         let sessions = vec![
             Session { id: String::new(), name: "claude".into(), activity: 30, created: 1, attached: false,
-                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+                      windows: vec![Window { id: String::new(), index: 0, name: "w".into(), active: true }] },
             Session { id: String::new(), name: "ticket".into(), activity: 10, created: 2, attached: false,
-                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+                      windows: vec![Window { id: String::new(), index: 0, name: "w".into(), active: true }] },
         ];
         let cfg = Config { groups: vec![Group { name: "config".into(), members: vec!["claude".into()], color: String::new(), ..Default::default() }], ..Default::default() };
         let mut st = PickerState::build(sessions, &cfg);
@@ -2791,7 +2894,7 @@ mod tests {
     fn draw_groups_hides_the_divider_when_inbox_is_the_only_group() {
         let sessions = vec![Session {
             id: String::new(), name: "claude".into(), activity: 30, created: 1, attached: false,
-            windows: vec![Window { index: 0, name: "w".into(), active: true }],
+            windows: vec![Window { id: String::new(), index: 0, name: "w".into(), active: true }],
         }];
         let cfg = Config { groups: vec![], ..Default::default() }; // synthesizes INBOX alone
         let mut st = PickerState::build(sessions, &cfg);
@@ -2878,7 +2981,7 @@ mod tests {
     fn draw_is_graceful_on_tiny_popup() {
         let sessions = vec![
             Session { id: String::new(), name: "alpha".into(), activity: 30, created: 1, attached: false,
-                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+                      windows: vec![Window { id: String::new(), index: 0, name: "w".into(), active: true }] },
         ];
         let cfg = Config { groups: vec![], ..Default::default() };
         let state = PickerState::build(sessions, &cfg);
@@ -2917,7 +3020,7 @@ mod tests {
     fn draw_colors_group_header_from_active_palette_not_a_fixed_const() {
         let sessions = vec![
             Session { id: String::new(), name: "claude".into(), activity: 30, created: 1, attached: false,
-                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+                      windows: vec![Window { id: String::new(), index: 0, name: "w".into(), active: true }] },
         ];
         let cfg = Config {
             groups: vec![Group { name: "config".into(), members: vec!["claude".into()], color: String::new(), ..Default::default() }],
@@ -2945,7 +3048,7 @@ mod tests {
     fn draw_shows_settings_footer_hint() {
         let sessions = vec![
             Session { id: String::new(), name: "main".into(), activity: 100, created: 1, attached: false,
-                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+                      windows: vec![Window { id: String::new(), index: 0, name: "w".into(), active: true }] },
         ];
         let cfg = Config::default();
         let state = PickerState::build(sessions, &cfg);
@@ -2955,7 +3058,7 @@ mod tests {
 
     fn settings_view() -> PickerState {
         let sessions = vec![Session { id: String::new(), name: "a".into(), activity: 1, created: 1, attached: false,
-                                       windows: vec![Window { index: 0, name: "w".into(), active: true }] }];
+                                       windows: vec![Window { id: String::new(), index: 0, name: "w".into(), active: true }] }];
         let cfg = Config::default();
         let mut st = PickerState::build(sessions, &cfg);
         st.enter_settings();
@@ -3458,7 +3561,7 @@ mod tests {
         // A named group's session rows get a leading '│' in the group's color.
         let sessions = vec![
             Session { id: String::new(), name: "claude".into(), activity: 30, created: 1, attached: false,
-                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+                      windows: vec![Window { id: String::new(), index: 0, name: "w".into(), active: true }] },
         ];
         let cfg = Config {
             dormant: vec![], groups: vec![
@@ -3525,7 +3628,7 @@ mod tests {
         // session's (i.e. its group's) gutter color.
         let sessions = vec![
             Session { id: String::new(), name: "claude".into(), activity: 30, created: 1, attached: false,
-                      windows: vec![Window { index: 0, name: "editor".into(), active: true }] },
+                      windows: vec![Window { id: String::new(), index: 0, name: "editor".into(), active: true }] },
         ];
         let cfg = Config {
             dormant: vec![], groups: vec![
@@ -3566,7 +3669,7 @@ mod tests {
         // where the session's own name starts.
         let sessions = vec![
             Session { id: String::new(), name: "claude".into(), activity: 30, created: 1, attached: false,
-                      windows: vec![Window { index: 0, name: "editor".into(), active: true }] },
+                      windows: vec![Window { id: String::new(), index: 0, name: "editor".into(), active: true }] },
         ];
         let cfg = Config::default();
         let mut state = PickerState::build(sessions, &cfg);
@@ -3639,7 +3742,7 @@ mod tests {
     fn draw_search_expanded_window_name_indents_one_step_past_session_name() {
         let sessions = vec![
             Session { id: String::new(), name: "claude".into(), activity: 30, created: 1, attached: false,
-                      windows: vec![Window { index: 0, name: "editor".into(), active: true }] },
+                      windows: vec![Window { id: String::new(), index: 0, name: "editor".into(), active: true }] },
         ];
         let cfg = Config::default();
         let mut state = PickerState::build(sessions, &cfg);
@@ -3660,7 +3763,7 @@ mod tests {
     fn draw_search_expanded_window_rows_have_no_gutter_bar() {
         let sessions = vec![
             Session { id: String::new(), name: "claude".into(), activity: 30, created: 1, attached: false,
-                      windows: vec![Window { index: 0, name: "editor".into(), active: true }] },
+                      windows: vec![Window { id: String::new(), index: 0, name: "editor".into(), active: true }] },
         ];
         let cfg = Config {
             groups: vec![Group { name: "tools".into(), members: vec!["claude".into()], color: "magenta".into(), ..Default::default() }],
@@ -3754,7 +3857,7 @@ mod tests {
     fn dot_color_test_state(cfg_overrides: Config) -> PickerState {
         let sessions = vec![
             Session { id: String::new(), name: "claude".into(), activity: 30, created: 1, attached: false,
-                      windows: vec![Window { index: 0, name: "w".into(), active: true }] },
+                      windows: vec![Window { id: String::new(), index: 0, name: "w".into(), active: true }] },
         ];
         let cfg = Config {
             groups: vec![Group { name: "tools".into(), members: vec!["claude".into()], color: "magenta".into(), ..Default::default() }],

@@ -34,6 +34,7 @@ pub struct PickerState {
     pub groups: Vec<Group>,
     expanded: HashSet<String>,
     dormant: HashSet<String>,
+    dormant_windows: HashSet<(String, u32)>,
     focus_mode: bool,
     pub start_focus_mode: StartFocusMode,
     pub cursor: usize,
@@ -119,6 +120,11 @@ impl PickerState {
                 HashSet::new()
             },
             dormant: config.dormant.iter().cloned().collect(),
+            dormant_windows: config
+                .dormant_windows
+                .iter()
+                .map(|w| (w.session.clone(), w.index))
+                .collect(),
             focus_mode: match config.start_focus_mode {
                 StartFocusMode::Remember => config.focus_mode,
                 StartFocusMode::Always => true,
@@ -292,8 +298,10 @@ impl PickerState {
         for (si, sess) in ordered.iter().enumerate() {
             rows.push(Row::Session(si));
             if self.expanded.contains(&sess.name) {
-                for wi in 0..sess.windows.len() {
-                    rows.push(Row::Window(si, wi));
+                for (wi, w) in sess.windows.iter().enumerate() {
+                    if self.window_visible(&sess.name, w.index, w.active) {
+                        rows.push(Row::Window(si, wi));
+                    }
                 }
             }
         }
@@ -350,6 +358,20 @@ impl PickerState {
     pub fn apply_to_config(&self, config: &mut Config) {
         config.groups = self.groups.clone();
         config.dormant = self.dormant_list();
+        config.dormant_windows = self
+            .dormant_windows
+            .iter()
+            .map(|(session, index)| {
+                let id = self
+                    .all
+                    .iter()
+                    .find(|s| &s.name == session)
+                    .and_then(|s| s.windows.iter().find(|w| w.index == *index))
+                    .map(|w| w.id.clone())
+                    .unwrap_or_default();
+                crate::store::DormantWindow { session: session.clone(), index: *index, id }
+            })
+            .collect();
         config.focus_mode = self.focus_mode();
         config.start_focus_mode = self.start_focus_mode;
         config.default_mode = self.default_mode;
@@ -520,12 +542,16 @@ pub(crate) mod test_support {
             activity,
             created,
             attached: false,
-            windows: vec![Window { index: 0, name: "w".into(), active: true }],
+            windows: vec![Window { id: String::new(), index: 0, name: "w".into(), active: true }],
         }
     }
 
     pub fn win(index: u32, name: &str) -> Window {
-        Window { index, name: name.into(), active: false }
+        Window { id: String::new(), index, name: name.into(), active: false }
+    }
+
+    pub fn win_active(index: u32, name: &str) -> Window {
+        Window { id: String::new(), index, name: name.into(), active: index == 0 }
     }
 
     pub fn session_with_windows(name: &str, created: i64, windows: Vec<Window>) -> Session {
@@ -723,8 +749,8 @@ mod tests {
     fn expand_reveals_windows_and_cursor_moves_over_them() {
         let mut sessions = vec![s("a", 10, 1), s("b", 5, 2)];
         sessions[0].windows = vec![
-            Window { index: 0, name: "e".into(), active: true },
-            Window { index: 1, name: "l".into(), active: false },
+            Window { id: String::new(), index: 0, name: "e".into(), active: true },
+            Window { id: String::new(), index: 1, name: "l".into(), active: false },
         ];
         let cfg = Config { groups: vec![], ..Default::default() };
         let mut state = PickerState::build(sessions, &cfg);
@@ -758,8 +784,8 @@ mod tests {
     fn selected_action_session_vs_window() {
         let mut sessions = vec![s("a", 30, 1)];
         sessions[0].windows = vec![
-            Window { index: 0, name: "e".into(), active: true },
-            Window { index: 3, name: "l".into(), active: false },
+            Window { id: String::new(), index: 0, name: "e".into(), active: true },
+            Window { id: String::new(), index: 3, name: "l".into(), active: false },
         ];
         let cfg = Config { groups: vec![], ..Default::default() };
         let mut state = PickerState::build(sessions, &cfg);
@@ -1083,7 +1109,15 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("config.toml");
         let mut cfg = Config::default();
-        let mut st = PickerState::build(vec![s("a", 1, 1)], &cfg);
+        let mut session = s("a", 1, 1);
+        session.windows = vec![
+            Window { id: "@1".into(), index: 0, name: "e".into(), active: true },
+            Window { id: "@2".into(), index: 1, name: "l".into(), active: false },
+        ];
+        let mut st = PickerState::build(vec![session], &cfg);
+        st.expand();
+        st.move_cursor(2); // land on window index 1
+        st.toggle_dormant();
         st.attached_color = "magenta".to_string();
         st.attached_color_mode = AttachedColorMode::Match;
         st.border_color = "yellow".to_string();
@@ -1123,6 +1157,11 @@ mod tests {
         assert_eq!(reloaded.dot_color, "lightblue");
         assert_eq!(reloaded.shortcut_color, "lightcyan");
         assert_eq!(reloaded.shortcut_visibility, ShortcutVisibility::OnDemand);
+        assert_eq!(
+            reloaded.dormant_windows,
+            vec![crate::store::DormantWindow { session: "a".to_string(), index: 1, id: "@2".to_string() }],
+            "the window's real live id is captured at save time, not left empty"
+        );
         std::fs::remove_dir_all(&dir).ok();
     }
 
