@@ -1644,6 +1644,41 @@ mod tests {
     }
 
     #[test]
+    fn window_row_shows_dim_and_strikethrough_when_session_and_window_both_dormant() {
+        let sessions = vec![Session {
+            id: String::new(), name: "a".into(), activity: 1, created: 1, attached: false,
+            windows: vec![
+                Window { id: "@1".into(), index: 0, name: "keep".into(), active: true },
+                Window { id: "@2".into(), index: 1, name: "hide".into(), active: false },
+            ],
+        }];
+        let cfg = Config { groups: vec![], dormant: vec!["a".into()], ..Default::default() };
+        let mut state = PickerState::build(sessions, &cfg);
+        state.expand();
+        state.move_cursor(2); // land on window index 1
+        state.toggle_dormant(); // individually dormant, session also dormant
+        state.move_cursor(-1); // move off the row so selection highlight doesn't mask the dim color
+
+        let backend = TestBackend::new(80, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| draw(f, &state)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+
+        let hide_y = (0u16..20).find(|&y| find_text_x(&buf, y, "hide").is_some()).expect("hide row rendered");
+        let hide_x = find_text_x(&buf, hide_y, "hide").unwrap();
+        let cell = &buf[(hide_x, hide_y)];
+        assert_eq!(
+            cell.style().fg,
+            Some(Color::DarkGray),
+            "a window that's dormant via its dormant parent session still renders dim"
+        );
+        assert!(
+            cell.modifier.contains(Modifier::CROSSED_OUT),
+            "a window that's both session-dormant and individually dormant is still struck through"
+        );
+    }
+
+    #[test]
     fn attached_dormant_session_dot_renders_dim_not_attached_color() {
         let sessions = vec![
             Session { id: String::new(), name: "alpha".into(), activity: 30, created: 1, attached: true,
