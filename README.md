@@ -8,9 +8,7 @@
 
 A slick tmux session picker that sorts your sessions into color-coded groups to bring you terminal zen.
 
-A tidy workshop is easier to work in. Give every session a home, keep active projects front and center, and leave the rest waiting quietly.
-
-It's useful from the moment you launch it but easily shapes to your workflow.
+Your terminal is a workshop. As a woodworker, I've learned that a tidy workshop is easier to work and think in. Every tool needs a home, and should be put away when you're not using it. Rolomux helps you keep your terminal tidy, giving you a home for every tmux session, keeping your active projects front and center on your workbench, and helping you put things back on the shelf when you aren't using them.
 
 ![rolomux session picker: sorting a session into place, expanding its windows, and jumping directly into one](docs/images/organize.gif)
 
@@ -37,6 +35,7 @@ You can use other popup dimensions, but these work well to start. `-h` also acce
 4. Press `n` to create a new group. Call it `PROJECTS`, then press `Esc` to return to the picker.
 5. Move a session into `PROJECTS` with `⇧J` and `⇧K`.
 6. Try creating a few more groups, reordering the groups themselves, and changing their colors.
+7. Press `d` on a session to mark it dormant, then `f` to enter focus mode and watch it drop out of view. Press `f` again to bring it back.
 
 New sessions arrive in INBOX. Over time, you sort, group, and reorder them until your workspace feels the way you want it to.
 
@@ -46,10 +45,10 @@ New sessions arrive in INBOX. Over time, you sort, group, and reorder them until
 - **Sort your sessions.** Move your sessions between groups with `⇧J`/`⇧K`. Once sorted, they stay there, in that order.
   New sessions collect in an inbox until you're ready to sort them.
   Groups and their ordering persist across tmux restarts, and they stick around until you delete them.
+- **Dim sessions, then focus past them.** Press `d` to mark a session dormant; it stays in place but renders in a dimmed state to indicate that you're not actively working with it. Press `f` to enter focus mode, hiding dormant sessions and any group left with nothing visible in it; press `f` again to show everything. Dormant sessions are still fully usable when shown, and focus mode helps you understand your workspace at a glance.
 - **Expandable trees.** Each session can be expanded to peek at the list of windows inside it or jump straight to a specific window.
 - **Lightweight.** One tmux query per launch. No hooks or background processes keeping track of your sessions while you work.
 - **Fuzzy search built in.** Press `/` to filter sessions by name. If this is your preferred way of working, tweak the settings to always launch in search mode.
-- **Dim sessions, then focus past them.** Press `d` to mark a session dormant; it stays in place but renders in a dimmed state to indicate that it's on the back burner. Press `f` to enter focus mode, hiding dormant sessions and any group left with nothing visible in it; press `f` again to show everything. Dormant sessions are still fully usable when shown, and focus mode helps you understand your workspace at a glance.
 - **Tune the colors.** Press `,` to open Settings and tune the color of the application border, palette used for group headers, and more. Uses your terminal's ANSI colors to ensure it harmonizes with your existing terminal themes.
 
 **Note:** rolomux depends on (and promotes) good tmux hygiene.
@@ -139,7 +138,7 @@ Dormant sessions and focus mode persist across popups until turned off.
 Press `f` again to exit focus mode and everything will be restored exactly as it was.
 Press `d` again on a dormant session to mark it active again.
 
-Think of this as one more tool in your kit to help you tend your sessions and retain focus.
+Think of this as one more tool in your kit to keep your workbench clear and your focus intact.
 
 ### Settings
 
