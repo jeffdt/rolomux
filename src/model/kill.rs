@@ -93,7 +93,7 @@ mod tests {
     }
 
     fn one_window(name: &str) -> Window {
-        Window { index: 0, name: name.into(), active: true }
+        Window { id: String::new(), index: 0, name: name.into(), active: true }
     }
 
     #[test]
@@ -107,8 +107,8 @@ mod tests {
     #[test]
     fn plan_kill_on_window_row_targets_the_window_by_real_index() {
         let windows = vec![
-            Window { index: 0, name: "editor".into(), active: true },
-            Window { index: 5, name: "logs".into(), active: false },
+            Window { id: String::new(), index: 0, name: "editor".into(), active: true },
+            Window { id: String::new(), index: 5, name: "logs".into(), active: false },
         ];
         let sessions = vec![sess("alpha", windows)];
         let cfg = Config { groups: vec![], ..Default::default() };

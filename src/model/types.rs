@@ -357,6 +357,15 @@ pub struct Window {
     pub index: u32,
     pub name: String,
     pub active: bool,
+    /// The tmux `#{window_id}` (e.g. `"@12"`) -- stable for this window's
+    /// lifetime even across a rename, an index reused by a later window
+    /// (closing a window frees its index; the next created window can
+    /// reuse it), or a cross-session `move-window` (window ids are
+    /// server-wide, not session-scoped -- same guarantee `Session::id`
+    /// gives one altitude up). Used by `Config::reconcile` to recover
+    /// per-window dormant tracking. Empty for synthetic `Window`s built
+    /// outside a real tmux gather (e.g. most test fixtures).
+    pub id: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

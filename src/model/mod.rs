@@ -520,12 +520,12 @@ pub(crate) mod test_support {
             activity,
             created,
             attached: false,
-            windows: vec![Window { index: 0, name: "w".into(), active: true }],
+            windows: vec![Window { id: String::new(), index: 0, name: "w".into(), active: true }],
         }
     }
 
     pub fn win(index: u32, name: &str) -> Window {
-        Window { index, name: name.into(), active: false }
+        Window { id: String::new(), index, name: name.into(), active: false }
     }
 
     pub fn session_with_windows(name: &str, created: i64, windows: Vec<Window>) -> Session {
@@ -723,8 +723,8 @@ mod tests {
     fn expand_reveals_windows_and_cursor_moves_over_them() {
         let mut sessions = vec![s("a", 10, 1), s("b", 5, 2)];
         sessions[0].windows = vec![
-            Window { index: 0, name: "e".into(), active: true },
-            Window { index: 1, name: "l".into(), active: false },
+            Window { id: String::new(), index: 0, name: "e".into(), active: true },
+            Window { id: String::new(), index: 1, name: "l".into(), active: false },
         ];
         let cfg = Config { groups: vec![], ..Default::default() };
         let mut state = PickerState::build(sessions, &cfg);
@@ -758,8 +758,8 @@ mod tests {
     fn selected_action_session_vs_window() {
         let mut sessions = vec![s("a", 30, 1)];
         sessions[0].windows = vec![
-            Window { index: 0, name: "e".into(), active: true },
-            Window { index: 3, name: "l".into(), active: false },
+            Window { id: String::new(), index: 0, name: "e".into(), active: true },
+            Window { id: String::new(), index: 3, name: "l".into(), active: false },
         ];
         let cfg = Config { groups: vec![], ..Default::default() };
         let mut state = PickerState::build(sessions, &cfg);

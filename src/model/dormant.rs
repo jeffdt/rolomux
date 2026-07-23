@@ -345,8 +345,8 @@ mod tests {
     fn toggle_dormant_on_expanded_window_row_affects_parent_session() {
         let mut sessions = vec![s("a", 30, 1)];
         sessions[0].windows = vec![
-            Window { index: 0, name: "e".into(), active: true },
-            Window { index: 1, name: "l".into(), active: false },
+            Window { id: String::new(), index: 0, name: "e".into(), active: true },
+            Window { id: String::new(), index: 1, name: "l".into(), active: false },
         ];
         let cfg = Config { groups: vec![], ..Default::default() };
         let mut state = PickerState::build(sessions, &cfg);

@@ -363,6 +363,7 @@ pub fn parse_windows(raw: &str) -> Vec<Session> {
         }
         let name = f[0].to_string();
         let window = Window {
+            id: String::new(),
             index: f[4].parse().unwrap_or(0),
             name: f[5].to_string(),
             active: f[6] == "1",
@@ -504,8 +505,8 @@ scratch\u{1f}50\u{1f}5\u{1f}0\u{1f}0\u{1f}shell\u{1f}1\u{1f}$8
                     created: 10,
                     attached: true,
                     windows: vec![
-                        Window { index: 0, name: "editor".into(), active: true },
-                        Window { index: 1, name: "my logs".into(), active: false },
+                        Window { id: String::new(), index: 0, name: "editor".into(), active: true },
+                        Window { id: String::new(), index: 1, name: "my logs".into(), active: false },
                     ],
                 },
                 Session { id: "$8".into(),
@@ -513,7 +514,7 @@ scratch\u{1f}50\u{1f}5\u{1f}0\u{1f}0\u{1f}shell\u{1f}1\u{1f}$8
                     activity: 50,
                     created: 5,
                     attached: false,
-                    windows: vec![Window { index: 0, name: "shell".into(), active: true }],
+                    windows: vec![Window { id: String::new(), index: 0, name: "shell".into(), active: true }],
                 },
             ]
         );
