@@ -674,9 +674,13 @@ fn window_count(wins: usize) -> String {
     format!("{wins} {label}")
 }
 
-fn hidden_status(count: usize) -> String {
-    let label = if count == 1 { "session" } else { "sessions" };
-    format!("{count} {label} hidden")
+fn hidden_status(sessions: usize, windows: usize) -> String {
+    let session_label = if sessions == 1 { "session" } else { "sessions" };
+    if windows == 0 {
+        return format!("{sessions} {session_label} hidden");
+    }
+    let window_label = if windows == 1 { "window" } else { "windows" };
+    format!("{sessions} {session_label}, {windows} {window_label} hidden")
 }
 
 fn footer_rule(width: u16, state: &PickerState) -> String {
@@ -684,7 +688,10 @@ fn footer_rule(width: u16, state: &PickerState) -> String {
     if !state.focus_mode() {
         return "─".repeat(width);
     }
-    let label = format!("─ {} ", hidden_status(state.hidden_dormant_count()));
+    let label = format!(
+        "─ {} ",
+        hidden_status(state.hidden_dormant_count(), state.hidden_dormant_window_count())
+    );
     let label_width = label.chars().count();
     if label_width >= width {
         return label.chars().take(width).collect();
@@ -1488,6 +1495,18 @@ mod tests {
         assert!(!text.contains("bravo"), "matching dormant session is hidden from search");
         assert!(text.contains("no matches"), "search reports no visible matches");
         assert!(text.contains("2 sessions hidden"), "search mode shows hidden count reminder");
+    }
+
+    #[test]
+    fn hidden_status_omits_windows_clause_when_zero() {
+        assert_eq!(hidden_status(3, 0), "3 sessions hidden");
+        assert_eq!(hidden_status(1, 0), "1 session hidden");
+    }
+
+    #[test]
+    fn hidden_status_includes_windows_clause_when_nonzero() {
+        assert_eq!(hidden_status(3, 2), "3 sessions, 2 windows hidden");
+        assert_eq!(hidden_status(1, 1), "1 session, 1 window hidden");
     }
 
     #[test]

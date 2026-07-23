@@ -56,9 +56,7 @@ impl PickerState {
     /// what's actually elided from the current view rather than a global
     /// total for structure that hasn't been drilled into yet. Grows as
     /// more sessions are expanded; equals the true total once every
-    /// session is expanded. Feeds the footer's hidden-count wording
-    /// (a later task); not yet called from production code here.
-    #[allow(dead_code)]
+    /// session is expanded. Feeds the footer's hidden-count wording.
     pub fn hidden_dormant_window_count(&self) -> usize {
         if !self.focus_mode {
             return 0;
