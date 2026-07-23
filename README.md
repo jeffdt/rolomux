@@ -124,6 +124,8 @@ If focus mode is on, search results exclude dormant sessions, and the footer sho
 
 ### Dormant sessions and focus mode
 
+![rolomux focus mode: marking a few sessions dormant, then narrowing the whole workspace down to what matters right now](docs/images/focus.gif)
+
 Press `d` to mark the selected session dormant.
 It will render in a dimmed state as a visual cue of your paused work.
 Dormant sessions are still fully usable, and by default they also get assigned jump numbers.

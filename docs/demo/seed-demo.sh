@@ -5,7 +5,12 @@
 # no persistent sandbox to keep in sync (contrast boomerang's seed-issues.sh,
 # which resets state in a real, shared GitHub repo).
 #
-# Usage: seed-demo.sh <isolated-tmux-socket-name> <xdg-config-home> <tmux-conf-path>
+# Usage: seed-demo.sh <isolated-tmux-socket-name> <xdg-config-home> <tmux-conf-path> [dormant-session-name ...]
+#
+# Trailing args, if given, are pre-marked dormant in the generated
+# config.toml -- lets a tape open mid-story (some sessions already dimmed
+# from prior sorting) instead of every recording having to build that
+# state live on screen.
 #
 # The tmux config (rolomux's `bind s ...`) only loads when a server first
 # starts, not on a later `attach` -- so the very first tmux command against
@@ -21,10 +26,11 @@
 # INBOX needs several `⇧K` presses to bubble it to the top first, then
 # one more to cross.
 #
-# `performance-review` gets a staged, fake `hyperfine` transcript via
-# printf so it doesn't look like a blank shell when a recording lands
-# there -- deterministic output, not a real timed command. `db-migration`
-# gets a similar staged `docker compose`/`docker ps` transcript in its
+# `performance-review` opens a real nvim buffer pre-filled with staged
+# Q4 self-review notes -- the session name is a pun (career performance
+# review, not benchmarking), so the transcript on screen should read as
+# that, not a profiling run. `db-migration` gets a staged
+# `docker compose`/`docker ps` transcript in its
 # `docker-config` window -- but `alembic`, not `docker-config`, is left
 # as the *active* window (the one marked with rolomux's ● dot), so a
 # recording can show the window-level jump feature for real: expanding
@@ -37,6 +43,8 @@ set -euo pipefail
 sock="$1"
 xdg="$2"
 conf="$3"
+shift 3
+dormant_names=("$@")
 
 tmux -L "$sock" kill-server >/dev/null 2>&1 || true
 
@@ -67,15 +75,38 @@ tmux -L "$sock" new-window -t db-migration -n pgsql "zsh -f"
 tmux -L "$sock" select-window -t db-migration:alembic
 
 sleep 0.3
+
+review_dir=$(mktemp -d)
+review_file="$review_dir/q4-self-review.md"
+cat > "$review_file" <<'EOF'
+# Q4 Self-Review
+
+## Projects delivered
+- Migrated billing service onto the new API gateway
+- Led the on-call rotation redesign, cut page volume 40%
+- Mentored two new hires onto the platform team
+
+## Goals for Q1
+- Ship the async job queue rewrite
+- Get the on-call runbook fully self-serve
+EOF
+tmux -L "$sock" send-keys -t performance-review "nvim '$review_file'" Enter
+
 # \033c (RIS) clears the whole screen as the command's first byte of output,
 # wiping the echoed `printf '...'` invocation itself along with it -- only
 # the fake transcript below is left on screen once it runs.
-tmux -L "$sock" send-keys -t performance-review "printf '\033c\$ hyperfine --warmup 3 ./target/release/rolomux\nBenchmark 1: ./target/release/rolomux\n  Time (mean +/- stddev):   41.8 ms +/-   1.2 ms\n  Range (min ... max):      39.6 ms ... 45.1 ms    62 runs\n\n'" Enter
 tmux -L "$sock" send-keys -t db-migration:docker-config "printf '\033c\$ docker compose up -d\n[+] Running 2/2\n \xe2\x9c\x94 Network db-migration_default  Created\n \xe2\x9c\x94 Container db-migration-pg-1   Started\n\$ docker ps\nCONTAINER ID   IMAGE         STATUS         NAMES\na1b2c3d4e5f6   postgres:15   Up 3 seconds   db-migration-pg-1\n\n'" Enter
 
+dormant_toml="[]"
+if [ ${#dormant_names[@]} -gt 0 ]; then
+  dormant_toml=$(printf '"%s", ' "${dormant_names[@]}")
+  dormant_toml="[${dormant_toml%, }]"
+fi
+
 mkdir -p "$xdg/rolomux"
-cat > "$xdg/rolomux/config.toml" <<'EOF'
+cat > "$xdg/rolomux/config.toml" <<EOF
 config_version = 4
+dormant = $dormant_toml
 
 [[groups]]
 name = "PINNED"

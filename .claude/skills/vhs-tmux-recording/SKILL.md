@@ -189,10 +189,16 @@ a concern for tools recorded directly in the outer pty.
 vhs path/to/file.tape
 ```
 
-Preview the resulting GIF with real animation rather than a static first
-frame — macOS Preview.app only shows one frame; `qlmanage -p <path>` (Quick
-Look) plays it. To inspect specific moments frame-by-frame (useful for
-diagnosing timing issues), extract frames with ffmpeg:
+Every time a tape renders a new or updated GIF, open it with `qlmanage -p
+<path>` (Quick Look) so it pops up on screen for the user to actually watch
+— do this unprompted, right after the render, not only when asked. macOS
+Preview.app only shows a static first frame, so it doesn't substitute for
+this. Launch it as a background process (e.g. `qlmanage -p <path> &`) so it
+doesn't block the rest of the workflow (frame extraction, teardown
+verification) behind the preview window being closed.
+
+To inspect specific moments frame-by-frame yourself (useful for diagnosing
+timing issues), extract frames with ffmpeg:
 
 ```sh
 ffmpeg -i output.gif -vf "fps=4" frame-%03d.png
@@ -277,3 +283,5 @@ header comment).
 - [ ] After running, `tmux -L <isolated-socket> ls` reports no server —
       teardown actually happened, not just "vhs exited." (If tmux was
       nested at all.)
+- [ ] Every rendered/re-rendered GIF is opened with `qlmanage -p <path> &`
+      so the user sees it play, unprompted.

@@ -53,7 +53,7 @@ Set Shell zsh
 Set FontSize 14
 Set Width 1100
 Set Height 1000
-Set Theme "GruvboxDark"
+Set Theme "Tomorrow Night"
 
 Hide
 Type "unset TMUX; export XDG_CONFIG_HOME=$(mktemp -d); ROLOMUX_REPO=$PWD; $ROLOMUX_REPO/docs/demo/seed-demo.sh rolomux-demo-gif $XDG_CONFIG_HOME $ROLOMUX_REPO/docs/demo/demo.tmux.conf; tmux -L rolomux-demo-gif set-environment -g XDG_CONFIG_HOME $XDG_CONFIG_HOME; tmux -L rolomux-demo-gif attach -t api"
