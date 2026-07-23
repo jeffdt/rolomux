@@ -1109,7 +1109,15 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("config.toml");
         let mut cfg = Config::default();
-        let mut st = PickerState::build(vec![s("a", 1, 1)], &cfg);
+        let mut session = s("a", 1, 1);
+        session.windows = vec![
+            Window { id: "@1".into(), index: 0, name: "e".into(), active: true },
+            Window { id: "@2".into(), index: 1, name: "l".into(), active: false },
+        ];
+        let mut st = PickerState::build(vec![session], &cfg);
+        st.expand();
+        st.move_cursor(2); // land on window index 1
+        st.toggle_dormant();
         st.attached_color = "magenta".to_string();
         st.attached_color_mode = AttachedColorMode::Match;
         st.border_color = "yellow".to_string();
@@ -1149,6 +1157,11 @@ mod tests {
         assert_eq!(reloaded.dot_color, "lightblue");
         assert_eq!(reloaded.shortcut_color, "lightcyan");
         assert_eq!(reloaded.shortcut_visibility, ShortcutVisibility::OnDemand);
+        assert_eq!(
+            reloaded.dormant_windows,
+            vec![crate::store::DormantWindow { session: "a".to_string(), index: 1, id: "@2".to_string() }],
+            "the window's real live id is captured at save time, not left empty"
+        );
         std::fs::remove_dir_all(&dir).ok();
     }
 
