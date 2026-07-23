@@ -34,6 +34,7 @@ pub struct PickerState {
     pub groups: Vec<Group>,
     expanded: HashSet<String>,
     dormant: HashSet<String>,
+    dormant_windows: HashSet<(String, u32)>,
     focus_mode: bool,
     pub start_focus_mode: StartFocusMode,
     pub cursor: usize,
@@ -119,6 +120,11 @@ impl PickerState {
                 HashSet::new()
             },
             dormant: config.dormant.iter().cloned().collect(),
+            dormant_windows: config
+                .dormant_windows
+                .iter()
+                .map(|w| (w.session.clone(), w.index))
+                .collect(),
             focus_mode: match config.start_focus_mode {
                 StartFocusMode::Remember => config.focus_mode,
                 StartFocusMode::Always => true,
@@ -292,8 +298,10 @@ impl PickerState {
         for (si, sess) in ordered.iter().enumerate() {
             rows.push(Row::Session(si));
             if self.expanded.contains(&sess.name) {
-                for wi in 0..sess.windows.len() {
-                    rows.push(Row::Window(si, wi));
+                for (wi, w) in sess.windows.iter().enumerate() {
+                    if self.window_visible(&sess.name, w.index, w.active) {
+                        rows.push(Row::Window(si, wi));
+                    }
                 }
             }
         }
@@ -350,6 +358,20 @@ impl PickerState {
     pub fn apply_to_config(&self, config: &mut Config) {
         config.groups = self.groups.clone();
         config.dormant = self.dormant_list();
+        config.dormant_windows = self
+            .dormant_windows
+            .iter()
+            .map(|(session, index)| {
+                let id = self
+                    .all
+                    .iter()
+                    .find(|s| &s.name == session)
+                    .and_then(|s| s.windows.iter().find(|w| w.index == *index))
+                    .map(|w| w.id.clone())
+                    .unwrap_or_default();
+                crate::store::DormantWindow { session: session.clone(), index: *index, id }
+            })
+            .collect();
         config.focus_mode = self.focus_mode();
         config.start_focus_mode = self.start_focus_mode;
         config.default_mode = self.default_mode;
@@ -526,6 +548,10 @@ pub(crate) mod test_support {
 
     pub fn win(index: u32, name: &str) -> Window {
         Window { id: String::new(), index, name: name.into(), active: false }
+    }
+
+    pub fn win_active(index: u32, name: &str) -> Window {
+        Window { id: String::new(), index, name: name.into(), active: index == 0 }
     }
 
     pub fn session_with_windows(name: &str, created: i64, windows: Vec<Window>) -> Session {

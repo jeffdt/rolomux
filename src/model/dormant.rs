@@ -19,6 +19,25 @@ impl PickerState {
         self.all.iter().any(|s| s.name == name && s.attached)
     }
 
+    /// Whether the window at `index` within session `session` is marked
+    /// dormant, independent of the session's own dormant flag.
+    pub fn is_window_dormant(&self, session: &str, index: u32) -> bool {
+        self.dormant_windows.contains(&(session.to_string(), index))
+    }
+
+    /// Whether that window should render as a row in an expanded session:
+    /// exactly the session-level `session_visible` rule, one altitude
+    /// down. `active` is the window's own live `active` flag -- tmux
+    /// guarantees exactly one active window per session, so this
+    /// exemption can never leave an expanded session showing nothing,
+    /// even when every window (including the active one) is individually
+    /// dormant, and even when the session's own dormant flag is also set
+    /// (an attached-dormant session still applies this filter to its
+    /// windows once shown).
+    pub fn window_visible(&self, session: &str, index: u32, active: bool) -> bool {
+        !self.focus_mode || !self.is_window_dormant(session, index) || active
+    }
+
     pub fn focus_mode(&self) -> bool {
         self.focus_mode
     }
@@ -30,6 +49,30 @@ impl PickerState {
             return 0;
         }
         self.all.iter().filter(|s| self.is_dormant(&s.name) && !s.attached).count()
+    }
+
+    /// Count of dormant, non-active windows hidden by focus mode --
+    /// scoped to sessions that are currently *expanded*, so this reflects
+    /// what's actually elided from the current view rather than a global
+    /// total for structure that hasn't been drilled into yet. Grows as
+    /// more sessions are expanded; equals the true total once every
+    /// session is expanded. Feeds the footer's hidden-count wording
+    /// (a later task); not yet called from production code here.
+    #[allow(dead_code)]
+    pub fn hidden_dormant_window_count(&self) -> usize {
+        if !self.focus_mode {
+            return 0;
+        }
+        self.all
+            .iter()
+            .filter(|s| self.expanded.contains(&s.name) && self.session_visible(&s.name))
+            .map(|s| {
+                s.windows
+                    .iter()
+                    .filter(|w| self.is_window_dormant(&s.name, w.index) && !w.active)
+                    .count()
+            })
+            .sum()
     }
 
     pub(super) fn session_visible(&self, name: &str) -> bool {
@@ -103,18 +146,37 @@ impl PickerState {
         }
     }
 
-    /// Toggle dormant status for the session under the cursor. Resolves
-    /// through an expanded window row to its parent session, same as
-    /// `cursor_session_name` already does for other per-session commands.
+    /// Toggle dormant status for whatever's under the cursor: a session
+    /// row toggles that session's own flag (unchanged); a window row
+    /// toggles that specific window's flag instead, fully independent of
+    /// its parent session's flag -- no auto-linking in either direction.
     pub fn toggle_dormant(&mut self) {
-        if let Some(name) = self.cursor_session_name() {
-            if !self.dormant.remove(&name) {
-                self.dormant.insert(name.clone());
+        let rows = self.visible_rows();
+        let Some(row) = rows.get(self.cursor).copied() else { return };
+        match row {
+            Row::Session(_) => {
+                let Some(name) = self.cursor_session_name() else { return };
+                if !self.dormant.remove(&name) {
+                    self.dormant.insert(name.clone());
+                }
+                self.dirty = true;
+                if self.session_visible(&name) {
+                    self.focus_session(&name);
+                } else {
+                    self.clamp_cursor_to_visible_rows();
+                    self.clamp_search_cursor_to_results();
+                }
             }
-            self.dirty = true;
-            if self.session_visible(&name) {
-                self.focus_session(&name);
-            } else {
+            Row::Window(si, wi) => {
+                let ordered = self.ordered();
+                let sess = ordered[si];
+                let session_name = sess.name.clone();
+                let window = &sess.windows[wi];
+                let key = (session_name.clone(), window.index);
+                if !self.dormant_windows.remove(&key) {
+                    self.dormant_windows.insert(key);
+                }
+                self.dirty = true;
                 self.clamp_cursor_to_visible_rows();
                 self.clamp_search_cursor_to_results();
             }
@@ -342,11 +404,11 @@ mod tests {
     }
 
     #[test]
-    fn toggle_dormant_on_expanded_window_row_affects_parent_session() {
+    fn toggle_dormant_on_a_window_row_affects_only_that_window() {
         let mut sessions = vec![s("a", 30, 1)];
         sessions[0].windows = vec![
-            Window { id: String::new(), index: 0, name: "e".into(), active: true },
-            Window { id: String::new(), index: 1, name: "l".into(), active: false },
+            Window { id: "@1".into(), index: 0, name: "e".into(), active: true },
+            Window { id: "@2".into(), index: 1, name: "l".into(), active: false },
         ];
         let cfg = Config { groups: vec![], ..Default::default() };
         let mut state = PickerState::build(sessions, &cfg);
@@ -356,7 +418,134 @@ mod tests {
         assert!(matches!(state.visible_rows()[state.cursor], Row::Window(0, 0)));
 
         state.toggle_dormant();
-        assert!(state.is_dormant("a"), "toggling on a window row affects its parent session");
+        assert!(state.is_window_dormant("a", 0), "toggling on a window row marks that window");
+        assert!(!state.is_dormant("a"), "the parent session's own flag is untouched");
+        assert!(state.dirty);
+    }
+
+    #[test]
+    fn toggle_dormant_on_a_window_row_is_never_blocked_by_a_dormant_session() {
+        let mut sessions = vec![s("a", 30, 1)];
+        sessions[0].windows = vec![
+            Window { id: "@1".into(), index: 0, name: "e".into(), active: true },
+            Window { id: "@2".into(), index: 1, name: "l".into(), active: false },
+        ];
+        let cfg = Config { groups: vec![], dormant: vec!["a".into()], ..Default::default() };
+        let mut state = PickerState::build(sessions, &cfg);
+
+        state.expand();
+        state.move_cursor(1);
+        state.toggle_dormant();
+        assert!(
+            state.is_window_dormant("a", 0),
+            "the window's own flag toggles regardless of the parent session's dormant state"
+        );
+    }
+
+    #[test]
+    fn window_visible_hides_dormant_non_active_windows_in_focus_mode() {
+        let mut sessions = vec![s("a", 30, 1)];
+        sessions[0].windows = vec![
+            Window { id: "@1".into(), index: 0, name: "e".into(), active: true },
+            Window { id: "@2".into(), index: 1, name: "l".into(), active: false },
+        ];
+        let cfg = Config { groups: vec![], focus_mode: true, ..Default::default() };
+        let mut state = PickerState::build(sessions, &cfg);
+        state.expand();
+        state.move_cursor(2); // land on the second window row (index 1, not active)
+        state.toggle_dormant();
+
+        assert!(state.window_visible("a", 0, true), "the active window is always visible");
+        assert!(!state.window_visible("a", 1, false), "a dormant, non-active window is hidden in focus mode");
+    }
+
+    #[test]
+    fn window_visible_active_window_stays_visible_even_when_session_is_also_dormant() {
+        let mut sessions = vec![s("a", 30, 1)];
+        // Must be attached: a dormant, non-attached session is filtered out
+        // of ordered() entirely under focus mode, which would leave nothing
+        // for expand()/toggle_dormant() to act on below. The attached
+        // exemption is what keeps a dormant session shown at all -- see
+        // session_visible/is_attached in dormant.rs.
+        sessions[0].attached = true;
+        sessions[0].windows = vec![
+            Window { id: "@1".into(), index: 0, name: "e".into(), active: true },
+        ];
+        let cfg = Config {
+            groups: vec![],
+            dormant: vec!["a".into()],
+            dormant_windows: vec![],
+            focus_mode: true,
+            ..Default::default()
+        };
+        let mut state = PickerState::build(sessions, &cfg);
+        state.expand();
+        state.move_cursor(1); // off the session row and onto its one window row
+        state.toggle_dormant(); // marks the active window individually dormant too
+
+        assert!(
+            state.window_visible("a", 0, true),
+            "the active window exemption holds even when the session itself is dormant-but-shown"
+        );
+    }
+
+    #[test]
+    fn window_visible_ignores_dormant_when_focus_mode_is_off() {
+        let mut sessions = vec![s("a", 30, 1)];
+        sessions[0].windows = vec![
+            Window { id: "@1".into(), index: 0, name: "e".into(), active: true },
+            Window { id: "@2".into(), index: 1, name: "l".into(), active: false },
+        ];
+        let cfg = Config { groups: vec![], focus_mode: false, ..Default::default() };
+        let mut state = PickerState::build(sessions, &cfg);
+        state.expand();
+        state.move_cursor(2);
+        state.toggle_dormant();
+
+        assert!(state.window_visible("a", 1, false), "focus mode off never hides anything");
+    }
+
+    #[test]
+    fn hidden_dormant_window_count_only_counts_expanded_sessions() {
+        let mut sessions = vec![s("a", 30, 1), s("b", 20, 2)];
+        sessions[0].windows = vec![
+            Window { id: "@1".into(), index: 0, name: "e".into(), active: true },
+            Window { id: "@2".into(), index: 1, name: "l".into(), active: false },
+        ];
+        sessions[1].windows = vec![
+            Window { id: "@3".into(), index: 0, name: "m".into(), active: true },
+            Window { id: "@4".into(), index: 1, name: "n".into(), active: false },
+        ];
+        let cfg = Config { groups: vec![], focus_mode: true, ..Default::default() };
+        let mut state = PickerState::build(sessions, &cfg);
+
+        // Mark the non-active window dormant in both sessions, but expand
+        // neither yet. Use collapse_session (name-based) rather than the
+        // cursor-based collapse(): toggling a window dormant here hides it
+        // and clamps the cursor, which can land on the *other* session's
+        // row -- collapse() would then collapse the wrong session.
+        state.focus_session("a");
+        state.expand();
+        state.move_cursor(1);
+        state.move_cursor(1); // "a"'s window 1 ("l", not active)
+        state.toggle_dormant();
+        state.collapse_session("a");
+        state.focus_session("b");
+        state.expand();
+        state.move_cursor(1);
+        state.move_cursor(1); // "b"'s window 1 ("n", not active)
+        state.toggle_dormant();
+        state.collapse_session("b");
+
+        assert_eq!(state.hidden_dormant_window_count(), 0, "nothing expanded, so nothing counts as hidden yet");
+
+        state.focus_session("a");
+        state.expand();
+        assert_eq!(state.hidden_dormant_window_count(), 1, "expanding a reveals its one hidden window");
+
+        state.focus_session("b");
+        state.expand();
+        assert_eq!(state.hidden_dormant_window_count(), 2, "expanding b too brings the total to both hidden windows");
     }
 
     #[test]

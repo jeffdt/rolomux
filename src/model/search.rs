@@ -39,8 +39,10 @@ impl PickerState {
         for (si, sess) in results.iter().enumerate() {
             rows.push(Row::Session(si));
             if self.expanded.contains(&sess.name) {
-                for wi in 0..sess.windows.len() {
-                    rows.push(Row::Window(si, wi));
+                for (wi, w) in sess.windows.iter().enumerate() {
+                    if self.window_visible(&sess.name, w.index, w.active) {
+                        rows.push(Row::Window(si, wi));
+                    }
                 }
             }
         }
@@ -457,6 +459,32 @@ mod tests {
         state.search_collapse();
         assert!(!state.is_expanded("alpha"));
         assert_eq!(state.search_cursor(), 0, "collapsing from a window row refocuses the parent session");
+    }
+
+    #[test]
+    fn search_rows_hide_dormant_non_active_windows_in_focus_mode() {
+        let mut sessions = vec![s("a", 30, 1)];
+        sessions[0].windows = vec![
+            win_active(0, "e"),
+            win_active(1, "l"),
+        ];
+        let cfg = Config { groups: vec![], focus_mode: true, ..Default::default() };
+        let mut state = PickerState::build(sessions, &cfg);
+        state.enter_search();
+        state.search_expand();
+        // rows so far: [Session("a"), Window(0,0)="e" (active), Window(0,1)="l" (not active)].
+        // Two moves from the session row lands on "l" -- the one we want to
+        // mark dormant. One move would land on "e" (the active window),
+        // which is the wrong target for this test.
+        state.search_move(1);
+        state.search_move(1);
+        state.exit_search(); // land command-mode cursor on the window row we want to toggle
+        state.toggle_dormant();
+        state.enter_search();
+        state.search_expand();
+
+        let rows = state.search_rows();
+        assert_eq!(rows.len(), 2, "session row plus only the active window row");
     }
 
     #[test]
