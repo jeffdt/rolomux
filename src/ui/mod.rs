@@ -309,7 +309,8 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
                 }
                 let last = *wi + 1 == sess.windows.len();
                 let rename_buf = if selected && state.renaming() { state.rename_edit_buffer() } else { None };
-                let dormant = state.is_dormant(&sess.name);
+                let window_dormant = state.is_window_dormant(&sess.name, sess.windows[*wi].index);
+                let dormant = state.is_dormant(&sess.name) || window_dormant;
                 let dot_color = match state.dot_color_mode {
                     DotColorMode::Group => current_gutter_color,
                     DotColorMode::Static => dot_static_color,
@@ -320,6 +321,7 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
                     selected,
                     Some(current_gutter_color),
                     dormant,
+                    window_dormant,
                     rename_buf,
                     dot_color,
                     state.window_swap_marker(&sess.name, sess.windows[*wi].index),
@@ -446,7 +448,8 @@ fn draw_search(frame: &mut Frame, state: &PickerState, inner: Rect) {
                         selected_line = Some(items.len());
                     }
                     let last = *wi + 1 == sess.windows.len();
-                    let dormant = state.is_dormant(&sess.name);
+                    let window_dormant = state.is_window_dormant(&sess.name, sess.windows[*wi].index);
+                    let dormant = state.is_dormant(&sess.name) || window_dormant;
                     let dot_color = match state.dot_color_mode {
                         DotColorMode::Group => state
                             .group_index_of(&sess.name)
@@ -454,7 +457,7 @@ fn draw_search(frame: &mut Frame, state: &PickerState, inner: Rect) {
                             .unwrap_or(dot_static_color),
                         DotColorMode::Static => dot_static_color,
                     };
-                    items.push(window_item(&sess.windows[*wi], last, selected, None, dormant, None, dot_color, None, false));
+                    items.push(window_item(&sess.windows[*wi], last, selected, None, dormant, window_dormant, None, dot_color, None, false));
                 }
             }
         }
@@ -900,6 +903,7 @@ fn window_item(
     selected: bool,
     gutter: Option<Color>,
     dormant: bool,
+    individually_dormant: bool,
     rename_buf: Option<&str>,
     dot_color: Color,
     swap_marker: Option<(SwapDirection, bool)>,
@@ -919,7 +923,12 @@ fn window_item(
     };
     let dot = if win.active { "●" } else { " " };
     let dot_style = if dormant { dormant_session(selected) } else { Style::default().fg(dot_color) };
-    let name_style = if dormant { dormant_session(selected) } else { Style::default() };
+    let base_name_style = if dormant { dormant_session(selected) } else { Style::default() };
+    let name_style = if individually_dormant {
+        base_name_style.add_modifier(Modifier::CROSSED_OUT)
+    } else {
+        base_name_style
+    };
     if let Some(buf) = rename_buf {
         let mut spans = Vec::new();
         if let Some(color) = gutter {
@@ -1592,6 +1601,46 @@ mod tests {
         }
         assert!(name_dim, "dormant session's window name renders dim");
         assert!(dot_dim, "dormant session's active-window dot renders dim, not green");
+    }
+
+    #[test]
+    fn window_row_shows_strikethrough_only_when_individually_dormant() {
+        let sessions = vec![Session {
+            id: String::new(), name: "a".into(), activity: 1, created: 1, attached: false,
+            windows: vec![
+                Window { id: "@1".into(), index: 0, name: "keep".into(), active: true },
+                Window { id: "@2".into(), index: 1, name: "hide".into(), active: false },
+            ],
+        }];
+        let cfg = Config::default();
+        let mut state = PickerState::build(sessions, &cfg);
+        state.expand();
+        state.move_cursor(2); // land on window index 1
+        state.toggle_dormant(); // individually dormant, session not dormant
+
+        let backend = TestBackend::new(80, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| draw(f, &state)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+
+        // Locate each row's y by scanning rather than hardcoding a guessed
+        // offset -- the exact row this lands on depends on how many
+        // header/hint lines precede the session row (e.g. the "create
+        // group" hint shown when there's no named group yet), which isn't
+        // worth re-deriving by hand here.
+        let hide_y = (0u16..20).find(|&y| find_text_x(&buf, y, "hide").is_some()).expect("hide row rendered");
+        let hide_x = find_text_x(&buf, hide_y, "hide").unwrap();
+        assert!(
+            buf[(hide_x, hide_y)].modifier.contains(Modifier::CROSSED_OUT),
+            "an individually-dormant window's name is struck through"
+        );
+
+        let keep_y = (0u16..20).find(|&y| find_text_x(&buf, y, "keep").is_some()).expect("keep row rendered");
+        let keep_x = find_text_x(&buf, keep_y, "keep").unwrap();
+        assert!(
+            !buf[(keep_x, keep_y)].modifier.contains(Modifier::CROSSED_OUT),
+            "a window that isn't individually dormant is never struck through"
+        );
     }
 
     #[test]
