@@ -26,7 +26,6 @@ impl Gathered {
     /// window, e.g. `("work", 2, "@12")`. Feeds `Config::reconcile`'s
     /// per-window dormant recovery, the same idea as `session_ids` one
     /// altitude down.
-    #[allow(dead_code)]
     pub fn window_ids(&self) -> Vec<(String, u32, String)> {
         self.sessions
             .iter()

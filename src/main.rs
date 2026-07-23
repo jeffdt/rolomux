@@ -68,7 +68,7 @@ fn main() -> io::Result<()> {
 
     let path = store::config_path();
     let mut config = store::Config::load_from(&path);
-    if config.reconcile(&gathered.session_ids()) {
+    if config.reconcile(&gathered.session_ids(), &gathered.window_ids()) {
         let _ = config.save_to(&path);
     }
 
@@ -146,7 +146,7 @@ fn commit_rename(
     }
 
     let gathered = tmux.gather();
-    if config.reconcile(&gathered.session_ids()) {
+    if config.reconcile(&gathered.session_ids(), &gathered.window_ids()) {
         let _ = config.save_to(path);
     }
 
@@ -259,7 +259,7 @@ fn commit_window_move(
     }
 
     let gathered = tmux.gather();
-    if config.reconcile(&gathered.session_ids()) {
+    if config.reconcile(&gathered.session_ids(), &gathered.window_ids()) {
         let _ = config.save_to(path);
     }
 
@@ -348,7 +348,7 @@ fn commit_kill(
     }
 
     let gathered = tmux.gather();
-    if config.reconcile(&gathered.session_ids()) {
+    if config.reconcile(&gathered.session_ids(), &gathered.window_ids()) {
         let _ = config.save_to(path);
     }
 
