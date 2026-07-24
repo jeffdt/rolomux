@@ -1449,4 +1449,19 @@ inbox = true
         assert!(cfg.dormant_windows.is_empty(), "a config written before this feature loads cleanly");
         std::fs::remove_dir_all(&dir).ok();
     }
+
+    #[test]
+    fn current_version_config_ignores_stray_shortcut_visibility_key() {
+        let dir = std::env::temp_dir().join(format!("rolomux-nomig-shortcutvis-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.toml");
+        std::fs::write(
+            &path,
+            format!("config_version = {CONFIG_VERSION}\n\n[settings]\nshortcut_visibility = \"on_demand\"\n"),
+        )
+        .unwrap();
+        let cfg = Config::load_from(&path);
+        assert!(cfg.always_show_shortcuts, "stray legacy shortcut_visibility key is ignored; always_show_shortcuts keeps its default");
+        std::fs::remove_dir_all(&dir).ok();
+    }
 }

@@ -276,7 +276,6 @@ impl AttachedColorMode {
     }
 }
 
-
 /// All 16 named ANSI terminal colors (never RGB), in a fixed canonical order.
 /// Backs the settings palette checklist and the Static-policy color cycle.
 pub const ALL_NAMED_COLORS: [&str; 16] = [
