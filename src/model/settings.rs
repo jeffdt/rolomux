@@ -37,6 +37,32 @@ pub enum SettingsRow {
     PaletteColor(usize),
 }
 
+/// The 15 top-level Settings rows in fixed display/jump-number order.
+/// Position `i` in this array is jump number `i + 1`. This is the single
+/// source of truth for both `settings_visible_rows` (which splices child
+/// rows in after `ShortcutColor`/`Palette` when expanded) and jump-number
+/// lookup, so the two can never drift out of sync. Never reorder this
+/// array without updating every fixed-position test that references it
+/// (`settings_visible_rows_collapsed_shows_fifteen_rows_in_order` and the
+/// `settings_move_cursor` row-index tests throughout this file).
+const TOP_LEVEL_ROWS: [SettingsRow; 15] = [
+    SettingsRow::DefaultMode,
+    SettingsRow::DormantNumbering,
+    SettingsRow::RememberExpanded,
+    SettingsRow::SessionMetric,
+    SettingsRow::ClearDormantOnAttach,
+    SettingsRow::StartFocusMode,
+    SettingsRow::NewGroupPosition,
+    SettingsRow::ShortcutVisibility,
+    SettingsRow::InboxIcon,
+    SettingsRow::AttachedColor,
+    SettingsRow::BorderColorPolicy,
+    SettingsRow::ShortcutColor,
+    SettingsRow::DotColorMode,
+    SettingsRow::ColorPolicy,
+    SettingsRow::Palette,
+];
+
 impl SettingsRow {
     /// A short, single-line explanation of what this setting does, shown on
     /// the Settings footer's description line. Rows whose static text used to
@@ -127,6 +153,16 @@ impl SettingsRow {
             }
         }
     }
+
+    /// This row's stable 1-based jump number (1-15), or `None` for a child
+    /// row (`ShortcutColorOption`/`PaletteColor`) -- those are reached by
+    /// first jumping to their parent, not directly, since there are only
+    /// 20 digit slots and up to 32 possible children across both pickers.
+    // Wired up by Task 7's UI rendering; remove this allow then.
+    #[allow(dead_code)]
+    pub fn jump_number(&self) -> Option<usize> {
+        TOP_LEVEL_ROWS.iter().position(|r| r == self).map(|i| i + 1)
+    }
 }
 
 impl PickerState {
@@ -162,31 +198,17 @@ impl PickerState {
     /// expandable child list of its own -- like New group color, its Static
     /// value is a single cycled swatch folded into the row itself.
     pub fn settings_visible_rows(&self) -> Vec<SettingsRow> {
-        let mut rows = vec![
-            SettingsRow::DefaultMode,
-            SettingsRow::DormantNumbering,
-            SettingsRow::RememberExpanded,
-            SettingsRow::SessionMetric,
-            SettingsRow::ClearDormantOnAttach,
-            SettingsRow::StartFocusMode,
-            SettingsRow::NewGroupPosition,
-            SettingsRow::ShortcutVisibility,
-            SettingsRow::InboxIcon,
-            SettingsRow::AttachedColor,
-        ];
-        rows.push(SettingsRow::BorderColorPolicy);
-        rows.push(SettingsRow::ShortcutColor);
-        if self.settings_ui.shortcut_color_expanded {
-            for i in 0..ALL_NAMED_COLORS.len() {
-                rows.push(SettingsRow::ShortcutColorOption(i));
-            }
-        }
-        rows.push(SettingsRow::DotColorMode);
-        rows.push(SettingsRow::ColorPolicy);
-        rows.push(SettingsRow::Palette);
-        if self.settings_ui.palette_expanded {
-            for i in 0..ALL_NAMED_COLORS.len() {
-                rows.push(SettingsRow::PaletteColor(i));
+        let mut rows = Vec::new();
+        for row in TOP_LEVEL_ROWS {
+            rows.push(row);
+            match row {
+                SettingsRow::ShortcutColor if self.settings_ui.shortcut_color_expanded => {
+                    rows.extend((0..ALL_NAMED_COLORS.len()).map(SettingsRow::ShortcutColorOption));
+                }
+                SettingsRow::Palette if self.settings_ui.palette_expanded => {
+                    rows.extend((0..ALL_NAMED_COLORS.len()).map(SettingsRow::PaletteColor));
+                }
+                _ => {}
             }
         }
         rows
@@ -201,6 +223,14 @@ impl PickerState {
             .iter()
             .map(|name| (name.to_string(), self.active_palette.iter().any(|c| c == name)))
             .collect()
+    }
+
+    /// The top-level Settings row that jump number `n` (1-15) targets, or
+    /// `None` outside that range. The inverse of `SettingsRow::jump_number`.
+    // Wired up by Task 5's settings_jump; remove this allow then.
+    #[allow(dead_code)]
+    fn settings_row_for_number(n: usize) -> Option<SettingsRow> {
+        TOP_LEVEL_ROWS.get(n.checked_sub(1)?).copied()
     }
 
     /// Move the settings cursor by `delta`, wrapping between the first and last row.
@@ -523,6 +553,7 @@ mod tests {
     use crate::model::*;
     use crate::model::test_support::*;
     use crate::store::Config;
+    use super::TOP_LEVEL_ROWS;
 
     fn settings_state() -> PickerState {
         let sessions = vec![s("a", 1, 1)];
@@ -946,6 +977,42 @@ mod tests {
                 SettingsRow::Palette,
             ]
         );
+    }
+
+    #[test]
+    fn jump_number_assigns_one_through_fifteen_to_top_level_rows_in_order() {
+        assert_eq!(SettingsRow::DefaultMode.jump_number(), Some(1));
+        assert_eq!(SettingsRow::DormantNumbering.jump_number(), Some(2));
+        assert_eq!(SettingsRow::AttachedColor.jump_number(), Some(10));
+        assert_eq!(SettingsRow::BorderColorPolicy.jump_number(), Some(11));
+        assert_eq!(SettingsRow::Palette.jump_number(), Some(15));
+    }
+
+    #[test]
+    fn jump_number_is_none_for_child_rows() {
+        assert_eq!(SettingsRow::PaletteColor(0).jump_number(), None);
+        assert_eq!(SettingsRow::ShortcutColorOption(3).jump_number(), None);
+    }
+
+    #[test]
+    fn settings_row_for_number_round_trips_with_jump_number() {
+        for n in 1..=15 {
+            let row = PickerState::settings_row_for_number(n).unwrap();
+            assert_eq!(row.jump_number(), Some(n));
+        }
+    }
+
+    #[test]
+    fn settings_row_for_number_is_none_out_of_range() {
+        assert_eq!(PickerState::settings_row_for_number(0), None);
+        assert_eq!(PickerState::settings_row_for_number(16), None);
+        assert_eq!(PickerState::settings_row_for_number(20), None);
+    }
+
+    #[test]
+    fn settings_visible_rows_still_matches_fixed_order_after_the_top_level_rows_refactor() {
+        let st = settings_state();
+        assert_eq!(st.settings_visible_rows(), TOP_LEVEL_ROWS.to_vec());
     }
 
     #[test]
