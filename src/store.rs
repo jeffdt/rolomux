@@ -1,6 +1,6 @@
 use crate::model::{
     AttachedColorMode, ColorPolicy, DefaultMode, DotColorMode, Group, HEADER_COLORS, NewGroupPosition, SessionMetric,
-    ShortcutVisibility, StartFocusMode, ensure_inbox_last, ensure_single_inbox,
+    StartFocusMode, ensure_inbox_last, ensure_single_inbox,
 };
 use serde::Deserialize;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -65,7 +65,7 @@ pub struct Config {
     pub dot_color_mode: DotColorMode,
     pub dot_color: String,
     pub shortcut_color: String,
-    pub shortcut_visibility: ShortcutVisibility,
+    pub always_show_shortcuts: bool,
     /// Last-known tmux `session_id` (e.g. `"$3"`) for every name currently
     /// tracked in a group's `members`, in `dormant`, or in `expanded`. Used
     /// by `reconcile` to recover tracking across a plain tmux rename
@@ -106,7 +106,7 @@ impl Default for Config {
             dot_color_mode: DotColorMode::default(),
             dot_color: "green".to_string(),
             shortcut_color: "gray".to_string(),
-            shortcut_visibility: ShortcutVisibility::default(),
+            always_show_shortcuts: true,
             session_ids: HashMap::new(),
         }
     }
@@ -162,7 +162,7 @@ struct RawSettings {
     #[serde(default)]
     shortcut_color: Option<String>,
     #[serde(default)]
-    shortcut_visibility: Option<String>,
+    always_show_shortcuts: Option<bool>,
 }
 
 #[derive(serde::Serialize)]
@@ -185,7 +185,7 @@ struct OutSettings {
     dot_color_mode: String,
     dot_color: String,
     shortcut_color: String,
-    shortcut_visibility: String,
+    always_show_shortcuts: bool,
 }
 
 #[derive(Deserialize, Default)]
@@ -338,12 +338,7 @@ impl Config {
             .unwrap_or_default();
         let dot_color = raw.settings.dot_color.unwrap_or_else(|| "green".to_string());
         let shortcut_color = raw.settings.shortcut_color.unwrap_or_else(|| "gray".to_string());
-        let shortcut_visibility = raw
-            .settings
-            .shortcut_visibility
-            .as_deref()
-            .map(ShortcutVisibility::from_config_str)
-            .unwrap_or_default();
+        let always_show_shortcuts = raw.settings.always_show_shortcuts.unwrap_or(true);
         let focus_mode = if raw.config_version < 4 { raw.hide_dormant } else { raw.focus_mode };
         Config {
             groups,
@@ -369,7 +364,7 @@ impl Config {
             dot_color_mode,
             dot_color,
             shortcut_color,
-            shortcut_visibility,
+            always_show_shortcuts,
             session_ids: raw.session_ids,
         }
     }
@@ -420,7 +415,7 @@ impl Config {
                 dot_color_mode: self.dot_color_mode.as_config_str().to_string(),
                 dot_color: self.dot_color.clone(),
                 shortcut_color: self.shortcut_color.clone(),
-                shortcut_visibility: self.shortcut_visibility.as_config_str().to_string(),
+                always_show_shortcuts: self.always_show_shortcuts,
             },
             expanded,
             session_ids,
@@ -1452,6 +1447,21 @@ inbox = true
         std::fs::write(&path, format!("config_version = {CONFIG_VERSION}\n")).unwrap();
         let cfg = Config::load_from(&path);
         assert!(cfg.dormant_windows.is_empty(), "a config written before this feature loads cleanly");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn current_version_config_ignores_stray_shortcut_visibility_key() {
+        let dir = std::env::temp_dir().join(format!("rolomux-nomig-shortcutvis-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.toml");
+        std::fs::write(
+            &path,
+            format!("config_version = {CONFIG_VERSION}\n\n[settings]\nshortcut_visibility = \"on_demand\"\n"),
+        )
+        .unwrap();
+        let cfg = Config::load_from(&path);
+        assert!(cfg.always_show_shortcuts, "stray legacy shortcut_visibility key is ignored; always_show_shortcuts keeps its default");
         std::fs::remove_dir_all(&dir).ok();
     }
 }

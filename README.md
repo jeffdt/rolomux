@@ -80,7 +80,7 @@ bind C new-session \; command-prompt -I "" "rename-session '%%'" \; command-prom
 | `⇧D` | Undormant every session and window in the picker |
 | `f` | Toggle focus mode (hide dormant sessions and empty groups) |
 | `/` | Enter search mode (type to filter, `↵` switch, `Esc` back) |
-| `?` | Reveal the footer's shortcut legend (only needed when **Show shortcuts** is set to **On demand**; works in command, group, and settings modes) |
+| `?` | Show every shortcut for the current mode (works in command, group, and settings modes; `Esc`/`q`/`?` closes it) |
 | `q` / `Esc` | Quit |
 
 `M-` is Meta (Option on macOS).
@@ -159,7 +159,7 @@ Each row shows a jump number in its gutter; pressing it jumps straight to that r
 - **Start in focus mode.** Whether the picker starts in focus mode: **Remember** the last state (default), **Always** start in it, or **Never** start in it, regardless of what was last saved.
 - **New group position.** Where a newly created group is inserted: **Top** of the list, or **Bottom** (default), immediately above the inbox, which always stays last.
 - **Session metadata.** Whether the row's trailing timestamp shows time since last activity (**Recency**, default), time since the session was created (**Age**), or is omitted entirely (**Hidden**).
-- **Show shortcuts.** Whether the footer's key-shortcut legend is **Always** visible (default), or hidden until you press `?`.
+- **Show shortcuts.** Whether the footer's key-shortcut legend is always visible (**Yes**, default), or hidden entirely (**No**) -- press `?` any time for the full shortcut list regardless of this setting.
 
 **Appearance**
 

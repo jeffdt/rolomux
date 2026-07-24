@@ -22,7 +22,7 @@ pub enum Input {
     UndormantSession,
     UndormantAll,
     ToggleFocusMode,
-    ToggleShortcuts,
+    OpenHelp,
     Rename,
     Kill,
     Quit,
@@ -46,7 +46,7 @@ pub enum SearchInput {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum GroupInput { Up, Down, MoveUp, MoveDown, New, Rename, CycleColor, Delete, ToggleShortcuts, Exit, None }
+pub enum GroupInput { Up, Down, MoveUp, MoveDown, New, Rename, CycleColor, Delete, OpenHelp, Exit, None }
 
 /// Key mapping for group-management mode while NOT editing a name. During an
 /// inline rename the loop routes keys through `map_search_key` instead.
@@ -61,7 +61,7 @@ pub fn map_group_key(key: KeyEvent) -> GroupInput {
         KeyCode::Enter | KeyCode::Char('r') => GroupInput::Rename,
         KeyCode::Char('c') => GroupInput::CycleColor,
         KeyCode::Char('d') => GroupInput::Delete,
-        KeyCode::Char('?') => GroupInput::ToggleShortcuts,
+        KeyCode::Char('?') => GroupInput::OpenHelp,
         KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('g') => GroupInput::Exit,
         _ => GroupInput::None,
     }
@@ -76,7 +76,7 @@ pub enum SettingsInput {
     Jump(usize),
     Activate,
     CycleColor,
-    ToggleShortcuts,
+    OpenHelp,
     Exit,
     None,
 }
@@ -94,7 +94,7 @@ pub fn map_settings_key(key: KeyEvent) -> SettingsInput {
         KeyCode::Char('h') | KeyCode::Left => SettingsInput::Left,
         KeyCode::Enter | KeyCode::Char(' ') => SettingsInput::Activate,
         KeyCode::Char('c') => SettingsInput::CycleColor,
-        KeyCode::Char('?') => SettingsInput::ToggleShortcuts,
+        KeyCode::Char('?') => SettingsInput::OpenHelp,
         KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char(',') => SettingsInput::Exit,
         KeyCode::Char(c @ '1'..='9') if alt => SettingsInput::Jump(10 + (c as usize - '0' as usize)),
         KeyCode::Char('0') if alt => SettingsInput::Jump(20),
@@ -167,7 +167,7 @@ pub fn map_key(key: KeyEvent) -> Input {
         KeyCode::Char('/') => Input::EnterSearch,
         KeyCode::Char('d') if ctrl => Input::UndormantSession,
         KeyCode::Char('d') => Input::ToggleDormant,
-        KeyCode::Char('?') => Input::ToggleShortcuts,
+        KeyCode::Char('?') => Input::OpenHelp,
         KeyCode::Char(c @ '1'..='9') if alt => Input::Switch(10 + (c as usize - '0' as usize)),
         KeyCode::Char('0') if alt => Input::Switch(20),
         KeyCode::Char(c @ '1'..='9') => Input::Switch(c as usize - '0' as usize),
@@ -175,6 +175,14 @@ pub fn map_key(key: KeyEvent) -> Input {
         KeyCode::Char('q') | KeyCode::Esc => Input::Quit,
         _ => Input::None,
     }
+}
+
+/// Whether `key` closes the shortcuts-overlay while it's open: `?` (the same
+/// key that opened it), `Esc`, or `q`. Checked once at the top of the event
+/// loop, ahead of the mode-specific key maps, so every other key is a no-op
+/// while the overlay is showing (issue #156).
+pub fn is_help_dismiss_key(key: KeyEvent) -> bool {
+    matches!(key.code, KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('?'))
 }
 
 #[cfg(test)]
@@ -282,10 +290,10 @@ mod tests {
     }
 
     #[test]
-    fn question_mark_toggles_shortcuts_in_command_groups_and_settings_modes() {
-        assert_eq!(map_key(key(KeyCode::Char('?'))), Input::ToggleShortcuts);
-        assert_eq!(map_group_key(key(KeyCode::Char('?'))), GroupInput::ToggleShortcuts);
-        assert_eq!(map_settings_key(key(KeyCode::Char('?'))), SettingsInput::ToggleShortcuts);
+    fn question_mark_opens_help_in_command_groups_and_settings_modes() {
+        assert_eq!(map_key(key(KeyCode::Char('?'))), Input::OpenHelp);
+        assert_eq!(map_group_key(key(KeyCode::Char('?'))), GroupInput::OpenHelp);
+        assert_eq!(map_settings_key(key(KeyCode::Char('?'))), SettingsInput::OpenHelp);
     }
 
     #[test]
@@ -361,5 +369,14 @@ mod tests {
     #[test]
     fn slash_enters_search_in_command_mode() {
         assert_eq!(map_key(key(KeyCode::Char('/'))), Input::EnterSearch);
+    }
+
+    #[test]
+    fn is_help_dismiss_key_matches_question_mark_esc_and_q() {
+        assert!(is_help_dismiss_key(key(KeyCode::Char('?'))));
+        assert!(is_help_dismiss_key(key(KeyCode::Esc)));
+        assert!(is_help_dismiss_key(key(KeyCode::Char('q'))));
+        assert!(!is_help_dismiss_key(key(KeyCode::Char('x'))));
+        assert!(!is_help_dismiss_key(key(KeyCode::Enter)));
     }
 }

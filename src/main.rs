@@ -17,7 +17,7 @@ use ratatui::Terminal;
 use std::io::{self, stdout};
 use std::time::Duration;
 use tmux::{apply_action, RealTmux, Tmux};
-use input::{map_group_key, map_key, map_search_key, map_settings_key, GroupInput, Input, SearchInput, SettingsInput};
+use input::{is_help_dismiss_key, map_group_key, map_key, map_search_key, map_settings_key, GroupInput, Input, SearchInput, SettingsInput};
 use ui::draw;
 
 const HELP: &str = "\
@@ -382,6 +382,12 @@ fn event_loop(
             if key.kind != event::KeyEventKind::Press {
                 continue;
             }
+            if state.help_visible() {
+                if is_help_dismiss_key(key) {
+                    state.close_help();
+                }
+                continue;
+            }
             match state.mode {
                 Mode::Command => {
                     if state.renaming() {
@@ -423,7 +429,7 @@ fn event_loop(
                             Input::UndormantSession => state.undormant_session(),
                             Input::UndormantAll => state.undormant_all(),
                             Input::ToggleFocusMode => state.toggle_focus_mode(),
-                            Input::ToggleShortcuts => state.toggle_shortcuts(),
+                            Input::OpenHelp => state.open_help(),
                             Input::Rename => state.start_rename(),
                             Input::Kill => handle_kill(state, tmux, config, path),
                             Input::Select => return Ok(state.selected_action()),
@@ -491,7 +497,7 @@ fn event_loop(
                             GroupInput::Rename => state.group_start_rename(),
                             GroupInput::CycleColor => state.group_cycle_color(),
                             GroupInput::Delete => state.group_delete(),
-                            GroupInput::ToggleShortcuts => state.toggle_shortcuts(),
+                            GroupInput::OpenHelp => state.open_help(),
                             GroupInput::Exit => state.exit_groups(),
                             GroupInput::None => {}
                         }
@@ -505,7 +511,7 @@ fn event_loop(
                     SettingsInput::Jump(n) => state.settings_jump(n),
                     SettingsInput::Activate => state.settings_activate(),
                     SettingsInput::CycleColor => state.settings_cycle_color(),
-                    SettingsInput::ToggleShortcuts => state.toggle_shortcuts(),
+                    SettingsInput::OpenHelp => state.open_help(),
                     SettingsInput::Exit => state.exit_settings(),
                     SettingsInput::None => {}
                 },
