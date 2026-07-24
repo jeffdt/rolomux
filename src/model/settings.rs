@@ -227,10 +227,30 @@ impl PickerState {
 
     /// The top-level Settings row that jump number `n` (1-15) targets, or
     /// `None` outside that range. The inverse of `SettingsRow::jump_number`.
-    // Wired up by Task 5's settings_jump; remove this allow then.
-    #[allow(dead_code)]
     fn settings_row_for_number(n: usize) -> Option<SettingsRow> {
         TOP_LEVEL_ROWS.get(n.checked_sub(1)?).copied()
+    }
+
+    /// A Settings row's digit/Alt+digit jump number was pressed: move the
+    /// cursor there and perform the same thing Enter/Space already does for
+    /// that row -- cycle/toggle/select for an ordinary row, via the existing
+    /// `settings_activate`. The two rows with expandable children get a
+    /// digit-jump-only addition on top: jumping to a collapsed color picker
+    /// with nothing to act on isn't useful, so `ShortcutColor` expands to
+    /// its current selection (already `settings_activate`'s existing
+    /// behavior for that row, reused as-is) and `Palette` expands to its
+    /// first active swatch (new: plain Enter on Palette stays a no-op,
+    /// unchanged -- see `settings_activate`).
+    // Wired up by Task 6's main.rs input dispatch; remove this allow then.
+    #[allow(dead_code)]
+    pub fn settings_jump(&mut self, n: usize) {
+        let Some(target) = Self::settings_row_for_number(n) else { return };
+        self.focus_settings_row(target);
+        if target == SettingsRow::Palette {
+            self.expand_palette_to_first_active();
+        } else {
+            self.settings_activate();
+        }
     }
 
     /// Move the settings cursor by `delta`, wrapping between the first and last row.
@@ -266,6 +286,18 @@ impl PickerState {
         self.settings_ui.shortcut_color_expanded = true;
         let idx = ALL_NAMED_COLORS.iter().position(|c| *c == self.shortcut_color).unwrap_or(0);
         self.focus_settings_row(SettingsRow::ShortcutColorOption(idx));
+    }
+
+    /// Expand the Color palette checklist with the cursor starting on the
+    /// first *active* swatch in canonical order, the closest checklist
+    /// analog to `expand_shortcut_color`'s "land on the current value" for
+    /// a picker with no single current value. Falls back to index 0 if
+    /// somehow nothing is active (shouldn't happen -- the last active
+    /// color can never be deactivated, see `settings_toggle_palette_color`).
+    fn expand_palette_to_first_active(&mut self) {
+        self.settings_ui.palette_expanded = true;
+        let idx = self.settings_palette_rows().iter().position(|(_, active)| *active).unwrap_or(0);
+        self.focus_settings_row(SettingsRow::PaletteColor(idx));
     }
 
     /// Commit `idx` as the new shortcut highlight color, collapse, and
@@ -1362,5 +1394,59 @@ mod tests {
         assert_eq!(st.border_color_policy, ColorPolicy::Static, "wraps forward");
         st.settings_step_left();
         assert_eq!(st.border_color_policy, ColorPolicy::Random, "wraps backward");
+    }
+
+    #[test]
+    fn settings_jump_moves_cursor_and_toggles_an_ordinary_row() {
+        let mut st = settings_state();
+        st.settings_jump(2); // DormantNumbering
+        assert_eq!(st.settings_visible_rows()[st.settings_cursor()], SettingsRow::DormantNumbering);
+        assert!(!st.number_dormant_sessions, "digit press also flips the value, like pressing Enter would");
+        assert!(st.dirty);
+    }
+
+    #[test]
+    fn settings_jump_out_of_range_is_a_noop() {
+        let mut st = settings_state();
+        let cursor_before = st.settings_cursor();
+        st.settings_jump(16);
+        assert_eq!(st.settings_cursor(), cursor_before);
+        st.settings_jump(0);
+        assert_eq!(st.settings_cursor(), cursor_before);
+    }
+
+    #[test]
+    fn settings_jump_on_shortcut_color_expands_to_the_current_selection() {
+        let mut st = settings_state();
+        st.settings_jump(12); // ShortcutColor
+        assert_eq!(st.settings_visible_rows().len(), 15 + 16, "expanded");
+        let SettingsRow::ShortcutColorOption(idx) = st.settings_visible_rows()[st.settings_cursor()] else {
+            panic!("expected cursor to land on a ShortcutColorOption row");
+        };
+        assert_eq!(ALL_NAMED_COLORS[idx], st.shortcut_color, "lands on the currently-selected color, gray");
+    }
+
+    #[test]
+    fn settings_jump_on_palette_expands_to_the_first_active_swatch() {
+        let mut st = settings_state(); // default active_palette: cyan, green, yellow, magenta, blue, red
+        st.settings_jump(15); // Palette
+        assert_eq!(st.settings_visible_rows().len(), 15 + 16, "expanded");
+        let SettingsRow::PaletteColor(idx) = st.settings_visible_rows()[st.settings_cursor()] else {
+            panic!("expected cursor to land on a PaletteColor row");
+        };
+        assert_eq!(ALL_NAMED_COLORS[idx], "red", "the first active color in canonical ALL_NAMED_COLORS order");
+        assert!(st.settings_palette_rows()[idx].1, "landed row is actually active");
+    }
+
+    #[test]
+    fn settings_jump_on_palette_does_not_change_plain_enter_behavior() {
+        // Regression guard: the digit-jump expand-to-first-active behavior
+        // must be exclusive to settings_jump, not a change to what Enter/Space
+        // already does on the Palette row (which stays a no-op, see
+        // settings_activate's `SettingsRow::Palette => {}` arm).
+        let mut st = settings_state();
+        st.settings_move_cursor(14); // Palette
+        st.settings_activate();
+        assert!(!st.palette_expanded(), "plain Enter on Palette is still a no-op");
     }
 }
