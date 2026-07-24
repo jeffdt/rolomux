@@ -241,8 +241,6 @@ impl PickerState {
     /// behavior for that row, reused as-is) and `Palette` expands to its
     /// first active swatch (new: plain Enter on Palette stays a no-op,
     /// unchanged -- see `settings_activate`).
-    // Wired up by Task 6's main.rs input dispatch; remove this allow then.
-    #[allow(dead_code)]
     pub fn settings_jump(&mut self, n: usize) {
         let Some(target) = Self::settings_row_for_number(n) else { return };
         self.focus_settings_row(target);

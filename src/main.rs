@@ -502,6 +502,7 @@ fn event_loop(
                     SettingsInput::Down => state.settings_move_cursor(1),
                     SettingsInput::Left => state.settings_step_left(),
                     SettingsInput::Right => state.settings_step_right(),
+                    SettingsInput::Jump(n) => state.settings_jump(n),
                     SettingsInput::Activate => state.settings_activate(),
                     SettingsInput::CycleColor => state.settings_cycle_color(),
                     SettingsInput::ToggleShortcuts => state.toggle_shortcuts(),
