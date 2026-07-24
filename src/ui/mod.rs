@@ -9,6 +9,7 @@ use ratatui::widgets::{Block, BorderType, Borders, List, ListItem, ListState, Pa
 use ratatui::Frame;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+mod help;
 mod settings;
 
 const ACCENT: Color = Color::Cyan;
@@ -193,6 +194,10 @@ pub fn draw(frame: &mut Frame, state: &PickerState) {
         Mode::Search => draw_search(frame, state, content),
         Mode::Groups => draw_groups(frame, state, content),
         Mode::Settings => settings::draw_settings(frame, state, content),
+    }
+
+    if state.help_visible() {
+        help::draw_help_overlay(frame, state, inner);
     }
 }
 
@@ -4028,5 +4033,53 @@ mod tests {
         let text = render_to_string_sized(&state, 84, 20);
         assert!(!text.contains("rename"), "legend stays hidden when always_show_shortcuts is false");
         assert!(text.contains("? shortcuts"), "a minimal nudge names the key that opens the full shortcuts overlay");
+    }
+
+    #[test]
+    fn question_mark_overlay_shows_full_command_shortcuts_in_a_tall_terminal() {
+        let sessions = vec![Session { id: String::new(), name: "a".into(), activity: 1, created: 1, attached: false, windows: vec![] }];
+        let cfg = Config::default();
+        let mut state = PickerState::build(sessions, &cfg);
+        state.open_help();
+        let text = render_to_string_sized(&state, 84, 40);
+        assert!(text.contains("Command Shortcuts"));
+        assert!(text.contains("kill session/window"));
+        assert!(text.contains("Esc / q / ? close"));
+        assert!(!text.contains("more"), "everything fits, so no truncation marker");
+    }
+
+    #[test]
+    fn question_mark_overlay_truncates_gracefully_in_a_minimal_terminal() {
+        let sessions = vec![Session { id: String::new(), name: "a".into(), activity: 1, created: 1, attached: false, windows: vec![] }];
+        let cfg = Config::default();
+        let mut state = PickerState::build(sessions, &cfg);
+        state.open_help();
+        let text = render_to_string_sized(&state, 84, 20);
+        assert!(text.contains("Command Shortcuts"));
+        assert!(text.contains("more"), "the full command list doesn't fit at the CI-minimum terminal size");
+    }
+
+    #[test]
+    fn question_mark_overlay_shows_groups_shortcuts_in_group_mode() {
+        let sessions = vec![Session { id: String::new(), name: "a".into(), activity: 1, created: 1, attached: false, windows: vec![] }];
+        let cfg = Config::default();
+        let mut state = PickerState::build(sessions, &cfg);
+        state.enter_groups();
+        state.open_help();
+        let text = render_to_string_sized(&state, 84, 40);
+        assert!(text.contains("Groups Shortcuts"));
+        assert!(text.contains("reorder group"));
+    }
+
+    #[test]
+    fn question_mark_overlay_shows_settings_shortcuts_in_settings_mode() {
+        let sessions = vec![Session { id: String::new(), name: "a".into(), activity: 1, created: 1, attached: false, windows: vec![] }];
+        let cfg = Config::default();
+        let mut state = PickerState::build(sessions, &cfg);
+        state.enter_settings();
+        state.open_help();
+        let text = render_to_string_sized(&state, 84, 40);
+        assert!(text.contains("Settings Shortcuts"));
+        assert!(text.contains("activate row"));
     }
 }
