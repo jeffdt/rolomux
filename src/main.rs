@@ -420,6 +420,8 @@ fn event_loop(
                             Input::MoveDown => handle_move(1, state, tmux, config, path),
                             Input::EnterSearch => state.enter_search(),
                             Input::ToggleDormant => state.toggle_dormant(),
+                            Input::UndormantSession => state.undormant_session(),
+                            Input::UndormantAll => state.undormant_all(),
                             Input::ToggleFocusMode => state.toggle_focus_mode(),
                             Input::ToggleShortcuts => state.toggle_shortcuts(),
                             Input::Rename => state.start_rename(),

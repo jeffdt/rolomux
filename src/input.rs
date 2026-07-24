@@ -19,6 +19,8 @@ pub enum Input {
     MoveDown,
     EnterSearch,
     ToggleDormant,
+    UndormantSession,
+    UndormantAll,
     ToggleFocusMode,
     ToggleShortcuts,
     Rename,
@@ -140,10 +142,12 @@ pub fn map_search_key(key: KeyEvent) -> SearchInput {
 pub fn map_key(key: KeyEvent) -> Input {
     let shift = key.modifiers.contains(KeyModifiers::SHIFT);
     let alt = key.modifiers.contains(KeyModifiers::ALT);
+    let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
     match key.code {
         KeyCode::Char('K') | KeyCode::Up if shift => Input::MoveUp,
         KeyCode::Char('J') | KeyCode::Down if shift => Input::MoveDown,
         KeyCode::Char('R') if shift => Input::Rename,
+        KeyCode::Char('D') if shift => Input::UndormantAll,
         KeyCode::Char('x') => Input::Kill,
         KeyCode::Char('j') | KeyCode::Down => Input::Down,
         KeyCode::Char('k') | KeyCode::Up => Input::Up,
@@ -155,6 +159,7 @@ pub fn map_key(key: KeyEvent) -> Input {
         KeyCode::Char('g') => Input::EnterGroups,
         KeyCode::Char(',') => Input::EnterSettings,
         KeyCode::Char('/') => Input::EnterSearch,
+        KeyCode::Char('d') if ctrl => Input::UndormantSession,
         KeyCode::Char('d') => Input::ToggleDormant,
         KeyCode::Char('?') => Input::ToggleShortcuts,
         KeyCode::Char(c @ '1'..='9') if alt => Input::Switch(10 + (c as usize - '0' as usize)),
@@ -252,6 +257,21 @@ mod tests {
 
     #[test]
     fn maps_toggle_dormant_key() {
+        assert_eq!(map_key(key(KeyCode::Char('d'))), Input::ToggleDormant);
+    }
+
+    #[test]
+    fn ctrl_d_undormants_the_session_under_the_cursor() {
+        assert_eq!(map_key(ctrl(KeyCode::Char('d'))), Input::UndormantSession);
+    }
+
+    #[test]
+    fn shift_d_undormants_everything() {
+        assert_eq!(map_key(shift(KeyCode::Char('D'))), Input::UndormantAll);
+    }
+
+    #[test]
+    fn plain_d_is_still_the_toggle_not_the_ctrl_variant() {
         assert_eq!(map_key(key(KeyCode::Char('d'))), Input::ToggleDormant);
     }
 

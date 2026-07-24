@@ -187,7 +187,6 @@ impl PickerState {
     /// dormant window inside it. Unlike `toggle_dormant`, this never sets
     /// dormant -- it only ever clears, a one-way "wake this session up"
     /// cascade rather than a flip.
-    #[allow(dead_code)]
     pub fn undormant_session(&mut self) {
         let Some(name) = self.cursor_session_name() else { return };
         self.dormant.remove(&name);
@@ -203,7 +202,6 @@ impl PickerState {
     /// session name using the same pattern as `toggle_focus_mode`, since
     /// clearing dormant can only grow the visible set under focus mode,
     /// never shrink it, but the row a given name lands on can still shift.
-    #[allow(dead_code)]
     pub fn undormant_all(&mut self) {
         let command_focus = self.cursor_session_name();
         let search_focus = self.search_cursor_name();
