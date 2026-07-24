@@ -403,7 +403,6 @@ impl PickerState {
     }
 
     /// Whether the full-shortcut overlay (opened by `?`) is showing.
-    #[allow(dead_code)]
     pub fn help_visible(&self) -> bool {
         self.help_visible
     }
@@ -416,7 +415,6 @@ impl PickerState {
     }
 
     /// `?`, `Esc`, or `q` while the overlay is showing: close it.
-    #[allow(dead_code)]
     pub fn close_help(&mut self) {
         self.help_visible = false;
     }
