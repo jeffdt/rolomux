@@ -204,10 +204,29 @@ pub(super) fn draw_settings(frame: &mut Frame, state: &PickerState, inner: Rect)
     let current_description = rows[state.settings_cursor().min(rows.len().saturating_sub(1))].description(state);
     let footer = Paragraph::new(vec![
         Line::from(Span::styled(rule, Style::default().fg(DIM))),
-        Line::from(Span::styled(current_description, Style::default())),
+        description_line(&current_description, color_from_name(&state.shortcut_color)),
         shortcut_hint_line(state, SETTINGS_FOOTER_HINT),
     ]);
     frame.render_widget(footer, footer_area);
+}
+
+/// Renders a settings row's description, highlighting any literal `?` (a
+/// reference to the shortcuts-overlay key) in the shortcut accent color so
+/// it reads consistently with how `?` is highlighted in the overlay itself.
+fn description_line(text: &str, key_color: Color) -> Line<'static> {
+    let mut spans = Vec::new();
+    let mut rest = text;
+    while let Some(idx) = rest.find('?') {
+        if idx > 0 {
+            spans.push(Span::styled(rest[..idx].to_string(), Style::default()));
+        }
+        spans.push(Span::styled("?", Style::default().fg(key_color)));
+        rest = &rest[idx + 1..];
+    }
+    if !rest.is_empty() {
+        spans.push(Span::styled(rest.to_string(), Style::default()));
+    }
+    Line::from(spans)
 }
 
 /// The dim leading `│` every Settings row renders in its first column,
@@ -378,5 +397,26 @@ mod tests {
         assert_eq!(start_focus_mode_label(StartFocusMode::Remember), "Remember");
         assert_eq!(start_focus_mode_label(StartFocusMode::Always), "Always");
         assert_eq!(start_focus_mode_label(StartFocusMode::Never), "Never");
+    }
+
+    #[test]
+    fn description_line_highlights_question_mark_in_key_color() {
+        let line = description_line("Core shortcuts are hidden. Press ? for the full shortcut list.", Color::Cyan);
+        let spans = line.spans;
+        assert_eq!(spans.len(), 3);
+        assert_eq!(spans[0].content, "Core shortcuts are hidden. Press ");
+        assert_eq!(spans[0].style.fg, None);
+        assert_eq!(spans[1].content, "?");
+        assert_eq!(spans[1].style.fg, Some(Color::Cyan));
+        assert_eq!(spans[2].content, " for the full shortcut list.");
+        assert_eq!(spans[2].style.fg, None);
+    }
+
+    #[test]
+    fn description_line_with_no_question_mark_is_a_single_plain_span() {
+        let line = description_line("On launch, rolomux opens in Command mode.", Color::Cyan);
+        assert_eq!(line.spans.len(), 1);
+        assert_eq!(line.spans[0].content, "On launch, rolomux opens in Command mode.");
+        assert_eq!(line.spans[0].style.fg, None);
     }
 }

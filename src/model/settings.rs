@@ -118,9 +118,9 @@ impl SettingsRow {
             }
             .to_string(),
             SettingsRow::ShortcutVisibility => if state.always_show_shortcuts {
-                "The shortcut legend is always visible."
+                "Core shortcuts are always visible. Press ? for the full shortcut list."
             } else {
-                "The shortcut legend is hidden. Press ? for the full shortcut list."
+                "Core shortcuts are hidden. Press ? for the full shortcut list."
             }
             .to_string(),
             SettingsRow::InboxIcon => format!("The inbox group's header is prefixed with {}.", state.inbox_icon),
@@ -1242,12 +1242,12 @@ mod tests {
         assert!(st.always_show_shortcuts, "default is true");
         assert_eq!(
             SettingsRow::ShortcutVisibility.description(&st),
-            "The shortcut legend is always visible."
+            "Core shortcuts are always visible. Press ? for the full shortcut list."
         );
         st.always_show_shortcuts = false;
         assert_eq!(
             SettingsRow::ShortcutVisibility.description(&st),
-            "The shortcut legend is hidden. Press ? for the full shortcut list."
+            "Core shortcuts are hidden. Press ? for the full shortcut list."
         );
     }
 
