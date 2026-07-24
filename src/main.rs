@@ -423,7 +423,7 @@ fn event_loop(
                             Input::UndormantSession => state.undormant_session(),
                             Input::UndormantAll => state.undormant_all(),
                             Input::ToggleFocusMode => state.toggle_focus_mode(),
-                            Input::ToggleShortcuts => state.toggle_shortcuts(),
+                            Input::ToggleShortcuts => state.open_help(),
                             Input::Rename => state.start_rename(),
                             Input::Kill => handle_kill(state, tmux, config, path),
                             Input::Select => return Ok(state.selected_action()),
@@ -491,7 +491,7 @@ fn event_loop(
                             GroupInput::Rename => state.group_start_rename(),
                             GroupInput::CycleColor => state.group_cycle_color(),
                             GroupInput::Delete => state.group_delete(),
-                            GroupInput::ToggleShortcuts => state.toggle_shortcuts(),
+                            GroupInput::ToggleShortcuts => state.open_help(),
                             GroupInput::Exit => state.exit_groups(),
                             GroupInput::None => {}
                         }
@@ -505,7 +505,7 @@ fn event_loop(
                     SettingsInput::Jump(n) => state.settings_jump(n),
                     SettingsInput::Activate => state.settings_activate(),
                     SettingsInput::CycleColor => state.settings_cycle_color(),
-                    SettingsInput::ToggleShortcuts => state.toggle_shortcuts(),
+                    SettingsInput::ToggleShortcuts => state.open_help(),
                     SettingsInput::Exit => state.exit_settings(),
                     SettingsInput::None => {}
                 },

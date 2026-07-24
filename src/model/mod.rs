@@ -80,12 +80,11 @@ pub struct PickerState {
     pub dot_color_mode: DotColorMode,
     pub dot_color: String,
     pub shortcut_color: String,
-    pub shortcut_visibility: ShortcutVisibility,
-    /// One-shot `?` toggle: reveals the footer's shortcut legend for the rest
-    /// of this popup's lifetime when `shortcut_visibility` is `OnDemand`.
-    /// Never persisted -- each fresh popup starts collapsed again, same as
-    /// `remember_expanded_sessions` off. See `shortcuts_visible`.
-    show_shortcuts_now: bool,
+    pub always_show_shortcuts: bool,
+    /// Whether the full-shortcut overlay (opened by `?`) is currently
+    /// showing. Never persisted -- each fresh popup starts closed, same as
+    /// `remember_expanded_sessions` off. See `help_visible`.
+    help_visible: bool,
     pub inbox_icon: String,
     /// Transient per-open state for the settings overlay (see `SettingsUiState`).
     settings_ui: SettingsUiState,
@@ -159,8 +158,8 @@ impl PickerState {
             dot_color_mode: config.dot_color_mode,
             dot_color: config.dot_color.clone(),
             shortcut_color: config.shortcut_color.clone(),
-            shortcut_visibility: config.shortcut_visibility,
-            show_shortcuts_now: false,
+            always_show_shortcuts: config.always_show_shortcuts,
+            help_visible: false,
             inbox_icon: config.inbox_icon.clone(),
             settings_ui: SettingsUiState::default(),
         };
@@ -391,22 +390,35 @@ impl PickerState {
         config.dot_color_mode = self.dot_color_mode;
         config.dot_color = self.dot_color.clone();
         config.shortcut_color = self.shortcut_color.clone();
-        config.shortcut_visibility = self.shortcut_visibility;
+        config.always_show_shortcuts = self.always_show_shortcuts;
         config.expanded = self.expanded_list();
     }
 
     /// Whether the footer's key-shortcut legend should render this frame:
-    /// always when the persisted preference is `Always`, otherwise only
-    /// after `toggle_shortcuts` has revealed it for this popup (issue #107).
+    /// simply the persisted `always_show_shortcuts` preference (issue #156;
+    /// this used to also have a per-popup on-demand reveal, removed when
+    /// `?` was repurposed to open the full shortcuts overlay instead).
     pub fn shortcuts_visible(&self) -> bool {
-        self.shortcut_visibility == ShortcutVisibility::Always || self.show_shortcuts_now
+        self.always_show_shortcuts
     }
 
-    /// `?`: flip the transient reveal. Not persisted and not `dirty` -- like
-    /// the search query or an in-flight rename buffer, this is per-popup UI
-    /// state, not a saved preference.
-    pub fn toggle_shortcuts(&mut self) {
-        self.show_shortcuts_now = !self.show_shortcuts_now;
+    /// Whether the full-shortcut overlay (opened by `?`) is showing.
+    #[allow(dead_code)]
+    pub fn help_visible(&self) -> bool {
+        self.help_visible
+    }
+
+    /// `?` from Command/Groups/Settings mode: open the full-shortcut overlay.
+    /// Not persisted and not `dirty` -- like the search query or an
+    /// in-flight rename buffer, this is per-popup UI state.
+    pub fn open_help(&mut self) {
+        self.help_visible = true;
+    }
+
+    /// `?`, `Esc`, or `q` while the overlay is showing: close it.
+    #[allow(dead_code)]
+    pub fn close_help(&mut self) {
+        self.help_visible = false;
     }
 
     pub fn focus_session(&mut self, name: &str) {
@@ -1021,7 +1033,7 @@ mod tests {
             dot_color_mode: DotColorMode::Group,
             dot_color: "lightred".to_string(),
             shortcut_color: "lightyellow".to_string(),
-            shortcut_visibility: ShortcutVisibility::OnDemand,
+            always_show_shortcuts: false,
             attached_color_mode: AttachedColorMode::Match,
             ..Default::default()
         };
@@ -1035,26 +1047,32 @@ mod tests {
         assert_eq!(state.dot_color_mode, DotColorMode::Group);
         assert_eq!(state.dot_color, "lightred");
         assert_eq!(state.shortcut_color, "lightyellow");
-        assert_eq!(state.shortcut_visibility, ShortcutVisibility::OnDemand);
+        assert!(!state.always_show_shortcuts);
         assert_eq!(state.attached_color_mode, AttachedColorMode::Match);
     }
 
     #[test]
     fn shortcuts_visible_is_always_true_by_default() {
         let st = PickerState::build(vec![s("a", 1, 1)], &Config::default());
-        assert!(st.shortcuts_visible(), "default shortcut_visibility is Always");
+        assert!(st.shortcuts_visible(), "default always_show_shortcuts is true");
     }
 
     #[test]
-    fn toggle_shortcuts_reveals_the_legend_when_on_demand_and_never_dirties() {
-        let cfg = Config { shortcut_visibility: ShortcutVisibility::OnDemand, ..Default::default() };
-        let mut st = PickerState::build(vec![s("a", 1, 1)], &cfg);
-        assert!(!st.shortcuts_visible(), "OnDemand starts collapsed");
-        st.toggle_shortcuts();
-        assert!(st.shortcuts_visible());
-        assert!(!st.dirty, "the transient reveal is not a persisted preference");
-        st.toggle_shortcuts();
-        assert!(!st.shortcuts_visible(), "toggles back off");
+    fn shortcuts_visible_follows_always_show_shortcuts_directly() {
+        let cfg = Config { always_show_shortcuts: false, ..Default::default() };
+        let st = PickerState::build(vec![s("a", 1, 1)], &cfg);
+        assert!(!st.shortcuts_visible(), "false means the footer legend never renders");
+    }
+
+    #[test]
+    fn open_and_close_help_toggle_visibility_without_dirtying() {
+        let mut st = PickerState::build(vec![s("a", 1, 1)], &Config::default());
+        assert!(!st.help_visible());
+        st.open_help();
+        assert!(st.help_visible());
+        assert!(!st.dirty, "the help overlay is transient UI state, not a persisted preference");
+        st.close_help();
+        assert!(!st.help_visible());
     }
 
     #[test]
@@ -1134,7 +1152,7 @@ mod tests {
         st.dot_color_mode = DotColorMode::Group;
         st.dot_color = "lightblue".to_string();
         st.shortcut_color = "lightcyan".to_string();
-        st.shortcut_visibility = ShortcutVisibility::OnDemand;
+        st.always_show_shortcuts = false;
 
         st.apply_to_config(&mut cfg);
         cfg.save_to(&path).unwrap();
@@ -1156,7 +1174,7 @@ mod tests {
         assert_eq!(reloaded.dot_color_mode, DotColorMode::Group);
         assert_eq!(reloaded.dot_color, "lightblue");
         assert_eq!(reloaded.shortcut_color, "lightcyan");
-        assert_eq!(reloaded.shortcut_visibility, ShortcutVisibility::OnDemand);
+        assert!(!reloaded.always_show_shortcuts);
         assert_eq!(
             reloaded.dormant_windows,
             vec![crate::store::DormantWindow { session: "a".to_string(), index: 1, id: "@2".to_string() }],

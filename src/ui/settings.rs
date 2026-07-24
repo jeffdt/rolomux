@@ -83,7 +83,7 @@ pub(super) fn draw_settings(frame: &mut Frame, state: &PickerState, inner: Rect)
                 settings_value_line(
                     *row,
                     "Show shortcuts",
-                    shortcut_visibility_label(state.shortcut_visibility),
+                    always_show_shortcuts_label(state.always_show_shortcuts),
                     selected,
                 )
             }
@@ -337,11 +337,8 @@ fn color_policy_label(p: ColorPolicy) -> &'static str {
     }
 }
 
-fn shortcut_visibility_label(v: ShortcutVisibility) -> &'static str {
-    match v {
-        ShortcutVisibility::Always => "Always",
-        ShortcutVisibility::OnDemand => "On demand (?)",
-    }
+fn always_show_shortcuts_label(always_show_shortcuts: bool) -> &'static str {
+    if always_show_shortcuts { "Yes" } else { "No" }
 }
 
 fn dot_color_mode_label(m: DotColorMode) -> &'static str {

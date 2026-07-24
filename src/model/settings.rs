@@ -117,9 +117,10 @@ impl SettingsRow {
                 }
             }
             .to_string(),
-            SettingsRow::ShortcutVisibility => match state.shortcut_visibility {
-                ShortcutVisibility::Always => "The shortcut legend is always visible.",
-                ShortcutVisibility::OnDemand => "The shortcut legend is hidden until you press ?.",
+            SettingsRow::ShortcutVisibility => if state.always_show_shortcuts {
+                "The shortcut legend is always visible."
+            } else {
+                "The shortcut legend is hidden. Press ? for the full shortcut list."
             }
             .to_string(),
             SettingsRow::InboxIcon => format!("The inbox group's header is prefixed with {}.", state.inbox_icon),
@@ -335,8 +336,8 @@ impl PickerState {
         self.dirty = true;
     }
 
-    fn toggle_shortcut_visibility(&mut self) {
-        self.shortcut_visibility = self.shortcut_visibility.next();
+    fn toggle_always_show_shortcuts(&mut self) {
+        self.always_show_shortcuts = !self.always_show_shortcuts;
         self.dirty = true;
     }
 
@@ -366,7 +367,7 @@ impl PickerState {
             SettingsRow::ClearDormantOnAttach => self.toggle_clear_dormant_on_attach(),
             SettingsRow::StartFocusMode => self.cycle_start_focus_mode(),
             SettingsRow::NewGroupPosition => self.toggle_new_group_position(),
-            SettingsRow::ShortcutVisibility => self.toggle_shortcut_visibility(),
+            SettingsRow::ShortcutVisibility => self.toggle_always_show_shortcuts(),
             SettingsRow::InboxIcon => {
                 self.inbox_icon = Self::cycle_inbox_icon(&self.inbox_icon, -1);
                 self.dirty = true;
@@ -411,7 +412,7 @@ impl PickerState {
             SettingsRow::ClearDormantOnAttach => self.toggle_clear_dormant_on_attach(),
             SettingsRow::StartFocusMode => self.cycle_start_focus_mode(),
             SettingsRow::NewGroupPosition => self.toggle_new_group_position(),
-            SettingsRow::ShortcutVisibility => self.toggle_shortcut_visibility(),
+            SettingsRow::ShortcutVisibility => self.toggle_always_show_shortcuts(),
             SettingsRow::InboxIcon => {
                 self.inbox_icon = Self::cycle_inbox_icon(&self.inbox_icon, 1);
                 self.dirty = true;
@@ -906,17 +907,17 @@ mod tests {
     }
 
     #[test]
-    fn settings_step_left_and_right_toggle_shortcut_visibility() {
+    fn settings_step_left_and_right_toggle_always_show_shortcuts() {
         let mut st = settings_state();
-        assert_eq!(st.shortcut_visibility, ShortcutVisibility::Always);
+        assert!(st.always_show_shortcuts);
         st.settings_move_cursor(7); // ShortcutVisibility row (after NewGroupPosition)
         assert_eq!(st.current_settings_row(), SettingsRow::ShortcutVisibility);
         st.settings_step_right();
-        assert_eq!(st.shortcut_visibility, ShortcutVisibility::OnDemand);
+        assert!(!st.always_show_shortcuts);
         st.settings_step_right();
-        assert_eq!(st.shortcut_visibility, ShortcutVisibility::Always, "only two values, so right also wraps");
+        assert!(st.always_show_shortcuts, "only two values, so right also wraps");
         st.settings_step_left();
-        assert_eq!(st.shortcut_visibility, ShortcutVisibility::OnDemand);
+        assert!(!st.always_show_shortcuts);
         assert!(st.dirty);
     }
 
@@ -1236,17 +1237,17 @@ mod tests {
     }
 
     #[test]
-    fn settings_row_description_reflects_shortcut_visibility() {
+    fn settings_row_description_reflects_always_show_shortcuts() {
         let mut st = settings_state();
-        assert_eq!(st.shortcut_visibility, ShortcutVisibility::Always, "default is Always");
+        assert!(st.always_show_shortcuts, "default is true");
         assert_eq!(
             SettingsRow::ShortcutVisibility.description(&st),
             "The shortcut legend is always visible."
         );
-        st.shortcut_visibility = ShortcutVisibility::OnDemand;
+        st.always_show_shortcuts = false;
         assert_eq!(
             SettingsRow::ShortcutVisibility.description(&st),
-            "The shortcut legend is hidden until you press ?."
+            "The shortcut legend is hidden. Press ? for the full shortcut list."
         );
     }
 

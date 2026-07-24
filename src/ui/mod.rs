@@ -1,6 +1,6 @@
 use crate::model::{
     AttachedColorMode, ColorPolicy, DefaultMode, DotColorMode, Group, Mode, NewGroupPosition, PickerState, Row, Session,
-    SessionMetric, SettingsRow, ShortcutVisibility, StartFocusMode, SwapDirection, Window, ALL_NAMED_COLORS,
+    SessionMetric, SettingsRow, StartFocusMode, SwapDirection, Window, ALL_NAMED_COLORS,
 };
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
@@ -745,9 +745,10 @@ fn styled_hint(text: &str, key_color: Color) -> Line<'static> {
     Line::from(spans)
 }
 
-/// The footer's key-shortcut legend, or -- when `shortcut_visibility` is
-/// `OnDemand` and the transient `?` toggle hasn't revealed it yet this popup
-/// -- a minimal nudge naming the key that reveals it (issue #107).
+/// The footer's key-shortcut legend, or -- when `always_show_shortcuts` is
+/// false -- a minimal nudge naming the key that opens the full shortcuts
+/// overlay (issue #156; previously this nudge was a per-popup reveal
+/// toggle, issue #107).
 fn shortcut_hint_line(state: &PickerState, text: &str) -> Line<'static> {
     if state.shortcuts_visible() {
         styled_hint(text, color_from_name(&state.shortcut_color))
@@ -4020,16 +4021,12 @@ mod tests {
     }
 
     #[test]
-    fn shortcuts_on_demand_hides_the_legend_until_toggled() {
+    fn always_show_shortcuts_false_keeps_the_nudge_and_never_reveals_the_legend() {
         let sessions = vec![Session { id: String::new(), name: "a".into(), activity: 1, created: 1, attached: false, windows: vec![] }];
-        let cfg = Config { shortcut_visibility: ShortcutVisibility::OnDemand, ..Default::default() };
-        let mut state = PickerState::build(sessions, &cfg);
+        let cfg = Config { always_show_shortcuts: false, ..Default::default() };
+        let state = PickerState::build(sessions, &cfg);
         let text = render_to_string_sized(&state, 84, 20);
-        assert!(!text.contains("rename"), "legend stays hidden until the ? toggle reveals it");
-        assert!(text.contains("? shortcuts"), "a minimal nudge names the reveal key");
-
-        state.toggle_shortcuts();
-        let text = render_to_string_sized(&state, 84, 20);
-        assert!(text.contains("rename"), "legend renders once toggled on");
+        assert!(!text.contains("rename"), "legend stays hidden when always_show_shortcuts is false");
+        assert!(text.contains("? shortcuts"), "a minimal nudge names the key that opens the full shortcuts overlay");
     }
 }
