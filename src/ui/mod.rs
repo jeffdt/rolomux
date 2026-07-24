@@ -3419,6 +3419,51 @@ mod tests {
     }
 
     #[test]
+    fn draw_settings_row_one_shows_its_jump_number() {
+        let text = render_to_string(&settings_view());
+        let row = text
+            .lines()
+            .find(|line| line.contains("Default mode"))
+            .expect("Default mode row is rendered");
+        // Strip margin and frame border to check the actual content.
+        let content = row.chars().skip(3).collect::<String>();
+        assert!(content.starts_with("│1"), "row 1 (Default mode) shows jump number 1: {row:?}");
+    }
+
+    #[test]
+    fn draw_settings_row_eleven_shows_the_alt_glyph_jump_label() {
+        // Border color policy (row 11) sits below the fold at the default
+        // 80x20 size; needs height >= 24 to render, same as the other
+        // pre-existing tests that check this row.
+        let text = render_to_string_sized(&settings_view(), 80, 24);
+        let row = text
+            .lines()
+            .find(|line| line.contains("Border color"))
+            .expect("Border color row (jump number 11) is rendered");
+        // Strip margin and frame border to check the actual content.
+        let content = row.chars().skip(3).collect::<String>();
+        assert!(content.starts_with("│⌥1"), "row 11 (Border color) shows the Alt+1 jump label: {row:?}");
+    }
+
+    #[test]
+    fn draw_settings_child_color_option_rows_are_unchanged_by_jump_numbering() {
+        let mut st = settings_view();
+        st.settings_move_cursor(11); // ShortcutColor
+        st.settings_step_right(); // expand
+        let text = render_to_string(&st);
+        let row = text
+            .lines()
+            .find(|line| line.contains("○"))
+            .expect("an unselected color radio-option row is rendered");
+        // Strip margin and frame border to check the actual content.
+        let content = row.chars().skip(3).collect::<String>();
+        assert!(
+            content.starts_with("│     ○"),
+            "child rows keep their original 5-space indent, no jump number inserted: {row:?}"
+        );
+    }
+
+    #[test]
     fn draw_settings_gutter_bar_continues_through_expanded_color_options() {
         let mut st = settings_view();
         st.settings_move_cursor(11); // ShortcutColor

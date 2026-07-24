@@ -76,6 +76,8 @@ bind C new-session \; command-prompt -I "" "rename-session '%%'" \; command-prom
 | `g` | Open group-management mode |
 | `,` | Open settings |
 | `d` | Toggle dormant (dim) on the selected session, or the selected window if the cursor is on one |
+| `Ctrl-d` | Undormant the selected session and all of its windows |
+| `⇧D` | Undormant every session and window in the picker |
 | `f` | Toggle focus mode (hide dormant sessions and empty groups) |
 | `/` | Enter search mode (type to filter, `↵` switch, `Esc` back) |
 | `?` | Reveal the footer's shortcut legend (only needed when **Show shortcuts** is set to **On demand**; works in command, group, and settings modes) |
@@ -139,12 +141,14 @@ You will see a small reminder like `8 sessions hidden` while focus mode is activ
 Dormant sessions and focus mode persist across popups until turned off.
 Press `f` again to exit focus mode and everything will be restored exactly as it was.
 Press `d` again on a dormant session to mark it active again.
+`Ctrl-d` wakes up the selected session and every one of its windows in one press, and `⇧D` is the nuclear option: it clears every dormant flag in the picker at once, instantly and with no confirmation.
 
 Think of this as one more tool in your kit to keep your workbench clear and your focus intact.
 
 ### Settings
 
 Press `,` to open Settings, a full-screen view of picker-wide preferences, grouped into two sections. A description of the currently selected setting is always shown at the bottom.
+Each row shows a jump number in its gutter; pressing it jumps straight to that row and flips it, the same as moving there with `j`/`k` and pressing `Enter` -- handy for a setting you flip on and off often, like **Remember expanded sessions**.
 
 **Behavior**
 
@@ -172,6 +176,7 @@ Press `,` to open Settings, a full-screen view of picker-wide preferences, group
 | `j` / `k` | Move between rows, wrapping between the first and last row (also `↓` / `↑`) |
 | `h` / `l` | Cycle a value / expand-collapse a color picker (also `←` / `→`) |
 | `Space` / `Enter` | Toggle or activate the selected row |
+| `1`-`9`, `0`, `M-1`-`M-5` | Jump directly to a row by its gutter number and activate it (`0` = the 10th row, `M-1`-`M-5` = rows 11-15) |
 | `c` | Cycle the selected color row |
 | `Esc` / `q` / `,` | Back to the picker |
 
