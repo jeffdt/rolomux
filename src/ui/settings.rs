@@ -6,7 +6,7 @@
 use super::*;
 
 pub(super) const SETTINGS_FOOTER_HINT: &str =
-    "j/k move · h/l cycle · Space toggle · c color · Esc back";
+    "j/k move · h/l cycle · Space toggle · 1-9 jump · c color · Esc back";
 
 pub(super) fn draw_settings(frame: &mut Frame, state: &PickerState, inner: Rect) {
     let chunks = Layout::default()
@@ -34,10 +34,11 @@ pub(super) fn draw_settings(frame: &mut Frame, state: &PickerState, inner: Rect)
         }
         let line = match row {
             SettingsRow::DefaultMode => {
-                settings_value_line("Default mode", default_mode_label(state.default_mode), selected)
+                settings_value_line(*row, "Default mode", default_mode_label(state.default_mode), selected)
             }
             SettingsRow::DormantNumbering => {
                 settings_value_line(
+                    *row,
                     "Number dormant sessions",
                     dormant_numbering_label(state.number_dormant_sessions),
                     selected,
@@ -45,16 +46,18 @@ pub(super) fn draw_settings(frame: &mut Frame, state: &PickerState, inner: Rect)
             }
             SettingsRow::RememberExpanded => {
                 settings_value_line(
+                    *row,
                     "Remember expanded sessions",
                     remember_expanded_label(state.remember_expanded_sessions),
                     selected,
                 )
             }
             SettingsRow::SessionMetric => {
-                settings_value_line("Session metadata", session_metric_label(state.session_metric), selected)
+                settings_value_line(*row, "Session metadata", session_metric_label(state.session_metric), selected)
             }
             SettingsRow::ClearDormantOnAttach => {
                 settings_value_line(
+                    *row,
                     "Clear dormant on attach",
                     clear_dormant_on_attach_label(state.clear_dormant_on_attach),
                     selected,
@@ -62,6 +65,7 @@ pub(super) fn draw_settings(frame: &mut Frame, state: &PickerState, inner: Rect)
             }
             SettingsRow::StartFocusMode => {
                 settings_value_line(
+                    *row,
                     "Start in focus mode",
                     start_focus_mode_label(state.start_focus_mode),
                     selected,
@@ -69,6 +73,7 @@ pub(super) fn draw_settings(frame: &mut Frame, state: &PickerState, inner: Rect)
             }
             SettingsRow::NewGroupPosition => {
                 settings_value_line(
+                    *row,
                     "New group position",
                     new_group_position_label(state.new_group_position),
                     selected,
@@ -76,24 +81,23 @@ pub(super) fn draw_settings(frame: &mut Frame, state: &PickerState, inner: Rect)
             }
             SettingsRow::ShortcutVisibility => {
                 settings_value_line(
+                    *row,
                     "Show shortcuts",
                     shortcut_visibility_label(state.shortcut_visibility),
                     selected,
                 )
             }
             SettingsRow::InboxIcon => {
-                settings_value_line("Inbox icon", &state.inbox_icon, selected)
+                settings_value_line(*row, "Inbox icon", &state.inbox_icon, selected)
             }
             SettingsRow::AttachedColor => {
-                let mut spans = vec![
-                    gutter_span(),
-                    Span::raw(" "),
-                    Span::styled("Attached session color", Style::default().add_modifier(Modifier::BOLD)),
-                    Span::styled(
-                        format!("  {}", attached_color_mode_label(state.attached_color_mode)),
-                        secondary(selected),
-                    ),
-                ];
+                let mut spans = vec![gutter_span()];
+                spans.extend(settings_number_span(*row, selected));
+                spans.push(Span::styled("Attached session color", Style::default().add_modifier(Modifier::BOLD)));
+                spans.push(Span::styled(
+                    format!("  {}", attached_color_mode_label(state.attached_color_mode)),
+                    secondary(selected),
+                ));
                 if state.attached_color_mode == AttachedColorMode::Static {
                     spans.push(Span::raw("  "));
                     spans.push(Span::styled(
@@ -105,15 +109,13 @@ pub(super) fn draw_settings(frame: &mut Frame, state: &PickerState, inner: Rect)
                 Line::from(spans)
             }
             SettingsRow::BorderColorPolicy => {
-                let mut spans = vec![
-                    gutter_span(),
-                    Span::raw(" "),
-                    Span::styled("Border color", Style::default().add_modifier(Modifier::BOLD)),
-                    Span::styled(
-                        format!("  {}", color_policy_label(state.border_color_policy)),
-                        secondary(selected),
-                    ),
-                ];
+                let mut spans = vec![gutter_span()];
+                spans.extend(settings_number_span(*row, selected));
+                spans.push(Span::styled("Border color", Style::default().add_modifier(Modifier::BOLD)));
+                spans.push(Span::styled(
+                    format!("  {}", color_policy_label(state.border_color_policy)),
+                    secondary(selected),
+                ));
                 if state.border_color_policy == ColorPolicy::Static {
                     spans.push(Span::raw("  "));
                     spans.push(Span::styled(
@@ -125,21 +127,19 @@ pub(super) fn draw_settings(frame: &mut Frame, state: &PickerState, inner: Rect)
                 Line::from(spans)
             }
             SettingsRow::ShortcutColor => {
-                settings_color_line("Shortcut highlight color", &state.shortcut_color, state.shortcut_color_expanded(), selected)
+                settings_color_line(*row, "Shortcut highlight color", &state.shortcut_color, state.shortcut_color_expanded(), selected)
             }
             SettingsRow::ShortcutColorOption(idx) => {
                 settings_color_option_line(ALL_NAMED_COLORS[*idx], &state.shortcut_color, selected)
             }
             SettingsRow::DotColorMode => {
-                let mut spans = vec![
-                    gutter_span(),
-                    Span::raw(" "),
-                    Span::styled("Active window dot color", Style::default().add_modifier(Modifier::BOLD)),
-                    Span::styled(
-                        format!("  {}", dot_color_mode_label(state.dot_color_mode)),
-                        secondary(selected),
-                    ),
-                ];
+                let mut spans = vec![gutter_span()];
+                spans.extend(settings_number_span(*row, selected));
+                spans.push(Span::styled("Active window dot color", Style::default().add_modifier(Modifier::BOLD)));
+                spans.push(Span::styled(
+                    format!("  {}", dot_color_mode_label(state.dot_color_mode)),
+                    secondary(selected),
+                ));
                 if state.dot_color_mode == DotColorMode::Static {
                     spans.push(Span::raw("  "));
                     spans.push(Span::styled(
@@ -151,15 +151,13 @@ pub(super) fn draw_settings(frame: &mut Frame, state: &PickerState, inner: Rect)
                 Line::from(spans)
             }
             SettingsRow::ColorPolicy => {
-                let mut spans = vec![
-                    gutter_span(),
-                    Span::raw(" "),
-                    Span::styled("New group color", Style::default().add_modifier(Modifier::BOLD)),
-                    Span::styled(
-                        format!("  {}", color_policy_label(state.new_group_color_policy)),
-                        secondary(selected),
-                    ),
-                ];
+                let mut spans = vec![gutter_span()];
+                spans.extend(settings_number_span(*row, selected));
+                spans.push(Span::styled("New group color", Style::default().add_modifier(Modifier::BOLD)));
+                spans.push(Span::styled(
+                    format!("  {}", color_policy_label(state.new_group_color_policy)),
+                    secondary(selected),
+                ));
                 if state.new_group_color_policy == ColorPolicy::Static {
                     spans.push(Span::raw("  "));
                     spans.push(Span::styled(
@@ -172,15 +170,12 @@ pub(super) fn draw_settings(frame: &mut Frame, state: &PickerState, inner: Rect)
             }
             SettingsRow::Palette => {
                 let glyph = if state.palette_expanded() { "▾" } else { "▸" };
-                Line::from(vec![
-                    gutter_span(),
-                    Span::styled(format!("{glyph} "), secondary(selected)),
-                    Span::styled("Color palette", Style::default().add_modifier(Modifier::BOLD)),
-                    Span::styled(
-                        format!("  {} active", state.active_palette.len()),
-                        secondary(selected),
-                    ),
-                ])
+                let mut spans = vec![gutter_span()];
+                spans.extend(settings_number_span(SettingsRow::Palette, selected));
+                spans.push(Span::styled(format!("{glyph} "), secondary(selected)));
+                spans.push(Span::styled("Color palette", Style::default().add_modifier(Modifier::BOLD)));
+                spans.push(Span::styled(format!("  {} active", state.active_palette.len()), secondary(selected)));
+                Line::from(spans)
             }
             SettingsRow::PaletteColor(idx) => {
                 let (name, active) = &palette_entries[*idx];
@@ -223,6 +218,18 @@ fn gutter_span() -> Span<'static> {
     Span::styled("│", Style::default().fg(DIM))
 }
 
+/// The 2-character jump-number label for a top-level row (reusing the
+/// session list's `⌥N` glyph via `jump_label`), or a blank placeholder for
+/// a child row that has none. Settings always has rows 11-15 on screen, so
+/// unlike the session list's `wide_numbering` flag this padding is
+/// unconditional here -- there's no narrower case to optimize for.
+fn settings_number_span(row: SettingsRow, selected: bool) -> Vec<Span<'static>> {
+    match row.jump_number() {
+        Some(n) => vec![Span::styled(jump_label(n), secondary(selected)), Span::raw(" ")],
+        None => vec![],
+    }
+}
+
 fn settings_section_header_item(label: &str, width: u16) -> ListItem<'static> {
     let rule_len = (width as usize).saturating_sub(label.chars().count() + 2);
     ListItem::new(Line::from(vec![
@@ -239,28 +246,27 @@ fn push_settings_section_header(items: &mut Vec<ListItem<'static>>, label: &str,
     items.push(settings_section_header_item(label, width));
 }
 
-fn settings_value_line(label: &str, value: &str, selected: bool) -> Line<'static> {
-    Line::from(vec![
-        gutter_span(),
-        Span::raw(" "),
-        Span::styled(label.to_string(), Style::default().add_modifier(Modifier::BOLD)),
-        Span::styled(format!("  {value}"), secondary(selected)),
-    ])
+fn settings_value_line(row: SettingsRow, label: &str, value: &str, selected: bool) -> Line<'static> {
+    let mut spans = vec![gutter_span()];
+    spans.extend(settings_number_span(row, selected));
+    spans.push(Span::styled(label.to_string(), Style::default().add_modifier(Modifier::BOLD)));
+    spans.push(Span::styled(format!("  {value}"), secondary(selected)));
+    Line::from(spans)
 }
 
 /// Render a collapsed single-color settings row: a gutter bar, an expand
 /// glyph, the bold label, a swatch, and the color's name. Used by Shortcut
 /// highlight color, the one remaining row with an expandable direct-pick list.
-fn settings_color_line(label: &str, color_name: &str, expanded: bool, selected: bool) -> Line<'static> {
+fn settings_color_line(row: SettingsRow, label: &str, color_name: &str, expanded: bool, selected: bool) -> Line<'static> {
     let glyph = if expanded { "▾" } else { "▸" };
-    Line::from(vec![
-        gutter_span(),
-        Span::styled(format!("{glyph} "), secondary(selected)),
-        Span::styled(label.to_string(), Style::default().add_modifier(Modifier::BOLD)),
-        Span::raw("  "),
-        Span::styled("██", Style::default().fg(color_from_name(color_name))),
-        Span::styled(format!(" {color_name}"), secondary(selected)),
-    ])
+    let mut spans = vec![gutter_span()];
+    spans.extend(settings_number_span(row, selected));
+    spans.push(Span::styled(format!("{glyph} "), secondary(selected)));
+    spans.push(Span::styled(label.to_string(), Style::default().add_modifier(Modifier::BOLD)));
+    spans.push(Span::raw("  "));
+    spans.push(Span::styled("██", Style::default().fg(color_from_name(color_name))));
+    spans.push(Span::styled(format!(" {color_name}"), secondary(selected)));
+    Line::from(spans)
 }
 
 /// Render one child row of an expanded single-color picker: a gutter bar, a

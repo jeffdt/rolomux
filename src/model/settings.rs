@@ -158,8 +158,6 @@ impl SettingsRow {
     /// row (`ShortcutColorOption`/`PaletteColor`) -- those are reached by
     /// first jumping to their parent, not directly, since there are only
     /// 20 digit slots and up to 32 possible children across both pickers.
-    // Wired up by Task 7's UI rendering; remove this allow then.
-    #[allow(dead_code)]
     pub fn jump_number(&self) -> Option<usize> {
         TOP_LEVEL_ROWS.iter().position(|r| r == self).map(|i| i + 1)
     }
