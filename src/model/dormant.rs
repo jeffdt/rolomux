@@ -196,6 +196,36 @@ impl PickerState {
         self.focus_session(&name);
     }
 
+    /// Shift+D: the nuclear reset -- clear every dormant flag app-wide,
+    /// every session and every window, instantly and with no confirmation
+    /// (matches the rest of the app: group mutations, `toggle_dormant`, and
+    /// reorders all apply immediately too). Cursor focus is preserved by
+    /// session name using the same pattern as `toggle_focus_mode`, since
+    /// clearing dormant can only grow the visible set under focus mode,
+    /// never shrink it, but the row a given name lands on can still shift.
+    #[allow(dead_code)]
+    pub fn undormant_all(&mut self) {
+        let command_focus = self.cursor_session_name();
+        let search_focus = self.search_cursor_name();
+        self.dormant.clear();
+        self.dormant_windows.clear();
+        self.dirty = true;
+        if let Some(name) = command_focus {
+            self.focus_session(&name);
+        } else {
+            self.clamp_cursor_to_visible_rows();
+        }
+        if let Some(name) = search_focus {
+            if let Some(i) = self.search_results().iter().position(|s| s.name == name) {
+                self.search_cursor = i;
+            } else {
+                self.clamp_search_cursor_to_results();
+            }
+        } else {
+            self.clamp_search_cursor_to_results();
+        }
+    }
+
     /// Sorted snapshot of every dormant session name.
     pub fn dormant_list(&self) -> Vec<String> {
         let mut v: Vec<String> = self.dormant.iter().cloned().collect();
@@ -502,6 +532,54 @@ mod tests {
 
         assert!(!state.is_dormant("a"));
         assert!(!state.is_window_dormant("a", 1));
+    }
+
+    #[test]
+    fn undormant_all_clears_every_session_and_window_flag() {
+        let mut sessions = vec![s("a", 30, 1), s("b", 20, 2)];
+        sessions[0].windows = vec![
+            Window { id: "@1".into(), index: 0, name: "e".into(), active: true },
+            Window { id: "@2".into(), index: 1, name: "l".into(), active: false },
+        ];
+        let cfg = Config {
+            groups: vec![],
+            dormant: vec!["a".into(), "b".into()],
+            dormant_windows: vec![DormantWindow { session: "a".into(), index: 1, id: String::new() }],
+            ..Default::default()
+        };
+        let mut state = PickerState::build(sessions, &cfg);
+        state.dirty = false;
+
+        state.undormant_all();
+
+        assert!(!state.is_dormant("a"));
+        assert!(!state.is_dormant("b"));
+        assert!(!state.is_window_dormant("a", 1));
+        assert!(state.dirty);
+    }
+
+    #[test]
+    fn undormant_all_preserves_cursor_focus_by_name_under_focus_mode() {
+        let sessions = vec![s("alpha", 1, 1), s("beta", 1, 2), s("gamma", 1, 3)];
+        let cfg = Config {
+            groups: vec![],
+            dormant: vec!["alpha".into(), "gamma".into()],
+            focus_mode: true,
+            ..Default::default()
+        };
+        let mut state = PickerState::build(sessions, &cfg);
+        // Only "beta" is visible under focus mode; cursor starts there.
+        assert_eq!(state.cursor_session_name().as_deref(), Some("beta"));
+
+        state.undormant_all();
+
+        assert_eq!(
+            state.cursor_session_name().as_deref(),
+            Some("beta"),
+            "cursor stays on the same session even though the visible set grew"
+        );
+        let visible: Vec<&str> = state.ordered().iter().map(|s| s.name.as_str()).collect();
+        assert_eq!(visible, vec!["alpha", "beta", "gamma"], "every session is visible again");
     }
 
     #[test]
