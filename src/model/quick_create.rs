@@ -165,6 +165,28 @@ mod tests {
     }
 
     #[test]
+    fn commit_leaves_sibling_members_of_the_old_group_untouched() {
+        // state_with_two_groups: G1=[a, b], G2=[c]; d, e fall back to the inbox.
+        let mut st = state_with_two_groups();
+        st.focus_session("a"); // explicit member of G1, alongside sibling "b"
+        st.start_quick_create();
+        for c in "NEW".chars() { st.quick_create_push(c); }
+        assert!(st.commit_quick_create());
+
+        assert_eq!(
+            st.groups.iter().map(|g| g.name.as_str()).collect::<Vec<_>>(),
+            vec!["NEW", "G1", "G2", "INBOX"],
+            "NEW lands directly above G1, a's old group"
+        );
+        assert_eq!(st.groups[0].members, vec!["a".to_string()], "a moved into the new group alone");
+        assert_eq!(
+            st.groups[1].members,
+            vec!["b".to_string()],
+            "sibling member b stays behind in G1, neither dropped nor duplicated"
+        );
+    }
+
+    #[test]
     fn commit_from_window_row_acts_on_parent_session() {
         let mut st = grouped_state(); // G1=[a], G2=[b], INBOX=[c]
         st.focus_session("b");
