@@ -5,6 +5,16 @@
 use super::*;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+/// What's armed by `arm_group_delete`: the group index and name at arm
+/// time, mirroring `kill.rs`'s `PendingKill`. In practice any other
+/// group-mode input clears the arm before a reorder could make `index`
+/// stale (see `clear_pending_group_delete`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct PendingGroupDelete {
+    index: usize,
+    name: String,
+}
+
 impl PickerState {
     /// Raise from session altitude to group altitude: the cursor snaps to
     /// the header of the group containing the currently selected session (a
@@ -255,6 +265,36 @@ impl PickerState {
         self.group_cursor = self.group_cursor.min(self.groups.len().saturating_sub(1));
         self.dirty = true;
     }
+
+    /// Arm a confirm: the next `x` press will commit the highlighted group
+    /// instead of re-planning; any other key clears it (see
+    /// `clear_pending_group_delete`). A no-op on the inbox -- `group_delete`'s
+    /// undeletable guard moves up here so the inbox never shows a warning at
+    /// all, not even a confirmable one.
+    pub fn arm_group_delete(&mut self) {
+        let Some(g) = self.groups.get(self.group_cursor) else { return };
+        if g.inbox { return; }
+        self.pending_group_delete = Some(PendingGroupDelete { index: self.group_cursor, name: g.name.clone() });
+    }
+
+    /// Consume and return the armed group index, if any.
+    pub fn take_confirmed_group_delete(&mut self) -> Option<usize> {
+        self.pending_group_delete.take().map(|p| p.index)
+    }
+
+    /// Drop any armed confirm with no side effect. Called for every
+    /// group-mode input other than `Delete` itself, mirroring
+    /// `clear_pending_kill`.
+    pub fn clear_pending_group_delete(&mut self) {
+        self.pending_group_delete = None;
+    }
+
+    /// The footer warning to show while a confirm is armed, or `None`.
+    pub fn pending_group_delete_warning(&self) -> Option<String> {
+        self.pending_group_delete.as_ref().map(|p| {
+            format!("x again to delete group '{}' \u{2014} members move to inbox \u{b7} Esc cancels", p.name)
+        })
+    }
 }
 
 /// Deterministic pick for the Random new-group-color policy: `seed modulo
@@ -466,6 +506,72 @@ mod tests {
         assert_eq!(st.groups[0].name, "G2");
         assert_eq!(st.group_index_of("a"), st.inbox_index()); // a fell into the inbox
         assert!(st.dirty);
+    }
+
+    #[test]
+    fn arm_and_take_confirmed_group_delete_round_trips() {
+        let mut st = grouped_state();
+        st.enter_groups(); // cursor on G1
+        st.arm_group_delete();
+        assert!(st.pending_group_delete_warning().is_some());
+
+        assert_eq!(st.take_confirmed_group_delete(), Some(0));
+        assert!(st.pending_group_delete_warning().is_none(), "confirming consumes the arm");
+    }
+
+    #[test]
+    fn clear_pending_group_delete_drops_the_arm_with_no_side_effect() {
+        let mut st = grouped_state();
+        st.enter_groups(); // cursor on G1
+        st.arm_group_delete();
+
+        st.clear_pending_group_delete();
+
+        assert!(st.pending_group_delete_warning().is_none());
+        assert_eq!(st.take_confirmed_group_delete(), None);
+    }
+
+    #[test]
+    fn arming_delete_on_inbox_is_noop() {
+        let sessions = vec![s("a", 1, 1)];
+        let cfg = Config {
+            groups: vec![
+                Group { name: "WORK".into(), members: vec!["a".into()], ..Default::default() },
+                Group { name: "INBOX".into(), inbox: true, ..Default::default() },
+            ],
+            ..Default::default()
+        };
+        let mut st = PickerState::build(sessions, &cfg);
+        st.enter_groups();
+        st.group_move_cursor(1); // land on INBOX
+        assert!(st.groups[st.group_cursor()].inbox);
+        st.arm_group_delete();
+        assert!(st.pending_group_delete_warning().is_none(), "arming on the inbox never arms anything");
+    }
+
+    #[test]
+    fn confirmed_delete_spills_members_to_inbox() {
+        let mut st = grouped_state();
+        st.enter_groups(); // cursor on G1 (member a)
+        st.arm_group_delete();
+        let gi = st.take_confirmed_group_delete().expect("armed on G1");
+        st.group_cursor = gi;
+        st.group_delete();
+        assert_eq!(st.groups.len(), 2); // G2 + the synthesized inbox
+        assert_eq!(st.groups[0].name, "G2");
+        assert_eq!(st.group_index_of("a"), st.inbox_index()); // a fell into the inbox
+        assert!(st.dirty);
+    }
+
+    #[test]
+    fn pending_group_delete_warning_uses_exact_wording() {
+        let mut st = grouped_state();
+        st.enter_groups(); // cursor on G1
+        st.arm_group_delete();
+        assert_eq!(
+            st.pending_group_delete_warning(),
+            Some("x again to delete group 'G1' \u{2014} members move to inbox \u{b7} Esc cancels".to_string())
+        );
     }
 
     #[test]

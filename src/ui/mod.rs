@@ -541,10 +541,17 @@ fn draw_groups(frame: &mut Frame, state: &PickerState, inner: Rect) {
     frame.render_stateful_widget(list, list_area, &mut list_state);
 
     let rule = "─".repeat(footer_area.width as usize);
-    // A blocked inbox-reorder attempt takes over the hint line with a
-    // one-shot warning, same treatment as the pending window-move warning
-    // in command mode: it explains why ⇧J/⇧K visibly did nothing.
-    let hint_line = if let Some(warning) = state.group_reorder_blocked_warning() {
+    // A pending group-delete confirm takes priority over the blocked-reorder
+    // warning: it's the more severe/destructive pending action, and the two
+    // can't be armed simultaneously anyway (any input clears the other's
+    // arm). Both replace the hint line with a one-shot warning, same
+    // treatment as the pending window-move warning in command mode.
+    let hint_line = if let Some(warning) = state.pending_group_delete_warning() {
+        Line::from(Span::styled(
+            warning,
+            Style::default().fg(WARNING).add_modifier(Modifier::BOLD),
+        ))
+    } else if let Some(warning) = state.group_reorder_blocked_warning() {
         Line::from(Span::styled(
             warning.to_string(),
             Style::default().fg(WARNING).add_modifier(Modifier::BOLD),
@@ -2919,6 +2926,15 @@ mod tests {
         st.group_reorder(-1); // blocked
         let text = render_to_string(&st);
         assert!(text.contains("Inbox can't be reordered"));
+        assert!(!text.contains("Enter rename"), "warning replaces the normal footer hint, not alongside it");
+    }
+
+    #[test]
+    fn draw_groups_footer_shows_warning_when_delete_is_armed() {
+        let mut st = groups_view(false); // CONFIG + INBOX
+        st.arm_group_delete();
+        let text = render_to_string(&st);
+        assert!(text.contains("x again to delete group 'config'"));
         assert!(!text.contains("Enter rename"), "warning replaces the normal footer hint, not alongside it");
     }
 

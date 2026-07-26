@@ -488,6 +488,10 @@ fn event_loop(
                         if !matches!(input, AltitudeInput::MoveUp | AltitudeInput::MoveDown) {
                             state.clear_group_reorder_warning();
                         }
+                        let had_pending_group_delete = state.pending_group_delete_warning().is_some();
+                        if !matches!(input, AltitudeInput::Delete) {
+                            state.clear_pending_group_delete();
+                        }
                         match input {
                             AltitudeInput::Up => state.group_move_cursor(-1),
                             AltitudeInput::Down => state.group_move_cursor(1),
@@ -496,9 +500,25 @@ fn event_loop(
                             AltitudeInput::New => state.group_new(),
                             AltitudeInput::Rename => state.group_start_rename(),
                             AltitudeInput::CycleColor => state.group_cycle_color(),
-                            AltitudeInput::Delete => state.group_delete(),
+                            AltitudeInput::Delete => {
+                                if let Some(gi) = state.take_confirmed_group_delete() {
+                                    state.group_cursor = gi;
+                                    state.group_delete();
+                                } else {
+                                    state.arm_group_delete();
+                                }
+                            }
                             AltitudeInput::OpenHelp => state.open_help(),
-                            AltitudeInput::Descend => state.exit_groups(),
+                            // A pending delete confirm absorbs Descend
+                            // (`g`/Esc) as just a cancel-the-arm instead of
+                            // also dropping back to session altitude --
+                            // matches Command mode's had_pending_kill/Quit
+                            // absorption above.
+                            AltitudeInput::Descend => {
+                                if !had_pending_group_delete {
+                                    state.exit_groups();
+                                }
+                            }
                             AltitudeInput::DescendInto => state.descend_into(),
                             AltitudeInput::EnterSearch => {
                                 state.exit_groups();

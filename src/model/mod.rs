@@ -17,6 +17,7 @@ pub use settings::SettingsRow;
 use settings::SettingsUiState;
 
 mod groups;
+use groups::PendingGroupDelete;
 
 mod search;
 
@@ -71,6 +72,10 @@ pub struct PickerState {
     /// cleared by any other group-mode input, mirroring
     /// `pending_window_move`'s clear-on-any-other-key lifecycle.
     group_reorder_blocked: bool,
+    /// In-flight group-delete confirmation, armed when `x` targets a
+    /// non-inbox group; `Some` until a second `x` confirms it or any other
+    /// key clears it. See `src/model/groups.rs`.
+    pending_group_delete: Option<PendingGroupDelete>,
     pub default_mode: DefaultMode,
     pub number_dormant_sessions: bool,
     pub remember_expanded_sessions: bool,
@@ -148,6 +153,7 @@ impl PickerState {
             pending_kill: None,
             swap_indicator: None,
             group_reorder_blocked: false,
+            pending_group_delete: None,
             default_mode: config.default_mode,
             start_focus_mode: config.start_focus_mode,
             number_dormant_sessions: config.number_dormant_sessions,
