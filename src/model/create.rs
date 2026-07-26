@@ -50,8 +50,6 @@ impl PickerState {
     }
 
     /// The in-flight buffer for whichever stage is currently active.
-    // Consumed by Task 4's phantom-row rendering, not yet wired.
-    #[allow(dead_code)]
     pub fn create_buffer(&self) -> Option<&str> {
         self.create_prompt.as_ref().map(|p| match p.stage {
             CreateStage::SessionName => p.session_buffer.as_str(),

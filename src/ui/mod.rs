@@ -1,6 +1,6 @@
 use crate::model::{
-    AttachedColorMode, ColorPolicy, DefaultMode, DotColorMode, Group, Mode, PickerState, Row, Session,
-    SessionMetric, SettingsRow, StartFocusMode, SwapDirection, Window, ALL_NAMED_COLORS,
+    AttachedColorMode, ColorPolicy, CreateStage, DefaultMode, DotColorMode, Group, Mode, PickerState, Row,
+    Session, SessionMetric, SettingsRow, StartFocusMode, SwapDirection, Window, ALL_NAMED_COLORS,
 };
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
@@ -53,6 +53,14 @@ const SEARCH_FOOTER_HINT: &str = "↑↓ move · ⌃w word · ⌃u clear · ⌃f
 /// than the selected session.
 const ALTITUDE_FOOTER_HINT: &str =
     "r rename \u{b7} n new \u{b7} c color \u{b7} x delete \u{b7} \u{21e7}JK move \u{b7} Enter open \u{b7} Esc back";
+
+/// Footer hint while the in-flight create prompt is in its session-name
+/// stage (see `CreateStage`).
+const CREATE_SESSION_FOOTER_HINT: &str = "session name \u{b7} Enter next \u{b7} Esc cancel";
+
+/// Footer hint while the in-flight create prompt is in its window-name
+/// stage.
+const CREATE_WINDOW_FOOTER_HINT: &str = "window name \u{b7} Enter skip/create \u{b7} Esc back";
 
 /// The running binary's version, as `git describe --tags --dirty` saw it at
 /// build time (e.g. `v0.27.0` on a clean tagged release, `v0.27.0-3-gabc1234`
@@ -264,6 +272,29 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
     } else {
         None
     };
+    // Two signals for the in-flight session-create phantom row, derived
+    // purely from `state.mode` plus existing public accessors -- no key can
+    // move the cursor while `state.creating()` is true, so these stay in
+    // sync with whatever `start_create_here`/`start_create_in_group` picked.
+    // `create_above_session` (Command-mode `AboveSelected`) wins when set;
+    // otherwise `create_end_target_group` (group-mode `EndOfGroup`, or the
+    // empty-picker fallback to the inbox) places the phantom at the end of
+    // that group's block, including an empty group's own header slot.
+    let create_above_session = if state.creating() && state.mode != Mode::Groups {
+        state.cursor_session_name()
+    } else {
+        None
+    };
+    let create_end_target_group = if !state.creating() {
+        None
+    } else if state.mode == Mode::Groups {
+        Some(state.group_cursor())
+    } else if create_above_session.is_none() {
+        state.inbox_index()
+    } else {
+        None
+    };
+    let create_buf = state.create_buffer().unwrap_or("");
 
     for row in rows.iter() {
         match row {
@@ -271,10 +302,17 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
                 let sess = ordered[*si];
                 let section = group_ids[*si];
                 if last_section != Some(section) {
+                    if create_end_target_group.is_some() && create_end_target_group == last_section {
+                        push_create_phantom_row(&mut items, create_buf, current_gutter_color, wide_numbering, raised);
+                    }
                     let target = section;
                     while next_group < target {
                         if push_empty_group_header_unless_focused(&mut items, state, next_group, list_area.width, raised) {
                             note_highlighted_header(&mut selected_line, &items, state, next_group);
+                            if create_end_target_group == Some(next_group) {
+                                let color = group_color(&state.groups[next_group], next_group, &state.active_palette);
+                                push_create_phantom_row(&mut items, create_buf, color, wide_numbering, raised);
+                            }
                         }
                         next_group += 1;
                     }
@@ -315,6 +353,9 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
                     AttachedColorMode::Match => current_gutter_color,
                     AttachedColorMode::Static => attached_static_color,
                 };
+                if create_above_session.as_deref() == Some(sess.name.as_str()) {
+                    push_create_phantom_row(&mut items, create_buf, current_gutter_color, wide_numbering, raised);
+                }
                 items.push(recede(session_item(
                     sess,
                     state.is_expanded(&sess.name),
@@ -360,10 +401,20 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
             }
         }
     }
+    // The target group was the last section with any session rows, so its
+    // closing point (mirroring the mid-list check above) never fired inside
+    // the loop.
+    if create_end_target_group.is_some() && create_end_target_group == last_section {
+        push_create_phantom_row(&mut items, create_buf, current_gutter_color, wide_numbering, raised);
+    }
     // Trailing empty groups (after the last session row, with no residual below).
     while next_group < state.groups.len() {
         if push_empty_group_header_unless_focused(&mut items, state, next_group, list_area.width, raised) {
             note_highlighted_header(&mut selected_line, &items, state, next_group);
+            if create_end_target_group == Some(next_group) {
+                let color = group_color(&state.groups[next_group], next_group, &state.active_palette);
+                push_create_phantom_row(&mut items, create_buf, color, wide_numbering, raised);
+            }
         }
         next_group += 1;
     }
@@ -598,6 +649,36 @@ fn push_quick_create_phantom_row(items: &mut Vec<ListItem<'static>>, buf: &str, 
     items.push(ListItem::new(group_edit_line(buf, None, caret_color)));
 }
 
+/// Push the live create-session phantom row: the typed buffer in the same
+/// caret style as an inline session rename. Reuses `session_item`'s
+/// `rename_buf` branch via a placeholder `Session` whose fields are never
+/// read on that branch, so no real session's number or metadata is
+/// perturbed by pushing this directly into `items`.
+fn push_create_phantom_row(items: &mut Vec<ListItem<'static>>, buf: &str, gutter_color: Color, wide_numbering: bool, raised: bool) {
+    let placeholder = Session {
+        id: String::new(), name: String::new(), activity: 0, created: 0, attached: false, windows: vec![],
+    };
+    let meta = MetaLayout { col: 0, count_width: 0 };
+    items.push(recede(
+        session_item(
+            &placeholder,
+            false,
+            false,
+            None,
+            meta,
+            false,
+            gutter_color,
+            None,
+            Some(gutter_color),
+            SessionMetric::Hidden,
+            Some(buf),
+            None,
+            wide_numbering,
+        ),
+        raised,
+    ));
+}
+
 fn push_create_group_hint(items: &mut Vec<ListItem<'static>>) {
     items.push(ListItem::new(Line::from(vec![
         Span::raw("  "),
@@ -738,6 +819,12 @@ fn footer_rule(width: u16, state: &PickerState) -> String {
 }
 
 fn command_footer_hint(state: &PickerState) -> String {
+    if state.creating() {
+        return match state.create_stage() {
+            Some(CreateStage::WindowName) => CREATE_WINDOW_FOOTER_HINT.to_string(),
+            _ => CREATE_SESSION_FOOTER_HINT.to_string(),
+        };
+    }
     if state.mode == Mode::Groups {
         return ALTITUDE_FOOTER_HINT.to_string();
     }
@@ -2105,6 +2192,133 @@ mod tests {
         let text_after_cancel = render_to_string(&st);
         assert!(!text_after_cancel.contains('▏'), "phantom row gone after cancel");
         assert!(text_after_cancel.contains("G2"), "G2 header still renders normally after cancel");
+    }
+
+    #[test]
+    fn draw_command_shows_create_phantom_row_above_selected_session() {
+        let sessions = vec![
+            Session { id: String::new(), name: "alpha".into(), activity: 1, created: 1, attached: false, windows: vec![] },
+            Session { id: String::new(), name: "bravo".into(), activity: 1, created: 2, attached: false, windows: vec![] },
+        ];
+        let cfg = Config {
+            groups: vec![
+                Group { name: "G1".into(), members: vec!["alpha".into()], ..Default::default() },
+                Group { name: "G2".into(), members: vec!["bravo".into()], ..Default::default() },
+            ],
+            ..Default::default()
+        };
+        let mut st = PickerState::build(sessions, &cfg);
+        st.focus_session("bravo");
+        st.start_create_here();
+        for c in "charlie".chars() { st.create_push(c); }
+
+        let text = render_to_string(&st);
+        let lines: Vec<&str> = text.lines().collect();
+        let g2_pos = lines.iter().position(|l| l.contains("G2")).expect("G2 header present");
+        let phantom_pos = lines.iter().position(|l| l.contains("charlie") && l.contains('▏')).expect("phantom row visible");
+        let bravo_pos = lines.iter().position(|l| l.contains("bravo")).expect("bravo row present");
+        assert!(g2_pos < phantom_pos, "phantom sits within G2's block, below its header");
+        assert_eq!(bravo_pos, phantom_pos + 1, "phantom sits directly above the selected session, no gap");
+
+        st.create_cancel();
+        let text_after_cancel = render_to_string(&st);
+        assert!(!text_after_cancel.contains('▏'), "phantom row gone after cancel");
+        assert!(text_after_cancel.contains("bravo"), "bravo row still renders normally after cancel");
+    }
+
+    #[test]
+    fn draw_command_create_phantom_row_above_parent_session_when_window_row_focused() {
+        let sessions = vec![
+            Session { id: String::new(), name: "alpha".into(), activity: 1, created: 1, attached: false,
+                      windows: vec![Window { id: String::new(), index: 0, name: "w".into(), active: true }] },
+        ];
+        let cfg = Config { groups: vec![Group { name: "G1".into(), members: vec!["alpha".into()], ..Default::default() }], ..Default::default() };
+        let mut st = PickerState::build(sessions, &cfg);
+        st.focus_session("alpha");
+        st.expand();
+        st.move_cursor(1); // onto alpha's window row
+        assert!(matches!(st.visible_rows()[st.cursor], Row::Window(_, _)), "precondition: cursor on a window row");
+
+        st.start_create_here();
+        for c in "charlie".chars() { st.create_push(c); }
+
+        let text = render_to_string(&st);
+        let lines: Vec<&str> = text.lines().collect();
+        let phantom_pos = lines.iter().position(|l| l.contains("charlie") && l.contains('▏')).expect("phantom row visible");
+        let alpha_pos = lines.iter().position(|l| l.contains("alpha")).expect("alpha row present");
+        assert!(phantom_pos < alpha_pos, "phantom sits above the parent session row, not the window row");
+    }
+
+    #[test]
+    fn draw_command_shows_create_phantom_row_at_end_of_target_group_in_group_mode() {
+        let sessions = vec![
+            Session { id: String::new(), name: "alpha".into(), activity: 1, created: 1, attached: false, windows: vec![] },
+            Session { id: String::new(), name: "bravo".into(), activity: 1, created: 2, attached: false, windows: vec![] },
+            Session { id: String::new(), name: "charlie".into(), activity: 1, created: 3, attached: false, windows: vec![] },
+        ];
+        let cfg = Config {
+            groups: vec![
+                Group { name: "G1".into(), members: vec!["alpha".into()], ..Default::default() },
+                Group { name: "G2".into(), members: vec!["bravo".into(), "charlie".into()], ..Default::default() },
+            ],
+            ..Default::default()
+        };
+        let mut st = PickerState::build(sessions, &cfg);
+        st.enter_groups();
+        st.group_move_cursor(1); // highlight G2
+        st.start_create_in_group();
+        for c in "delta".chars() { st.create_push(c); }
+
+        let text = render_to_string(&st);
+        let lines: Vec<&str> = text.lines().collect();
+        let charlie_pos = lines.iter().position(|l| l.contains("charlie")).expect("charlie row present");
+        let phantom_pos = lines.iter().position(|l| l.contains("delta") && l.contains('▏')).expect("phantom row visible");
+        assert_eq!(phantom_pos, charlie_pos + 1, "phantom sits directly after G2's last member");
+    }
+
+    #[test]
+    fn draw_command_shows_create_phantom_row_in_empty_target_group() {
+        let sessions = vec![
+            Session { id: String::new(), name: "alpha".into(), activity: 1, created: 1, attached: false, windows: vec![] },
+        ];
+        let cfg = Config {
+            groups: vec![
+                Group { name: "G1".into(), members: vec!["alpha".into()], ..Default::default() },
+                Group { name: "EMPTY".into(), members: vec![], ..Default::default() },
+            ],
+            ..Default::default()
+        };
+        let mut st = PickerState::build(sessions, &cfg);
+        st.enter_groups();
+        st.group_move_cursor(1); // highlight EMPTY
+        assert_eq!(st.groups[st.group_cursor()].name, "EMPTY");
+        st.start_create_in_group();
+        for c in "seed".chars() { st.create_push(c); }
+
+        let text = render_to_string(&st);
+        let lines: Vec<&str> = text.lines().collect();
+        let empty_pos = lines.iter().position(|l| l.contains("EMPTY")).expect("EMPTY header present");
+        let phantom_pos = lines.iter().position(|l| l.contains("seed") && l.contains('▏')).expect("phantom row visible");
+        assert!(empty_pos < phantom_pos, "phantom sits after the empty group's own header, its only slot");
+    }
+
+    #[test]
+    fn draw_command_footer_shows_create_stage_hints_and_clears_after_cancel() {
+        let mut st = grouped_state();
+        st.focus_session("a");
+        st.start_create_here();
+        let text = render_to_string(&st);
+        assert!(text.contains("session name"), "SessionName stage hint shown");
+
+        for c in "new".chars() { st.create_push(c); }
+        assert_eq!(st.create_commit(), None, "advances to WindowName stage");
+        let text2 = render_to_string(&st);
+        assert!(text2.contains("window name"), "WindowName stage hint shown after advancing");
+
+        st.create_cancel();
+        let text3 = render_to_string(&st);
+        assert!(!text3.contains("window name"), "stage hint gone after cancel");
+        assert!(!text3.contains('▏'), "phantom row gone after cancel");
     }
 
     #[test]
