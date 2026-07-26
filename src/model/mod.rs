@@ -21,6 +21,13 @@ use groups::PendingGroupDelete;
 
 mod quick_create;
 
+mod create;
+// Re-exported ahead of the `n`/`⇧N` input wiring (Task 3) that will consume
+// these from main.rs; unused in the non-test build until then.
+#[allow(unused_imports)]
+pub use create::{CreatePlacement, CreateStage, PendingCreate};
+use create::CreatePrompt;
+
 mod search;
 
 mod dormant;
@@ -61,6 +68,10 @@ pub struct PickerState {
     /// In-flight `⇧N` quick-create buffer; `Some` while naming a new group
     /// around the currently-selected session. See `src/model/quick_create.rs`.
     quick_create_edit: Option<String>,
+    /// In-flight two-stage session-create buffer; `Some` while naming a new
+    /// session (session-name stage, then optional window-name stage). See
+    /// `src/model/create.rs`.
+    create_prompt: Option<CreatePrompt>,
     /// In-flight window-move confirmation, armed when a press would destroy
     /// a session; `Some` until the same-direction key repeats it or any
     /// other key clears it.
@@ -155,6 +166,7 @@ impl PickerState {
             altitude_origin: None,
             rename_edit: None,
             quick_create_edit: None,
+            create_prompt: None,
             pending_window_move: None,
             pending_kill: None,
             swap_indicator: None,
