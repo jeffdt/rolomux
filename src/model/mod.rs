@@ -19,6 +19,8 @@ use settings::SettingsUiState;
 mod groups;
 use groups::PendingGroupDelete;
 
+mod quick_create;
+
 mod search;
 
 mod dormant;
@@ -56,6 +58,9 @@ pub struct PickerState {
     altitude_origin: Option<(String, Option<u32>)>,
     /// In-flight session/window rename buffer; `Some` while a rename is in progress.
     rename_edit: Option<String>,
+    /// In-flight `⇧N` quick-create buffer; `Some` while naming a new group
+    /// around the currently-selected session. See `src/model/quick_create.rs`.
+    quick_create_edit: Option<String>,
     /// In-flight window-move confirmation, armed when a press would destroy
     /// a session; `Some` until the same-direction key repeats it or any
     /// other key clears it.
@@ -149,6 +154,7 @@ impl PickerState {
             group_edit: None,
             altitude_origin: None,
             rename_edit: None,
+            quick_create_edit: None,
             pending_window_move: None,
             pending_kill: None,
             swap_indicator: None,

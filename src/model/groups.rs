@@ -164,11 +164,24 @@ impl PickerState {
             ColorPolicy::Random => pick_random_color(&self.active_palette, random_seed()),
             ColorPolicy::Static => self.static_color.clone(),
         };
-        let group = Group { name: String::new(), members: Vec::new(), color, inbox: false };
-        let index = self.group_cursor.min(self.inbox_index().unwrap_or(self.groups.len()));
-        self.groups.insert(index, group);
+        let index = self.insert_group_above(self.group_cursor);
+        self.groups[index].color = color;
         self.group_cursor = index;
         self.group_edit = Some(String::new());
+    }
+
+    /// Insert a fresh, unnamed, memberless group immediately above index
+    /// `at` (pushing whatever was there down a slot), clamped so it can
+    /// never land after the inbox, which always occupies the trailing slot
+    /// (see `ensure_inbox_last`). Returns the actual insertion index --
+    /// callers fill in whatever fields they need (color, name, membership)
+    /// afterward. Shared by `group_new` (inserts above `group_cursor`) and
+    /// `quick_create::commit_quick_create` (inserts above the selected
+    /// session's current group).
+    pub(super) fn insert_group_above(&mut self, at: usize) -> usize {
+        let index = at.min(self.inbox_index().unwrap_or(self.groups.len()));
+        self.groups.insert(index, Group { name: String::new(), members: Vec::new(), color: String::new(), inbox: false });
+        index
     }
 
     /// Advance the selected group's header color to the next in the live
