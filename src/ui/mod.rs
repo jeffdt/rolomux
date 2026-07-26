@@ -2016,6 +2016,37 @@ mod tests {
     }
 
     #[test]
+    fn focus_mode_raised_highlight_lands_on_a_focus_hidden_empty_group() {
+        let sessions = vec![
+            Session { id: String::new(), name: "claude".into(), activity: 30, created: 1, attached: false,
+                      windows: vec![Window { id: String::new(), index: 0, name: "w".into(), active: true }] },
+        ];
+        let cfg = Config {
+            dormant: vec![],
+            groups: vec![
+                Group { name: "config".into(), members: vec!["claude".into()], color: String::new(), ..Default::default() },
+                Group { name: "tools".into(), members: vec![], color: String::new(), ..Default::default() },
+            ],
+            ..Default::default()
+        };
+        let mut state = PickerState::build(sessions, &cfg);
+        state.toggle_focus_mode();
+        state.enter_groups();
+        assert_eq!(state.group_cursor(), 0, "enter_groups snaps to claude's group, config");
+        state.group_move_cursor(1); // onto "tools", empty and focus-hidden at session altitude
+
+        let buf = render_buf(&state);
+        let tools_y = row_of(&buf, "TOOLS");
+        for x in card_interior(&buf) {
+            assert_eq!(
+                buf[(x, tools_y)].style().bg,
+                Some(SEL_BG),
+                "the focus-hidden empty group still gets a real selection bar while raised (x={x})"
+            );
+        }
+    }
+
+    #[test]
     fn focus_mode_hides_inbox_header_when_it_has_no_visible_sessions() {
         let sessions = vec![
             Session { id: String::new(), name: "claude".into(), activity: 30, created: 1, attached: false,
