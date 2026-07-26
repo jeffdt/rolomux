@@ -2303,6 +2303,36 @@ mod tests {
     }
 
     #[test]
+    fn draw_command_shows_create_phantom_row_at_inbox_end_on_empty_picker() {
+        let cfg = Config::default();
+        let mut st = PickerState::build(Vec::new(), &cfg);
+        st.start_create_here();
+        for c in "solo".chars() { st.create_push(c); }
+
+        let text = render_to_string(&st);
+        let lines: Vec<&str> = text.lines().collect();
+        let inbox_pos = lines.iter().position(|l| l.contains("INBOX")).expect("inbox header present");
+        let phantom_pos = lines.iter().position(|l| l.contains("solo") && l.contains('▏')).expect("phantom row visible");
+        assert!(inbox_pos < phantom_pos, "phantom sits after the inbox's own header, its only slot on an empty picker");
+
+        st.create_cancel();
+        let text_after_cancel = render_to_string(&st);
+        assert!(!text_after_cancel.contains('▏'), "phantom row gone after cancel");
+        assert!(text_after_cancel.contains("INBOX"), "inbox header still renders normally after cancel");
+    }
+
+    #[test]
+    fn draw_command_footer_shows_create_hint_over_altitude_hint_in_group_mode() {
+        let mut st = grouped_state();
+        st.enter_groups();
+        st.start_create_in_group();
+
+        let text = render_to_string(&st);
+        assert!(text.contains("session name"), "create-stage hint wins over the altitude hint while creating in group mode");
+        assert!(!text.contains("Enter open"), "altitude hint suppressed while creating");
+    }
+
+    #[test]
     fn draw_command_footer_shows_create_stage_hints_and_clears_after_cancel() {
         let mut st = grouped_state();
         st.focus_session("a");
