@@ -43,6 +43,10 @@ pub trait Tmux {
     fn swap_window(&self, session: &str, a: u32, b: u32) -> io::Result<()>;
     fn move_window(&self, src_session: &str, src_index: u32, dst_session: &str, dst_anchor_index: u32, before: bool) -> io::Result<()>;
     fn new_placeholder_window(&self, session: &str) -> io::Result<()>;
+    /// Creates a detached session; `window` names its first window when provided.
+    /// Returns Err on non-zero tmux exit.
+    #[allow(dead_code)]
+    fn new_session(&self, name: &str, window: Option<&str>) -> io::Result<()>;
     fn kill_session(&self, name: &str) -> io::Result<()>;
     fn kill_window(&self, session: &str, index: u32) -> io::Result<()>;
     fn detach_on_destroy_off(&self, session: &str) -> bool;
@@ -204,6 +208,20 @@ impl Tmux for RealTmux {
             .args(["new-window", "-d", "-t", session, "-n", "(empty)"])
             .status()
             .map(|_| ())
+    }
+
+    fn new_session(&self, name: &str, window: Option<&str>) -> io::Result<()> {
+        let mut args = vec!["new-session", "-d", "-s", name];
+        if let Some(w) = window {
+            args.push("-n");
+            args.push(w);
+        }
+        let out = self.command().args(&args).output()?;
+        if out.status.success() {
+            Ok(())
+        } else {
+            Err(io::Error::other("tmux new-session failed"))
+        }
     }
 
     fn kill_session(&self, name: &str) -> io::Result<()> {
@@ -401,6 +419,7 @@ pub(crate) struct FakeTmux {
     pub calls: std::cell::RefCell<Vec<String>>,
     gathered: std::cell::RefCell<Gathered>,
     detach_on_destroy_off: std::cell::Cell<bool>,
+    new_session_fails: std::cell::Cell<bool>,
     attached_window: std::cell::RefCell<Option<(String, String)>>,
     located_windows: std::cell::RefCell<std::collections::HashMap<String, (String, u32)>>,
 }
@@ -412,6 +431,7 @@ impl FakeTmux {
             calls: std::cell::RefCell::new(Vec::new()),
             gathered: std::cell::RefCell::new(gathered),
             detach_on_destroy_off: std::cell::Cell::new(false),
+            new_session_fails: std::cell::Cell::new(false),
             attached_window: std::cell::RefCell::new(None),
             located_windows: std::cell::RefCell::new(std::collections::HashMap::new()),
         }
@@ -419,6 +439,11 @@ impl FakeTmux {
 
     pub fn with_detach_on_destroy_off(self, off: bool) -> Self {
         self.detach_on_destroy_off.set(off);
+        self
+    }
+
+    pub fn with_new_session_fails(self, fails: bool) -> Self {
+        self.new_session_fails.set(fails);
         self
     }
 
@@ -472,6 +497,14 @@ impl Tmux for FakeTmux {
     fn new_placeholder_window(&self, session: &str) -> std::io::Result<()> {
         self.calls.borrow_mut().push(format!("new-window:{session}"));
         Ok(())
+    }
+    fn new_session(&self, name: &str, window: Option<&str>) -> std::io::Result<()> {
+        self.calls.borrow_mut().push(format!("new-session:{name}:{window:?}"));
+        if self.new_session_fails.get() {
+            Err(io::Error::other("tmux new-session failed"))
+        } else {
+            Ok(())
+        }
     }
     fn kill_session(&self, name: &str) -> std::io::Result<()> {
         self.calls.borrow_mut().push(format!("kill-session:{name}"));
@@ -754,5 +787,27 @@ scratch\u{1f}50\u{1f}5\u{1f}0\u{1f}0\u{1f}shell\u{1f}1\u{1f}$8\u{1f}@2
         assert!(!t.detach_on_destroy_off("any"));
         let t2 = FakeTmux::with_gather(Gathered::default()).with_detach_on_destroy_off(true);
         assert!(t2.detach_on_destroy_off("any"));
+    }
+
+    #[test]
+    fn fake_tmux_records_new_session_with_name_and_window() {
+        let t = FakeTmux::default();
+        t.new_session("proj", Some("editor")).unwrap();
+        assert_eq!(*t.calls.borrow(), vec!["new-session:proj:Some(\"editor\")"]);
+    }
+
+    #[test]
+    fn fake_tmux_records_new_session_with_name_only() {
+        let t = FakeTmux::default();
+        t.new_session("scratch", None).unwrap();
+        assert_eq!(*t.calls.borrow(), vec!["new-session:scratch:None"]);
+    }
+
+    #[test]
+    fn fake_tmux_new_session_fails_when_configured() {
+        let t = FakeTmux::default().with_new_session_fails(true);
+        let result = t.new_session("proj", Some("editor"));
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().kind(), io::ErrorKind::Other);
     }
 }
