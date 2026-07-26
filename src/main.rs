@@ -404,6 +404,18 @@ fn event_loop(
                             SearchInput::Exit => state.cancel_rename(),
                             SearchInput::Up | SearchInput::Down | SearchInput::Expand | SearchInput::Collapse | SearchInput::ToggleFocusMode | SearchInput::None => {}
                         }
+                    } else if state.quick_creating() {
+                        match map_search_key(key) {
+                            SearchInput::Char(c) => state.quick_create_push(c),
+                            SearchInput::Backspace => state.quick_create_backspace(),
+                            SearchInput::DeleteWord => state.quick_create_delete_word(),
+                            SearchInput::Clear => state.quick_create_clear(),
+                            SearchInput::Select => {
+                                state.commit_quick_create();
+                            }
+                            SearchInput::Exit => state.cancel_quick_create(),
+                            SearchInput::Up | SearchInput::Down | SearchInput::Expand | SearchInput::Collapse | SearchInput::ToggleFocusMode | SearchInput::None => {}
+                        }
                     } else {
                         let input = map_key(key);
                         let had_pending_window_move = state.pending_window_move_warning().is_some();
@@ -431,6 +443,7 @@ fn event_loop(
                             Input::ToggleFocusMode => state.toggle_focus_mode(),
                             Input::OpenHelp => state.open_help(),
                             Input::Rename => state.start_rename(),
+                            Input::QuickCreate => state.start_quick_create(),
                             Input::Kill => handle_kill(state, tmux, config, path),
                             Input::Select => return Ok(state.selected_action()),
                             Input::Switch(n) => {

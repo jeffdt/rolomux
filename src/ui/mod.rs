@@ -243,6 +243,11 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
     let mut next_group: usize = 0;
     let mut next_jump_number: usize = 1;
     let show_create_group_hint = !state.groups.iter().any(|g| !g.inbox);
+    let quick_create_target = if state.quick_creating() {
+        state.cursor_session_name().and_then(|name| state.group_index_of(&name))
+    } else {
+        None
+    };
 
     for row in rows.iter() {
         match row {
@@ -264,6 +269,13 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
                     let color = group_color(&state.groups[section], section, &state.active_palette);
                     if show_create_group_hint && state.groups[section].inbox {
                         push_create_group_hint(&mut items);
+                    }
+                    if quick_create_target == Some(section) {
+                        push_quick_create_phantom_row(
+                            &mut items,
+                            state.quick_create_buffer().unwrap_or(""),
+                            color_from_name(&state.border_color),
+                        );
                     }
                     push_section_header(&mut items, &state.groups[section], list_area.width, color, &state.inbox_icon);
                     current_gutter_color = color;
@@ -615,6 +627,20 @@ fn push_section_header(items: &mut Vec<ListItem<'static>>, g: &Group, width: u16
         items.push(ListItem::new(Line::from("")));
     }
     items.push(header_item(g, width, color, icon));
+}
+
+/// Push the live `⇧N` quick-create row: the typed buffer in the same
+/// uppercased-bold-plus-caret style as an inline group rename, preceded by a
+/// blank spacer like `push_section_header`, marking where the new group will
+/// land once committed.
+fn push_quick_create_phantom_row(items: &mut Vec<ListItem<'static>>, buf: &str, caret_color: Color) {
+    if !items.is_empty() {
+        items.push(ListItem::new(Line::from("")));
+    }
+    items.push(ListItem::new(Line::from(vec![
+        Span::styled(buf.to_uppercase(), Style::default().add_modifier(Modifier::BOLD)),
+        Span::styled("▏", Style::default().fg(caret_color)),
+    ])));
 }
 
 fn push_create_group_hint(items: &mut Vec<ListItem<'static>>) {
@@ -2017,6 +2043,27 @@ mod tests {
         let text = render_to_string(&st);
         assert!(text.contains("renamed"), "inline rename buffer visible");
         assert!(!text.contains("alpha"), "old name no longer shown while editing");
+    }
+
+    #[test]
+    fn draw_command_shows_phantom_group_row_above_target_group_header() {
+        let mut st = grouped_state(); // G1=[a], G2=[b], INBOX=[c]
+        st.focus_session("b");
+        st.start_quick_create();
+        for c in "new".chars() { st.quick_create_push(c); }
+
+        let text = render_to_string(&st);
+        let lines: Vec<&str> = text.lines().collect();
+        let g1_pos = lines.iter().position(|l| l.contains("G1")).expect("G1 header present");
+        let phantom_pos = lines.iter().position(|l| l.contains("NEW") && l.contains('▏')).expect("phantom row visible");
+        let g2_pos = lines.iter().position(|l| l.contains("G2")).expect("G2 header present");
+        assert!(g1_pos < phantom_pos, "phantom row sits below G1's block");
+        assert!(phantom_pos < g2_pos, "phantom row sits directly above G2's header");
+
+        st.cancel_quick_create();
+        let text_after_cancel = render_to_string(&st);
+        assert!(!text_after_cancel.contains('▏'), "phantom row gone after cancel");
+        assert!(text_after_cancel.contains("G2"), "G2 header still renders normally after cancel");
     }
 
     #[test]

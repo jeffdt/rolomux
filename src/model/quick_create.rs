@@ -7,11 +7,6 @@
 
 use super::PickerState;
 
-// This module is pure model machinery, landing ahead of its `⇧N` input
-// wiring (a separate task touching input.rs/main.rs/ui/mod.rs). Until that
-// wiring calls these methods, the non-test build has no caller for any of
-// them -- exercised only by this module's own tests.
-#[allow(dead_code)]
 impl PickerState {
     /// Whether a `⇧N` quick-create is currently in progress.
     pub fn quick_creating(&self) -> bool {

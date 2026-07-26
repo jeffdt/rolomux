@@ -24,6 +24,7 @@ pub enum Input {
     ToggleFocusMode,
     OpenHelp,
     Rename,
+    QuickCreate,
     Kill,
     Quit,
     None,
@@ -183,6 +184,7 @@ pub fn map_key(key: KeyEvent) -> Input {
         KeyCode::Char('K') | KeyCode::Up if shift => Input::MoveUp,
         KeyCode::Char('J') | KeyCode::Down if shift => Input::MoveDown,
         KeyCode::Char('D') if shift => Input::UndormantAll,
+        KeyCode::Char('N') if shift => Input::QuickCreate,
         KeyCode::Char('x') => Input::Kill,
         KeyCode::Char('j') | KeyCode::Down => Input::Down,
         KeyCode::Char('k') | KeyCode::Up => Input::Up,
@@ -319,6 +321,11 @@ mod tests {
     #[test]
     fn shift_d_undormants_everything() {
         assert_eq!(map_key(shift(KeyCode::Char('D'))), Input::UndormantAll);
+    }
+
+    #[test]
+    fn shift_n_quick_creates_a_group() {
+        assert_eq!(map_key(shift(KeyCode::Char('N'))), Input::QuickCreate);
     }
 
     #[test]
