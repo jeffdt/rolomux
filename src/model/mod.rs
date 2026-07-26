@@ -69,7 +69,6 @@ pub struct PickerState {
     pub remember_expanded_sessions: bool,
     pub clear_dormant_on_attach: bool,
     pub session_metric: SessionMetric,
-    pub new_group_position: NewGroupPosition,
     pub new_group_color_policy: ColorPolicy,
     pub static_color: String,
     pub active_palette: Vec<String>,
@@ -147,7 +146,6 @@ impl PickerState {
             remember_expanded_sessions: config.remember_expanded_sessions,
             clear_dormant_on_attach: config.clear_dormant_on_attach,
             session_metric: config.session_metric,
-            new_group_position: config.new_group_position,
             new_group_color_policy: config.new_group_color_policy,
             static_color: config.static_color.clone(),
             active_palette: config.active_palette.clone(),
@@ -375,7 +373,6 @@ impl PickerState {
         config.start_focus_mode = self.start_focus_mode;
         config.default_mode = self.default_mode;
         config.number_dormant_sessions = self.number_dormant_sessions;
-        config.new_group_position = self.new_group_position;
         config.new_group_color_policy = self.new_group_color_policy;
         config.static_color = self.static_color.clone();
         config.active_palette = self.active_palette.clone();
@@ -1140,7 +1137,6 @@ mod tests {
         st.default_mode = DefaultMode::Search;
         st.number_dormant_sessions = false;
         st.focus_mode = true;
-        st.new_group_position = NewGroupPosition::Bottom;
         st.new_group_color_policy = ColorPolicy::Static;
         st.static_color = "white".to_string();
         st.active_palette = vec!["red".to_string(), "white".to_string()];
@@ -1162,7 +1158,6 @@ mod tests {
         assert_eq!(reloaded.default_mode, DefaultMode::Search);
         assert!(!reloaded.number_dormant_sessions);
         assert!(reloaded.focus_mode);
-        assert_eq!(reloaded.new_group_position, NewGroupPosition::Bottom);
         assert_eq!(reloaded.new_group_color_policy, ColorPolicy::Static);
         assert_eq!(reloaded.static_color, "white");
         assert_eq!(reloaded.active_palette, vec!["red".to_string(), "white".to_string()]);

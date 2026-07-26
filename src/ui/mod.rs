@@ -1,5 +1,5 @@
 use crate::model::{
-    AttachedColorMode, ColorPolicy, DefaultMode, DotColorMode, Group, Mode, NewGroupPosition, PickerState, Row, Session,
+    AttachedColorMode, ColorPolicy, DefaultMode, DotColorMode, Group, Mode, PickerState, Row, Session,
     SessionMetric, SettingsRow, StartFocusMode, SwapDirection, Window, ALL_NAMED_COLORS,
 };
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
@@ -3187,26 +3187,6 @@ mod tests {
     }
 
     #[test]
-    fn draw_settings_shows_new_group_position_row() {
-        let text = render_to_string(&settings_view());
-        assert!(text.contains("New group position"));
-        assert!(text.contains("Bottom"), "defaults to Bottom");
-    }
-
-    #[test]
-    fn draw_settings_new_group_position_shows_top_when_toggled() {
-        let mut st = settings_view();
-        st.settings_move_cursor(6); // NewGroupPosition
-        st.settings_step_right();
-        let text = render_to_string(&st);
-        let row = text
-            .lines()
-            .find(|line| line.contains("New group position"))
-            .expect("New group position row is rendered");
-        assert!(row.contains("Top"), "row should show Top once toggled: {row:?}");
-    }
-
-    #[test]
     fn draw_settings_shows_session_metric_row() {
         let text = render_to_string(&settings_view());
         assert!(text.contains("Session metadata"));
@@ -3235,10 +3215,9 @@ mod tests {
 
     #[test]
     fn draw_settings_shows_attached_and_border_color_rows() {
-        // Taller than the usual 80x20: the New group position, Show
-        // shortcuts, Inbox icon, and Border color policy rows push Border
-        // color further down the list.
-        let text = render_to_string_sized(&settings_view(), 80, 25);
+        // Taller than the usual 80x20: Show shortcuts, Inbox icon, and
+        // Border color policy rows push Border color further down the list.
+        let text = render_to_string_sized(&settings_view(), 80, 24);
         assert!(text.contains("Attached session color"));
         assert!(text.contains("Border color"));
         // Both default to green and render collapsed with a swatch + name.
@@ -3312,7 +3291,7 @@ mod tests {
     #[test]
     fn draw_settings_attached_color_row_shows_mode_label_and_hides_swatch_in_match_mode() {
         let mut st = settings_view();
-        st.settings_move_cursor(9); // AttachedColor
+        st.settings_move_cursor(8); // AttachedColor
         let text = render_to_string(&st);
         let row = text
             .lines()
@@ -3334,7 +3313,7 @@ mod tests {
     #[test]
     fn draw_settings_expanded_shortcut_color_shows_radio_glyphs() {
         let mut st = settings_view();
-        st.settings_move_cursor(11); // ShortcutColor
+        st.settings_move_cursor(10); // ShortcutColor
         st.settings_step_right();
         let text = render_to_string(&st);
         assert!(text.contains("●"));
@@ -3344,7 +3323,7 @@ mod tests {
     #[test]
     fn draw_settings_expanded_palette_shows_swatches_and_checkboxes() {
         let mut st = settings_view();
-        st.settings_move_cursor(15); // Palette
+        st.settings_move_cursor(14); // Palette
         st.settings_step_right(); // expand
         // Taller than the usual 80x20: section headers and the added Show
         // shortcuts/Shortcut color/Active window dot color/Border color
@@ -3360,7 +3339,7 @@ mod tests {
     #[test]
     fn draw_settings_shows_static_color_value_when_policy_is_static() {
         let mut st = settings_view();
-        st.settings_move_cursor(13); // ColorPolicy row
+        st.settings_move_cursor(12); // ColorPolicy row
         st.settings_step_right(); // Rotate -> Random
         st.settings_step_right(); // Random -> Static
         st.static_color = "magenta".to_string();
@@ -3371,10 +3350,10 @@ mod tests {
 
     #[test]
     fn draw_settings_does_not_show_a_color_value_for_rotate_or_random() {
-        // Taller than the default 80x20: the Session metadata, New group
-        // position, Show shortcuts, Shortcut color/Active window dot
-        // color/Border color policy, and Inbox icon rows plus the 3-row
-        // footer all push "New group color" further down the list.
+        // Taller than the default 80x20: the Session metadata, Show
+        // shortcuts, Shortcut color/Active window dot color/Border color
+        // policy, and Inbox icon rows plus the 3-row footer all push "New
+        // group color" further down the list.
         let text = render_to_string_sized(&settings_view(), 80, 28); // default policy is Rotate
         // "Rotate" itself is on screen, but no color name should follow it
         // since Rotate has no single fixed color to show. The four swatches
@@ -3438,23 +3417,23 @@ mod tests {
 
     #[test]
     fn draw_settings_row_eleven_shows_the_alt_glyph_jump_label() {
-        // Border color policy (row 11) sits below the fold at the default
-        // 80x20 size; needs height >= 24 to render, same as the other
-        // pre-existing tests that check this row.
+        // Shortcut highlight color (row 11) sits below the fold at the
+        // default 80x20 size; needs height >= 24 to render, same as the
+        // other pre-existing tests that check this row.
         let text = render_to_string_sized(&settings_view(), 80, 24);
         let row = text
             .lines()
-            .find(|line| line.contains("Border color"))
-            .expect("Border color row (jump number 11) is rendered");
+            .find(|line| line.contains("Shortcut highlight color"))
+            .expect("Shortcut highlight color row (jump number 11) is rendered");
         // Strip margin and frame border to check the actual content.
         let content = row.chars().skip(3).collect::<String>();
-        assert!(content.starts_with("│⌥1"), "row 11 (Border color) shows the Alt+1 jump label: {row:?}");
+        assert!(content.starts_with("│⌥1"), "row 11 (Shortcut highlight color) shows the Alt+1 jump label: {row:?}");
     }
 
     #[test]
     fn draw_settings_child_color_option_rows_are_unchanged_by_jump_numbering() {
         let mut st = settings_view();
-        st.settings_move_cursor(11); // ShortcutColor
+        st.settings_move_cursor(10); // ShortcutColor
         st.settings_step_right(); // expand
         let text = render_to_string(&st);
         let row = text
@@ -3472,7 +3451,7 @@ mod tests {
     #[test]
     fn draw_settings_gutter_bar_continues_through_expanded_color_options() {
         let mut st = settings_view();
-        st.settings_move_cursor(11); // ShortcutColor
+        st.settings_move_cursor(10); // ShortcutColor
         st.settings_step_right(); // expand
         let text = render_to_string(&st);
         let row = text
@@ -3487,7 +3466,7 @@ mod tests {
     #[test]
     fn draw_settings_gutter_bar_continues_through_expanded_palette_rows() {
         let mut st = settings_view();
-        st.settings_move_cursor(15); // Palette
+        st.settings_move_cursor(14); // Palette
         st.settings_step_right(); // expand
         // Taller than the usual 80x20: section headers and the added Show
         // shortcuts/Shortcut color/Active window dot color/Border color
@@ -3505,10 +3484,10 @@ mod tests {
 
     #[test]
     fn draw_settings_color_policy_row_continues_the_gutter_bar() {
-        // Taller than the default 80x20: the Session metadata, New group
-        // position, Show shortcuts, Shortcut color/Active window dot
-        // color/Border color policy, and Inbox icon rows plus the 3-row
-        // footer all push "New group color" further down the list.
+        // Taller than the default 80x20: the Session metadata, Show
+        // shortcuts, Shortcut color/Active window dot color/Border color
+        // policy, and Inbox icon rows plus the 3-row footer all push "New
+        // group color" further down the list.
         let text = render_to_string_sized(&settings_view(), 80, 28);
         let row = text
             .lines()
@@ -3539,9 +3518,9 @@ mod tests {
 
     #[test]
     fn draw_settings_appearance_header_precedes_attached_color_row() {
-        // Taller than the default 80x20: the Start in focus mode, New group
-        // position, Show shortcuts, and Inbox icon rows push Attached
-        // session color further down the list.
+        // Taller than the default 80x20: the Start in focus mode, Show
+        // shortcuts, and Inbox icon rows push Attached session color
+        // further down the list.
         let text = render_to_string_sized(&settings_view(), 80, 23);
         let lines: Vec<&str> = text.lines().collect();
         let header_idx = lines.iter().position(|l| l.contains("APPEARANCE")).expect("APPEARANCE header rendered");

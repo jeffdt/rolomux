@@ -71,14 +71,6 @@ pub(super) fn draw_settings(frame: &mut Frame, state: &PickerState, inner: Rect)
                     selected,
                 )
             }
-            SettingsRow::NewGroupPosition => {
-                settings_value_line(
-                    *row,
-                    "New group position",
-                    new_group_position_label(state.new_group_position),
-                    selected,
-                )
-            }
             SettingsRow::ShortcutVisibility => {
                 settings_value_line(
                     *row,
@@ -338,13 +330,6 @@ fn start_focus_mode_label(m: StartFocusMode) -> &'static str {
         StartFocusMode::Remember => "Remember",
         StartFocusMode::Always => "Always",
         StartFocusMode::Never => "Never",
-    }
-}
-
-fn new_group_position_label(p: NewGroupPosition) -> &'static str {
-    match p {
-        NewGroupPosition::Top => "Top",
-        NewGroupPosition::Bottom => "Bottom",
     }
 }
 
