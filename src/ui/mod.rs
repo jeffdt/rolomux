@@ -41,7 +41,7 @@ const POPUP_MARGIN: u16 = 2;
 const TITLE_CHROME_ROWS: u16 = 1;
 
 const FOOTER_HINT: &str =
-    "/ search · R rename · JK mv · x kill · g grp · , cfg · d dim · f foc · q quit";
+    "/ search · r rename · JK mv · x kill · g grp · , cfg · d dim · f foc · q quit";
 
 const CREATE_GROUP_HINT: &str =
     "No groups yet: press g then n to create one, then use ⇧J/⇧K to move sessions.";
@@ -2056,13 +2056,13 @@ mod tests {
 
     #[test]
     fn styled_hint_brightens_key_and_dims_description() {
-        let line = styled_hint("R rename · Esc back", Color::Gray);
+        let line = styled_hint("r rename · Esc back", Color::Gray);
         let spans: Vec<(String, Style)> =
             line.spans.iter().map(|s| (s.content.to_string(), s.style)).collect();
         assert_eq!(
             spans,
             vec![
-                ("R".to_string(), Style::default().fg(Color::Gray)),
+                ("r".to_string(), Style::default().fg(Color::Gray)),
                 (" rename".to_string(), Style::default().fg(DIM)),
                 (" · ".to_string(), Style::default().fg(DIM)),
                 ("Esc".to_string(), Style::default().fg(Color::Gray)),
@@ -2087,7 +2087,7 @@ mod tests {
         // before "rename"; a byte offset would overshoot the real column.
         for y in 0..buf.area.height {
             if let Some(x) = find_text_x(&buf, y, "rename") {
-                let key_style = buf[(x - 2, y)].style(); // the "R" in "R rename"
+                let key_style = buf[(x - 2, y)].style(); // the "r" in "r rename"
                 assert_eq!(key_style.fg, Some(Color::Gray), "key token renders in Gray, not dim");
                 assert!(!key_style.add_modifier.contains(Modifier::BOLD), "key token is not bold");
                 let desc_style = buf[(x, y)].style();
@@ -4012,7 +4012,7 @@ mod tests {
         let mut checked = false;
         for y in 0..buf.area.height {
             if let Some(x) = find_text_x(&buf, y, "rename") {
-                let key_style = buf[(x - 2, y)].style(); // the "R" in "R rename"
+                let key_style = buf[(x - 2, y)].style(); // the "r" in "r rename"
                 assert_eq!(key_style.fg, Some(Color::Magenta), "key token follows the configured shortcut_color");
                 checked = true;
             }

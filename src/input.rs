@@ -182,11 +182,11 @@ pub fn map_key(key: KeyEvent) -> Input {
     match key.code {
         KeyCode::Char('K') | KeyCode::Up if shift => Input::MoveUp,
         KeyCode::Char('J') | KeyCode::Down if shift => Input::MoveDown,
-        KeyCode::Char('R') if shift => Input::Rename,
         KeyCode::Char('D') if shift => Input::UndormantAll,
         KeyCode::Char('x') => Input::Kill,
         KeyCode::Char('j') | KeyCode::Down => Input::Down,
         KeyCode::Char('k') | KeyCode::Up => Input::Up,
+        KeyCode::Char('r') => Input::Rename,
         KeyCode::Char('l') | KeyCode::Right => Input::Expand,
         KeyCode::Left => Input::Collapse,
         KeyCode::Char('f') => Input::ToggleFocusMode,
@@ -266,13 +266,13 @@ mod tests {
     }
 
     #[test]
-    fn map_key_lowercase_r_is_unmapped() {
-        assert_eq!(map_key(key(KeyCode::Char('r'))), Input::None);
+    fn map_key_lowercase_r_is_rename() {
+        assert_eq!(map_key(key(KeyCode::Char('r'))), Input::Rename);
     }
 
     #[test]
-    fn map_key_shift_r_is_rename() {
-        assert_eq!(map_key(shift(KeyCode::Char('R'))), Input::Rename);
+    fn map_key_shift_r_is_unmapped() {
+        assert_eq!(map_key(shift(KeyCode::Char('R'))), Input::None);
     }
 
     #[test]

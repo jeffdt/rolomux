@@ -21,7 +21,7 @@ const COMMAND_SHORTCUTS: &[(&str, &str)] = &[
     ("d", "toggle dormant"),
     ("Ctrl-d", "clear dormant for this session"),
     ("⇧D", "clear dormant for everything"),
-    ("⇧R", "rename session/window"),
+    ("r", "rename session/window"),
     ("⇧J/⇧K", "move window to adjacent session"),
     ("x", "kill session/window (press twice)"),
     ("q / Esc", "quit"),
