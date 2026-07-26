@@ -6,20 +6,60 @@ use super::*;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 impl PickerState {
-    /// Enter the full-screen group-management mode with the cursor on the first
-    /// group (clamped when there are none).
+    /// Raise from session altitude to group altitude: the cursor snaps to
+    /// the header of the group containing the currently selected session (a
+    /// window row resolves via its parent session), and the exact
+    /// visible-rows position is recorded as the origin so `exit_groups` can
+    /// return to it.
     pub fn enter_groups(&mut self) {
+        self.altitude_origin = Some(self.cursor);
+        if let Some(name) = self.cursor_session_name() {
+            if let Some(gi) = self.group_index_of(&name) {
+                self.group_cursor = gi;
+            }
+        }
         self.mode = Mode::Groups;
         self.group_edit = None;
         self.group_cursor = self.group_cursor.min(self.groups.len().saturating_sub(1));
     }
 
-    /// Leave group mode back to session command mode, dropping any in-flight edit.
+    /// Descend from group altitude back to session altitude, restoring the
+    /// cursor to the exact row it was on when raised. If that row no longer
+    /// exists (e.g. something was deleted while raised), falls back to the
+    /// first visible session of the highlighted group, then the first
+    /// visible row.
     pub fn exit_groups(&mut self) {
         if self.group_editing() {
             self.group_cancel_rename();
         }
+        let rows_len = self.visible_rows().len();
+        self.cursor = self
+            .altitude_origin
+            .filter(|&origin| origin < rows_len)
+            .or_else(|| self.first_visible_session_row(self.group_cursor))
+            .unwrap_or(0);
+        self.altitude_origin = None;
         self.mode = Mode::Command;
+    }
+
+    /// `Enter` on a group header: descend directly into that group, landing
+    /// on its first visible session. A no-op (stays at group altitude) when
+    /// the group has no visible sessions.
+    pub fn descend_into(&mut self) {
+        if let Some(row) = self.first_visible_session_row(self.group_cursor) {
+            self.cursor = row;
+            self.altitude_origin = None;
+            self.mode = Mode::Command;
+        }
+    }
+
+    /// The visible-rows index of the first `Row::Session` belonging to
+    /// group `gi`, if any.
+    fn first_visible_session_row(&self, gi: usize) -> Option<usize> {
+        let ordered = self.ordered();
+        self.visible_rows().iter().position(|r| {
+            matches!(r, Row::Session(si) if self.group_index_of(&ordered[*si].name) == Some(gi))
+        })
     }
 
     /// The current cursor position within the group list.
@@ -257,6 +297,71 @@ mod tests {
         assert_eq!(st.mode, Mode::Groups);
         st.exit_groups();
         assert_eq!(st.mode, Mode::Command);
+    }
+
+    #[test]
+    fn raise_snaps_group_cursor_to_selected_sessions_group() {
+        // grouped_state: G1=[a], G2=[b], INBOX=[c] (synthesized); ordered/
+        // visible rows are [a, b, c] with nothing expanded.
+        let mut st = grouped_state();
+        st.cursor = 1; // session "b", a member of G2 (index 1)
+        st.enter_groups();
+        assert_eq!(st.group_cursor(), 1);
+    }
+
+    #[test]
+    fn descend_via_exit_restores_origin_row() {
+        let mut st = grouped_state();
+        st.cursor = 1; // session "b"
+        st.enter_groups();
+        st.group_move_cursor(1); // wander off to a different group header
+        st.exit_groups();
+        assert_eq!(st.mode, Mode::Command);
+        assert_eq!(st.cursor, 1, "lands back on the exact row it was raised from");
+    }
+
+    #[test]
+    fn descend_into_lands_on_first_session_of_highlighted_group() {
+        let mut st = grouped_state();
+        st.cursor = 0; // session "a", in G1
+        st.enter_groups();
+        st.group_move_cursor(1); // highlight G2
+        st.descend_into();
+        assert_eq!(st.mode, Mode::Command);
+        assert_eq!(st.cursor, 1, "lands on session b, G2's first visible session");
+    }
+
+    #[test]
+    fn descend_into_empty_group_is_a_noop() {
+        let sessions = vec![s("a", 1, 1), s("b", 1, 2)];
+        let cfg = Config {
+            groups: vec![
+                Group { name: "G1".into(), members: vec!["a".into()], ..Default::default() },
+                Group { name: "EMPTY".into(), members: vec![], ..Default::default() },
+                Group { name: "INBOX".into(), inbox: true, ..Default::default() },
+            ],
+            ..Default::default()
+        };
+        let mut st = PickerState::build(sessions, &cfg);
+        st.cursor = 0; // session "a"
+        st.enter_groups();
+        st.group_move_cursor(1); // highlight EMPTY, which has no visible sessions
+        assert_eq!(st.groups[st.group_cursor()].name, "EMPTY");
+        st.descend_into();
+        assert_eq!(st.mode, Mode::Groups, "stays raised: nothing to descend into");
+        assert_eq!(st.group_cursor(), 1, "cursor unchanged");
+    }
+
+    #[test]
+    fn raise_from_window_row_uses_parent_sessions_group() {
+        let mut st = grouped_state();
+        st.cursor = 1; // session "b", in G2
+        st.expand();
+        // visible rows are now [a, b, b:w, c]; land on b's window row.
+        assert!(matches!(st.visible_rows()[2], Row::Window(1, 0)));
+        st.cursor = 2;
+        st.enter_groups();
+        assert_eq!(st.group_cursor(), 1, "resolves to the window's parent session's group");
     }
 
     #[test]

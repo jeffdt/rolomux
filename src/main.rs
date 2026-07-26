@@ -484,9 +484,6 @@ fn event_loop(
                             SearchInput::Up | SearchInput::Down | SearchInput::Expand | SearchInput::Collapse | SearchInput::ToggleFocusMode | SearchInput::None => {}
                         }
                     } else {
-                        // Task 4 wires the full raise/descend dispatch (DescendInto,
-                        // EnterSearch, Switch, Quit); this is the minimal shim keeping
-                        // the crate compiling against the new AltitudeInput enum.
                         let input = map_altitude_key(key);
                         if !matches!(input, AltitudeInput::MoveUp | AltitudeInput::MoveDown) {
                             state.clear_group_reorder_warning();
@@ -502,11 +499,18 @@ fn event_loop(
                             AltitudeInput::Delete => state.group_delete(),
                             AltitudeInput::OpenHelp => state.open_help(),
                             AltitudeInput::Descend => state.exit_groups(),
-                            AltitudeInput::DescendInto
-                            | AltitudeInput::EnterSearch
-                            | AltitudeInput::Switch(_)
-                            | AltitudeInput::Quit
-                            | AltitudeInput::None => {}
+                            AltitudeInput::DescendInto => state.descend_into(),
+                            AltitudeInput::EnterSearch => {
+                                state.exit_groups();
+                                state.enter_search();
+                            }
+                            AltitudeInput::Switch(n) => {
+                                if let Some(action) = state.action_for_session_number(n) {
+                                    return Ok(Some(action));
+                                }
+                            }
+                            AltitudeInput::Quit => return Ok(None),
+                            AltitudeInput::None => {}
                         }
                     }
                 }

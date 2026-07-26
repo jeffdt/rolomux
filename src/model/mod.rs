@@ -46,6 +46,10 @@ pub struct PickerState {
     pub group_cursor: usize,
     /// In-flight rename buffer; `Some` while a rename is in progress.
     pub group_edit: Option<String>,
+    /// The visible-rows index the cursor was on when `g` raised to group
+    /// altitude; `descend`'s target to return to. `None` outside group
+    /// altitude.
+    altitude_origin: Option<usize>,
     /// In-flight session/window rename buffer; `Some` while a rename is in progress.
     rename_edit: Option<String>,
     /// In-flight window-move confirmation, armed when a press would destroy
@@ -135,6 +139,7 @@ impl PickerState {
             search_cursor: 0,
             group_cursor: 0,
             group_edit: None,
+            altitude_origin: None,
             rename_edit: None,
             pending_window_move: None,
             pending_kill: None,
