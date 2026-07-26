@@ -14,7 +14,8 @@ const COMMAND_SHORTCUTS: &[(&str, &str)] = &[
     ("Enter", "switch to selected session/window"),
     ("1-9,0 / Alt+1-9,0", "jump to session N (1-20)"),
     ("/", "search"),
-    ("g", "group mode"),
+    ("g", "group altitude"),
+    ("⇧N", "new group around session"),
     (",", "settings"),
     ("z", "expand/collapse all"),
     ("f", "toggle focus mode (hide dormant)"),
@@ -27,13 +28,16 @@ const COMMAND_SHORTCUTS: &[(&str, &str)] = &[
     ("q / Esc", "quit"),
 ];
 
-const GROUPS_SHORTCUTS: &[(&str, &str)] = &[
+const ALTITUDE_SHORTCUTS: &[(&str, &str)] = &[
     ("j/k, ↑/↓", "move cursor"),
     ("⇧J/⇧K", "reorder group"),
     ("n", "new group"),
-    ("Enter / r", "rename group"),
+    ("r", "rename group"),
     ("c", "cycle color"),
-    ("d", "delete group"),
+    ("x", "delete group (press twice)"),
+    ("Enter", "open group"),
+    ("/", "search"),
+    ("1-9,0 / Alt+1-9,0", "jump to session N (1-20)"),
     ("Esc / q / g", "back to command mode"),
 ];
 
@@ -49,7 +53,7 @@ const SETTINGS_SHORTCUTS: &[(&str, &str)] = &[
 fn shortcuts_for_mode(mode: Mode) -> (&'static str, &'static [(&'static str, &'static str)]) {
     match mode {
         Mode::Command => ("Command Shortcuts", COMMAND_SHORTCUTS),
-        Mode::Groups => ("Groups Shortcuts", GROUPS_SHORTCUTS),
+        Mode::Groups => ("Group Altitude Shortcuts", ALTITUDE_SHORTCUTS),
         Mode::Settings => ("Settings Shortcuts", SETTINGS_SHORTCUTS),
         Mode::Search => ("Search Shortcuts", &[]),
     }
@@ -119,6 +123,24 @@ pub(super) fn draw_help_overlay(frame: &mut Frame, state: &PickerState, area: Re
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::store::Config;
+    use ratatui::backend::TestBackend;
+    use ratatui::Terminal;
+
+    fn render_help_to_string(state: &PickerState) -> String {
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| draw_help_overlay(f, state, f.area())).unwrap();
+        let buf = terminal.backend().buffer().clone();
+        let mut out = String::new();
+        for y in 0..buf.area.height {
+            for x in 0..buf.area.width {
+                out.push_str(buf[(x, y)].symbol());
+            }
+            out.push('\n');
+        }
+        out
+    }
 
     #[test]
     fn centered_rect_centers_within_a_larger_area() {
@@ -144,9 +166,35 @@ mod tests {
     fn shortcuts_for_mode_covers_command_groups_and_settings() {
         assert_eq!(shortcuts_for_mode(Mode::Command).0, "Command Shortcuts");
         assert!(!shortcuts_for_mode(Mode::Command).1.is_empty());
-        assert_eq!(shortcuts_for_mode(Mode::Groups).0, "Groups Shortcuts");
+        assert_eq!(shortcuts_for_mode(Mode::Groups).0, "Group Altitude Shortcuts");
         assert!(!shortcuts_for_mode(Mode::Groups).1.is_empty());
         assert_eq!(shortcuts_for_mode(Mode::Settings).0, "Settings Shortcuts");
         assert!(!shortcuts_for_mode(Mode::Settings).1.is_empty());
+    }
+
+    #[test]
+    fn command_mode_help_contains_new_group_and_group_altitude() {
+        let mut state = PickerState::build(vec![], &Config::default());
+        state.mode = Mode::Command;
+        let rendered = render_help_to_string(&state);
+        assert!(
+            rendered.contains("⇧N"),
+            "Command mode help should contain ⇧N key for new group around session"
+        );
+        assert!(
+            rendered.contains("group altitude"),
+            "Command mode help should describe g as 'group altitude'"
+        );
+    }
+
+    #[test]
+    fn altitude_mode_help_does_not_contain_stale_shift_r() {
+        let mut state = PickerState::build(vec![], &Config::default());
+        state.mode = Mode::Groups;
+        let rendered = render_help_to_string(&state);
+        assert!(
+            !rendered.contains("⇧R"),
+            "Group altitude mode help should not contain stale ⇧R text"
+        );
     }
 }

@@ -4249,7 +4249,7 @@ mod tests {
         state.enter_groups();
         state.open_help();
         let text = render_to_string_sized(&state, 84, 40);
-        assert!(text.contains("Groups Shortcuts"));
+        assert!(text.contains("Group Altitude Shortcuts"));
         assert!(text.contains("reorder group"));
     }
 
