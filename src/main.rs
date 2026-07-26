@@ -17,7 +17,7 @@ use ratatui::Terminal;
 use std::io::{self, stdout};
 use std::time::Duration;
 use tmux::{apply_action, RealTmux, Tmux};
-use input::{is_help_dismiss_key, map_group_key, map_key, map_search_key, map_settings_key, GroupInput, Input, SearchInput, SettingsInput};
+use input::{is_help_dismiss_key, map_altitude_key, map_key, map_search_key, map_settings_key, AltitudeInput, Input, SearchInput, SettingsInput};
 use ui::draw;
 
 const HELP: &str = "\
@@ -484,22 +484,29 @@ fn event_loop(
                             SearchInput::Up | SearchInput::Down | SearchInput::Expand | SearchInput::Collapse | SearchInput::ToggleFocusMode | SearchInput::None => {}
                         }
                     } else {
-                        let input = map_group_key(key);
-                        if !matches!(input, GroupInput::MoveUp | GroupInput::MoveDown) {
+                        // Task 4 wires the full raise/descend dispatch (DescendInto,
+                        // EnterSearch, Switch, Quit); this is the minimal shim keeping
+                        // the crate compiling against the new AltitudeInput enum.
+                        let input = map_altitude_key(key);
+                        if !matches!(input, AltitudeInput::MoveUp | AltitudeInput::MoveDown) {
                             state.clear_group_reorder_warning();
                         }
                         match input {
-                            GroupInput::Up => state.group_move_cursor(-1),
-                            GroupInput::Down => state.group_move_cursor(1),
-                            GroupInput::MoveUp => state.group_reorder(-1),
-                            GroupInput::MoveDown => state.group_reorder(1),
-                            GroupInput::New => state.group_new(),
-                            GroupInput::Rename => state.group_start_rename(),
-                            GroupInput::CycleColor => state.group_cycle_color(),
-                            GroupInput::Delete => state.group_delete(),
-                            GroupInput::OpenHelp => state.open_help(),
-                            GroupInput::Exit => state.exit_groups(),
-                            GroupInput::None => {}
+                            AltitudeInput::Up => state.group_move_cursor(-1),
+                            AltitudeInput::Down => state.group_move_cursor(1),
+                            AltitudeInput::MoveUp => state.group_reorder(-1),
+                            AltitudeInput::MoveDown => state.group_reorder(1),
+                            AltitudeInput::New => state.group_new(),
+                            AltitudeInput::Rename => state.group_start_rename(),
+                            AltitudeInput::CycleColor => state.group_cycle_color(),
+                            AltitudeInput::Delete => state.group_delete(),
+                            AltitudeInput::OpenHelp => state.open_help(),
+                            AltitudeInput::Descend => state.exit_groups(),
+                            AltitudeInput::DescendInto
+                            | AltitudeInput::EnterSearch
+                            | AltitudeInput::Switch(_)
+                            | AltitudeInput::Quit
+                            | AltitudeInput::None => {}
                         }
                     }
                 }

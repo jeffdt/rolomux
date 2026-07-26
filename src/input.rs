@@ -1,5 +1,5 @@
 //! Keyboard input decoding: maps crossterm key events to the mode-specific
-//! Input / SearchInput / GroupInput / SettingsInput command enums the event
+//! Input / SearchInput / AltitudeInput / SettingsInput command enums the event
 //! loop dispatches on. Pure functions, no rendering or model state.
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -46,24 +46,54 @@ pub enum SearchInput {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum GroupInput { Up, Down, MoveUp, MoveDown, New, Rename, CycleColor, Delete, OpenHelp, Exit, None }
+pub enum AltitudeInput {
+    Up,
+    Down,
+    MoveUp,
+    MoveDown,
+    New,
+    Rename,
+    CycleColor,
+    Delete,
+    DescendInto,
+    Descend,
+    EnterSearch,
+    Switch(usize),
+    OpenHelp,
+    Quit,
+    None,
+}
 
-/// Key mapping for group-management mode while NOT editing a name. During an
+/// Key mapping for group altitude while NOT editing a name. During an
 /// inline rename the loop routes keys through `map_search_key` instead.
-pub fn map_group_key(key: KeyEvent) -> GroupInput {
+///
+/// Mirrors `map_key`'s verbs one level up: `Enter` descends into a group's
+/// sessions (`DescendInto`) rather than renaming, `x` deletes a group (same
+/// key as session-mode Kill) leaving `d` reserved/unmapped, and `g`/`Esc`
+/// descend back to session mode while `q` quits the picker outright -- the
+/// same digit-decoding as `map_key` reaches groups 1-20.
+pub fn map_altitude_key(key: KeyEvent) -> AltitudeInput {
     let shift = key.modifiers.contains(KeyModifiers::SHIFT);
+    let alt = key.modifiers.contains(KeyModifiers::ALT);
     match key.code {
-        KeyCode::Char('J') | KeyCode::Down if shift => GroupInput::MoveDown,
-        KeyCode::Char('K') | KeyCode::Up if shift => GroupInput::MoveUp,
-        KeyCode::Char('j') | KeyCode::Down => GroupInput::Down,
-        KeyCode::Char('k') | KeyCode::Up => GroupInput::Up,
-        KeyCode::Char('n') => GroupInput::New,
-        KeyCode::Enter | KeyCode::Char('r') => GroupInput::Rename,
-        KeyCode::Char('c') => GroupInput::CycleColor,
-        KeyCode::Char('d') => GroupInput::Delete,
-        KeyCode::Char('?') => GroupInput::OpenHelp,
-        KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('g') => GroupInput::Exit,
-        _ => GroupInput::None,
+        KeyCode::Char('J') | KeyCode::Down if shift => AltitudeInput::MoveDown,
+        KeyCode::Char('K') | KeyCode::Up if shift => AltitudeInput::MoveUp,
+        KeyCode::Char('j') | KeyCode::Down => AltitudeInput::Down,
+        KeyCode::Char('k') | KeyCode::Up => AltitudeInput::Up,
+        KeyCode::Char('n') => AltitudeInput::New,
+        KeyCode::Char('r') => AltitudeInput::Rename,
+        KeyCode::Enter => AltitudeInput::DescendInto,
+        KeyCode::Char('c') => AltitudeInput::CycleColor,
+        KeyCode::Char('x') => AltitudeInput::Delete,
+        KeyCode::Char('/') => AltitudeInput::EnterSearch,
+        KeyCode::Char('?') => AltitudeInput::OpenHelp,
+        KeyCode::Esc | KeyCode::Char('g') => AltitudeInput::Descend,
+        KeyCode::Char('q') => AltitudeInput::Quit,
+        KeyCode::Char(c @ '1'..='9') if alt => AltitudeInput::Switch(10 + (c as usize - '0' as usize)),
+        KeyCode::Char('0') if alt => AltitudeInput::Switch(20),
+        KeyCode::Char(c @ '1'..='9') => AltitudeInput::Switch(c as usize - '0' as usize),
+        KeyCode::Char('0') => AltitudeInput::Switch(10),
+        _ => AltitudeInput::None,
     }
 }
 
@@ -210,22 +240,29 @@ mod tests {
     }
 
     #[test]
-    fn group_keys_map_to_ops() {
-        assert_eq!(map_group_key(key(KeyCode::Char('j'))), GroupInput::Down);
-        assert_eq!(map_group_key(key(KeyCode::Char('k'))), GroupInput::Up);
-        assert_eq!(map_group_key(shift(KeyCode::Char('J'))), GroupInput::MoveDown);
-        assert_eq!(map_group_key(shift(KeyCode::Char('K'))), GroupInput::MoveUp);
-        assert_eq!(map_group_key(shift(KeyCode::Down)), GroupInput::MoveDown);
-        assert_eq!(map_group_key(shift(KeyCode::Up)), GroupInput::MoveUp);
-        assert_eq!(map_group_key(key(KeyCode::Char('n'))), GroupInput::New);
-        assert_eq!(map_group_key(key(KeyCode::Enter)), GroupInput::Rename);
-        assert_eq!(map_group_key(key(KeyCode::Char('r'))), GroupInput::Rename);
-        assert_eq!(map_group_key(key(KeyCode::Char('c'))), GroupInput::CycleColor);
-        assert_eq!(map_group_key(key(KeyCode::Char('d'))), GroupInput::Delete);
-        assert_eq!(map_group_key(key(KeyCode::Esc)), GroupInput::Exit);
-        assert_eq!(map_group_key(key(KeyCode::Char('q'))), GroupInput::Exit);
-        assert_eq!(map_group_key(key(KeyCode::Char('g'))), GroupInput::Exit);
-        assert_eq!(map_group_key(key(KeyCode::Char('x'))), GroupInput::None);
+    fn altitude_keymap_same_verbs_one_level_up() {
+        assert_eq!(map_altitude_key(key(KeyCode::Char('r'))), AltitudeInput::Rename);
+        assert_eq!(map_altitude_key(key(KeyCode::Enter)), AltitudeInput::DescendInto);
+        assert_eq!(map_altitude_key(key(KeyCode::Char('x'))), AltitudeInput::Delete);
+        assert_eq!(map_altitude_key(key(KeyCode::Char('d'))), AltitudeInput::None); // reserved
+        assert_eq!(map_altitude_key(key(KeyCode::Char('g'))), AltitudeInput::Descend);
+        assert_eq!(map_altitude_key(key(KeyCode::Esc)), AltitudeInput::Descend);
+        assert_eq!(map_altitude_key(key(KeyCode::Char('q'))), AltitudeInput::Quit);
+        assert_eq!(map_altitude_key(key(KeyCode::Char('/'))), AltitudeInput::EnterSearch);
+        assert_eq!(map_altitude_key(key(KeyCode::Char('3'))), AltitudeInput::Switch(3));
+        assert_eq!(map_altitude_key(alt(KeyCode::Char('1'))), AltitudeInput::Switch(11));
+        assert_eq!(map_altitude_key(key(KeyCode::Char('n'))), AltitudeInput::New);
+        assert_eq!(map_altitude_key(key(KeyCode::Char('c'))), AltitudeInput::CycleColor);
+        assert_eq!(map_altitude_key(shift(KeyCode::Char('J'))), AltitudeInput::MoveDown);
+        assert_eq!(map_altitude_key(shift(KeyCode::Char('K'))), AltitudeInput::MoveUp);
+    }
+
+    #[test]
+    fn altitude_keymap_plain_nav_and_shift_arrows() {
+        assert_eq!(map_altitude_key(key(KeyCode::Char('j'))), AltitudeInput::Down);
+        assert_eq!(map_altitude_key(key(KeyCode::Char('k'))), AltitudeInput::Up);
+        assert_eq!(map_altitude_key(shift(KeyCode::Down)), AltitudeInput::MoveDown);
+        assert_eq!(map_altitude_key(shift(KeyCode::Up)), AltitudeInput::MoveUp);
     }
 
     #[test]
@@ -292,7 +329,7 @@ mod tests {
     #[test]
     fn question_mark_opens_help_in_command_groups_and_settings_modes() {
         assert_eq!(map_key(key(KeyCode::Char('?'))), Input::OpenHelp);
-        assert_eq!(map_group_key(key(KeyCode::Char('?'))), GroupInput::OpenHelp);
+        assert_eq!(map_altitude_key(key(KeyCode::Char('?'))), AltitudeInput::OpenHelp);
         assert_eq!(map_settings_key(key(KeyCode::Char('?'))), SettingsInput::OpenHelp);
     }
 
