@@ -215,6 +215,7 @@ impl PickerState {
 
 #[cfg(test)]
 mod tests {
+    use super::CreatePlacement;
     use crate::model::*;
     use crate::model::test_support::*;
     use crate::store::Config;

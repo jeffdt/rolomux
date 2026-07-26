@@ -45,7 +45,6 @@ pub trait Tmux {
     fn new_placeholder_window(&self, session: &str) -> io::Result<()>;
     /// Creates a detached session; `window` names its first window when provided.
     /// Returns Err on non-zero tmux exit.
-    #[allow(dead_code)]
     fn new_session(&self, name: &str, window: Option<&str>) -> io::Result<()>;
     fn kill_session(&self, name: &str) -> io::Result<()>;
     fn kill_window(&self, session: &str, index: u32) -> io::Result<()>;

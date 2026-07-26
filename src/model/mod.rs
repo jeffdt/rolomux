@@ -23,8 +23,9 @@ mod quick_create;
 
 mod create;
 pub use create::{CreateStage, PendingCreate};
-// CreatePlacement is only referenced from create.rs itself and this
-// module's tests until Task 4's rendering needs to inspect it directly.
+// CreatePlacement is re-exported for use in main.rs's test fixtures
+// (which construct PendingCreate values with explicit CreatePlacement::AboveSelected),
+// even though no non-test production code path reads it directly.
 #[allow(unused_imports)]
 pub use create::CreatePlacement;
 use create::CreatePrompt;
