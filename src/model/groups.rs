@@ -1,6 +1,8 @@
-//! Group mode: the full-screen overlay for creating, renaming, recoloring,
-//! reordering, and deleting groups. Operates purely on `self.groups` and the
-//! group-mode cursor/edit state; never touches session rows.
+//! Group altitude: an in-picker cursor altitude for creating, renaming,
+//! recoloring, reordering, and deleting groups, rendered in the same picker
+//! rather than a separate overlay. Operates on `self.groups` and the
+//! group-mode cursor/edit state, and also reads/writes the session cursor
+//! (`self.cursor`) when raising to or descending from group altitude.
 
 use super::*;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -159,15 +161,25 @@ impl PickerState {
     /// `group_cursor` position, clamped so the new group never lands after the
     /// inbox, which always occupies the trailing slot (see `ensure_inbox_last`).
     pub fn group_new(&mut self) {
-        let color = match self.new_group_color_policy {
-            ColorPolicy::Rotate => String::new(),
-            ColorPolicy::Random => pick_random_color(&self.active_palette, random_seed()),
-            ColorPolicy::Static => self.static_color.clone(),
-        };
+        let color = self.new_group_color();
         let index = self.insert_group_above(self.group_cursor);
         self.groups[index].color = color;
         self.group_cursor = index;
         self.group_edit = Some(String::new());
+    }
+
+    /// The header color a freshly created group should start with, per the
+    /// current `new_group_color_policy`: empty (positional default) for
+    /// Rotate, a one-time random pick for Random, or the configured static
+    /// color for Static. Shared by `group_new` and
+    /// `quick_create::commit_quick_create` so both group-creation paths
+    /// apply the same policy.
+    pub(super) fn new_group_color(&self) -> String {
+        match self.new_group_color_policy {
+            ColorPolicy::Rotate => String::new(),
+            ColorPolicy::Random => pick_random_color(&self.active_palette, random_seed()),
+            ColorPolicy::Static => self.static_color.clone(),
+        }
     }
 
     /// Insert a fresh, unnamed, memberless group immediately above index

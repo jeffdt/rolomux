@@ -38,7 +38,8 @@ const ALTITUDE_SHORTCUTS: &[(&str, &str)] = &[
     ("Enter", "open group"),
     ("/", "search"),
     ("1-9,0 / Alt+1-9,0", "jump to session N (1-20)"),
-    ("Esc / q / g", "back to command mode"),
+    ("Esc / g", "back to session altitude"),
+    ("q", "quit"),
 ];
 
 const SETTINGS_SHORTCUTS: &[(&str, &str)] = &[
@@ -196,5 +197,22 @@ mod tests {
             !rendered.contains("⇧R"),
             "Group altitude mode help should not contain stale ⇧R text"
         );
+    }
+
+    #[test]
+    fn altitude_mode_help_shows_q_as_quit_not_back() {
+        let mut state = PickerState::build(vec![], &Config::default());
+        state.mode = Mode::Groups;
+        let rendered = render_help_to_string(&state);
+        assert!(
+            !rendered.contains("Esc / q / g"),
+            "q no longer shares a 'back to command mode' entry with Esc/g at group altitude"
+        );
+        assert!(
+            rendered.contains("back to session altitude"),
+            "Esc/g should still be documented as returning to session altitude"
+        );
+        let q_quit_line = rendered.lines().any(|l| l.contains('q') && l.contains("quit"));
+        assert!(q_quit_line, "q should be documented as quitting the picker at group altitude");
     }
 }

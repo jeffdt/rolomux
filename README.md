@@ -106,7 +106,8 @@ Press `g` to raise the cursor to group altitude: the cursor moves up onto group 
 | `x` | Delete the selected group (press again to confirm; its sessions fall back to the inbox group) |
 | `↵` | Descend into the selected group, landing on its first session |
 | `/` | Enter search |
-| `Esc` / `q` / `g` | Back to session altitude |
+| `Esc` / `g` | Back to session altitude |
+| `q` | Quit the picker |
 
 As you create groups, they'll be assigned a color from your terminal theme (cyan, green, yellow, magenta, blue, red); new groups rotate through them, `c` flips a group's color, and empty groups show grayed out until you fill them.
 

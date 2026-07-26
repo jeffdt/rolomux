@@ -268,10 +268,12 @@ pub enum InitialFocus {
 pub const INITIAL_FOCUS: InitialFocus = InitialFocus::CurrentSession;
 
 /// Picker interaction mode. `Command` is the single-keystroke command UI;
-/// `Search` routes typed characters into a fuzzy-filter query; `Groups` is the
-/// full-screen group-management overlay; `Settings` is the full-screen
-/// settings overlay. Which mode the picker launches in is governed by the
-/// persisted `default_mode` preference (`Config::default_mode`, of type
+/// `Search` routes typed characters into a fuzzy-filter query; `Groups` is
+/// group altitude, an in-picker cursor altitude for group-management
+/// operations (create, rename, recolor, reorder, delete) with session rows
+/// still rendered underneath; `Settings` is the full-screen settings
+/// overlay. Which mode the picker launches in is governed by the persisted
+/// `default_mode` preference (`Config::default_mode`, of type
 /// `DefaultMode`), read once at `build` time -- see `DefaultMode::as_mode`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {

@@ -58,14 +58,16 @@ impl PickerState {
 
     /// Consume the in-flight quick-create buffer and, if it names a real
     /// group (non-empty after trimming), create a group named from it
-    /// immediately above the selected session's current group, move the
-    /// session into it as sole member (removing it from its old group's
-    /// explicit `members`, if it was listed there -- inbox fallback
-    /// membership requires no explicit removal), and follow the cursor to
-    /// it. Returns `true` iff a group was created. A trimmed-empty buffer is
-    /// a cancel: returns `false`, nothing created, matching
-    /// `group_commit_rename`'s empty-name guard (and, like it, no
-    /// duplicate-name guard either -- duplicates are allowed).
+    /// immediately above the selected session's current group, colored per
+    /// the current `new_group_color_policy` (same policy `group_new`
+    /// applies, via the shared `new_group_color` helper), move the session
+    /// into it as sole member (removing it from its old group's explicit
+    /// `members`, if it was listed there -- inbox fallback membership
+    /// requires no explicit removal), and follow the cursor to it. Returns
+    /// `true` iff a group was created. A trimmed-empty buffer is a cancel:
+    /// returns `false`, nothing created, matching `group_commit_rename`'s
+    /// empty-name guard (and, like it, no duplicate-name guard either --
+    /// duplicates are allowed).
     pub fn commit_quick_create(&mut self) -> bool {
         let buf = match self.quick_create_edit.take() { Some(b) => b, None => return false };
         let name = buf.trim().to_string();
@@ -74,11 +76,13 @@ impl PickerState {
         }
         let Some(session_name) = self.cursor_session_name() else { return false };
         let Some(old_gi) = self.group_index_of(&session_name) else { return false };
+        let color = self.new_group_color();
         let index = self.insert_group_above(old_gi);
         let new_old_gi = if index <= old_gi { old_gi + 1 } else { old_gi };
         self.groups[new_old_gi].members.retain(|m| m != &session_name);
         self.groups[index].name = name;
         self.groups[index].members = vec![session_name.clone()];
+        self.groups[index].color = color;
         super::ensure_inbox_last(&mut self.groups);
         self.focus_session(&session_name);
         self.dirty = true;
@@ -215,6 +219,24 @@ mod tests {
         assert!(!st.commit_quick_create(), "whitespace-only buffer also cancels");
         assert_eq!(st.groups, groups_before);
         assert!(!st.dirty);
+    }
+
+    #[test]
+    fn commit_applies_static_color_policy_like_group_new() {
+        use crate::model::ColorPolicy;
+        let mut st = grouped_state(); // G1=[a], G2=[b], INBOX=[c]
+        st.new_group_color_policy = ColorPolicy::Static;
+        st.static_color = "Magenta".to_string();
+        st.focus_session("b");
+        st.start_quick_create();
+        for c in "NEW".chars() { st.quick_create_push(c); }
+        assert!(st.commit_quick_create());
+
+        let new_group = st.groups.iter().find(|g| g.name == "NEW").unwrap();
+        assert_eq!(
+            new_group.color, "Magenta",
+            "quick-create should honor the Static new-group-color policy, same as group_new"
+        );
     }
 
     #[test]
