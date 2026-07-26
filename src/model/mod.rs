@@ -234,13 +234,6 @@ impl PickerState {
             .or_else(|| self.inbox_index())
     }
 
-    /// Live sessions currently attributed to group `gi` (via `group_index_of`,
-    /// so an inbox group's count includes fallback members it hasn't
-    /// persisted into `members` yet, not just its explicit list).
-    pub fn group_session_count(&self, gi: usize) -> usize {
-        self.all.iter().filter(|s| self.group_index_of(&s.name) == Some(gi)).count()
-    }
-
     /// Sessions that fall back to inbox group `gi` (via `group_index_of`)
     /// and aren't excluded by `is_excluded`, sorted oldest-created-first.
     /// Shared by the move logic below (`effective_order`, which excludes
@@ -691,21 +684,6 @@ mod tests {
     }
 
     #[test]
-    fn group_session_count_includes_inbox_fallback_members() {
-        let sessions = vec![s("a", 1, 1), s("b", 1, 2), s("c", 1, 3)];
-        let cfg = Config {
-            groups: vec![
-                Group { name: "WORK".into(), members: vec!["a".into()], ..Default::default() },
-                Group { name: "INBOX".into(), members: vec!["b".into()], inbox: true, ..Default::default() },
-            ],
-            ..Default::default()
-        };
-        let st = PickerState::build(sessions, &cfg);
-        assert_eq!(st.group_session_count(0), 1); // WORK: just "a"
-        assert_eq!(st.group_session_count(1), 2); // INBOX: persisted "b" + fallback "c"
-    }
-
-    #[test]
     fn all_named_colors_has_sixteen_unique_entries() {
         assert_eq!(ALL_NAMED_COLORS.len(), 16);
         let mut sorted = ALL_NAMED_COLORS.to_vec();
@@ -1066,7 +1044,8 @@ mod tests {
     #[test]
     fn residual_count_excludes_grouped() {
         let st = grouped_state(); // a,b grouped; c residual
-        assert_eq!(st.group_session_count(st.inbox_index().unwrap()), 1);
+        let inbox = st.inbox_index().unwrap();
+        assert_eq!(st.all.iter().filter(|s| st.group_index_of(&s.name) == Some(inbox)).count(), 1);
     }
 
     #[test]

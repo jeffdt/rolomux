@@ -48,6 +48,12 @@ const CREATE_GROUP_HINT: &str =
 
 const SEARCH_FOOTER_HINT: &str = "↑↓ move · ⌃w word · ⌃u clear · ⌃f focus · Esc back";
 
+/// The footer hint while the cursor is raised to group altitude. Same verbs
+/// as `FOOTER_HINT`, one level up: they act on the highlighted group rather
+/// than the selected session.
+const ALTITUDE_FOOTER_HINT: &str =
+    "r rename \u{b7} n new \u{b7} c color \u{b7} x delete \u{b7} \u{21e7}JK move \u{b7} Enter open \u{b7} Esc back";
+
 /// The running binary's version, as `git describe --tags --dirty` saw it at
 /// build time (e.g. `v0.27.0` on a clean tagged release, `v0.27.0-3-gabc1234`
 /// on a local dev build, `-dirty` appended if the tree had uncommitted
@@ -85,11 +91,12 @@ fn dormant_session(selected: bool) -> Style {
 /// its own highlight bar. `dormant_session` above already solves this
 /// identical contrast problem by swapping to `Color::Gray` when selected;
 /// the dim stage reuses that split. Each row kind places the resolved
-/// glyph differently (see `session_item`, `window_item`, `draw_groups`):
+/// glyph differently (see `session_item`, `window_item`, `header_item`):
 /// session rows splice it into the padding just before the shared
 /// metadata column, which is already kept aligned across every row and
-/// already guarantees room for it; window and group rows have no such
-/// shared column, so they append it right after their own content instead.
+/// already guarantees room for it; window rows have no such shared column,
+/// so they append it right after their own content, and group headers spend
+/// two cells of their trailing rule on it.
 fn swap_marker_glyph(marker: Option<(SwapDirection, bool)>, selected: bool) -> Option<(&'static str, Color)> {
     let (dir, bright) = marker?;
     let glyph = match dir {
@@ -190,9 +197,11 @@ pub fn draw(frame: &mut Frame, state: &PickerState) {
     let content = chunks[1];
 
     match state.mode {
-        Mode::Command => draw_command(frame, state, content),
+        // Group altitude is not a separate screen: it renders the same picker
+        // through the same renderer, with the session rows receded and the
+        // highlight moved up onto a group header.
+        Mode::Command | Mode::Groups => draw_command(frame, state, content),
         Mode::Search => draw_search(frame, state, content),
-        Mode::Groups => draw_groups(frame, state, content),
         Mode::Settings => settings::draw_settings(frame, state, content),
     }
 
@@ -210,9 +219,16 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
     let list_area = chunks[0];
     let footer_area = chunks[1];
 
+    // Raised == the cursor is at group altitude. The list is built exactly as
+    // at session altitude; only the styling and which line carries the
+    // highlight differ.
+    let raised = state.mode == Mode::Groups;
     let ordered = state.ordered();
     let rows = state.visible_rows();
-    let cursor_row = rows.get(state.cursor).copied();
+    // No session row is selected while raised: the selection bar belongs to a
+    // group header, and a row styled as selected without wearing the bar would
+    // read as a second, phantom cursor.
+    let cursor_row = if raised { None } else { rows.get(state.cursor).copied() };
 
     // Anchor metadata to one shared geometry across every session row, computed
     // from the visible sessions (window rows carry no metadata).
@@ -257,13 +273,9 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
                 if last_section != Some(section) {
                     let target = section;
                     while next_group < target {
-                        push_empty_group_header_unless_focused(
-                            &mut items,
-                            &state.groups[next_group],
-                            list_area.width,
-                            state.focus_mode(),
-                            &state.inbox_icon,
-                        );
+                        if push_empty_group_header_unless_focused(&mut items, state, next_group, list_area.width) {
+                            note_highlighted_header(&mut selected_line, &items, state, next_group);
+                        }
                         next_group += 1;
                     }
                     let color = group_color(&state.groups[section], section, &state.active_palette);
@@ -277,7 +289,8 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
                             color_from_name(&state.border_color),
                         );
                     }
-                    push_section_header(&mut items, &state.groups[section], list_area.width, color, &state.inbox_icon);
+                    push_group_header(&mut items, state, section, list_area.width, color);
+                    note_highlighted_header(&mut selected_line, &items, state, section);
                     current_gutter_color = color;
                     next_group = section + 1;
                     last_section = Some(section);
@@ -302,7 +315,7 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
                     AttachedColorMode::Match => current_gutter_color,
                     AttachedColorMode::Static => attached_static_color,
                 };
-                items.push(session_item(
+                items.push(recede(session_item(
                     sess,
                     state.is_expanded(&sess.name),
                     selected,
@@ -316,7 +329,7 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
                     rename_buf,
                     state.session_swap_marker(&sess.name),
                     wide_numbering,
-                ));
+                ), raised));
             }
             Row::Window(si, wi) => {
                 let sess = ordered[*si];
@@ -332,7 +345,7 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
                     DotColorMode::Group => current_gutter_color,
                     DotColorMode::Static => dot_static_color,
                 };
-                items.push(window_item(
+                items.push(recede(window_item(
                     &sess.windows[*wi],
                     last,
                     selected,
@@ -343,19 +356,15 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
                     dot_color,
                     state.window_swap_marker(&sess.name, sess.windows[*wi].index),
                     wide_numbering,
-                ));
+                ), raised));
             }
         }
     }
     // Trailing empty groups (after the last session row, with no residual below).
     while next_group < state.groups.len() {
-        push_empty_group_header_unless_focused(
-            &mut items,
-            &state.groups[next_group],
-            list_area.width,
-            state.focus_mode(),
-            &state.inbox_icon,
-        );
+        if push_empty_group_header_unless_focused(&mut items, state, next_group, list_area.width) {
+            note_highlighted_header(&mut selected_line, &items, state, next_group);
+        }
         next_group += 1;
     }
 
@@ -367,20 +376,26 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
     frame.render_stateful_widget(list, list_area, &mut list_state);
 
     // Render the divider and hint row inside the footer area. A pending
-    // window-move confirm is destructive if missed, so it renders in
-    // WARNING (red) rather than the normal dim hint color.
-    let hint_line = if let Some(warning) = state.pending_kill_warning() {
-        Line::from(Span::styled(
+    // confirm is destructive if missed, so it takes over the hint line in
+    // WARNING (red) rather than the normal dim hint color. Each altitude has
+    // its own pair, and within a pair the more destructive one wins: a group
+    // delete outranks the blocked-inbox-reorder nudge (the two can't be armed
+    // at once anyway, since any input clears the other's arm).
+    let warning = if raised {
+        state
+            .pending_group_delete_warning()
+            .or_else(|| state.group_reorder_blocked_warning().map(str::to_string))
+    } else {
+        state
+            .pending_kill_warning()
+            .or_else(|| state.pending_window_move_warning().map(str::to_string))
+    };
+    let hint_line = match warning {
+        Some(warning) => Line::from(Span::styled(
             warning,
             Style::default().fg(WARNING).add_modifier(Modifier::BOLD),
-        ))
-    } else if let Some(warning) = state.pending_window_move_warning() {
-        Line::from(Span::styled(
-            warning.to_string(),
-            Style::default().fg(WARNING).add_modifier(Modifier::BOLD),
-        ))
-    } else {
-        shortcut_hint_line(state, &command_footer_hint(state))
+        )),
+        None => shortcut_hint_line(state, &command_footer_hint(state)),
     };
     let footer = Paragraph::new(vec![
         Line::from(Span::styled(footer_rule(footer_area.width, state), Style::default().fg(DIM))),
@@ -492,92 +507,6 @@ fn draw_search(frame: &mut Frame, state: &PickerState, inner: Rect) {
     frame.render_widget(footer, chunks[2]);
 }
 
-const GROUP_FOOTER_HINT: &str = "Enter rename · n new · c color · d delete · ⇧JK reorder · Esc back";
-
-fn draw_groups(frame: &mut Frame, state: &PickerState, inner: Rect) {
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Min(0), Constraint::Length(2)])
-        .split(inner);
-    let list_area = chunks[0];
-    let footer_area = chunks[1];
-
-    let mut items: Vec<ListItem> = Vec::new();
-    let mut selected_line: Option<usize> = None;
-    for (gi, g) in state.groups.iter().enumerate() {
-        // The inbox can't be reordered (see `PickerState::group_reorder`), so
-        // once there's at least one named group to separate it from, a dim
-        // rule marks it as sitting outside the manually-ordered block. With
-        // no named groups yet, inbox is the only row and needs no divider.
-        if g.inbox && state.groups.len() > 1 {
-            items.push(ListItem::new(Line::from(Span::styled(
-                "─".repeat(list_area.width as usize),
-                Style::default().fg(DIM),
-            ))));
-        }
-        let selected = gi == state.group_cursor();
-        if selected { selected_line = Some(items.len()); }
-        let editing = selected && state.group_editing();
-        let line = if editing {
-            let buf = state.group_edit_buffer().unwrap_or("");
-            let mut spans = Vec::new();
-            if g.inbox {
-                spans.push(Span::raw(format!("{} ", state.inbox_icon)));
-            }
-            spans.push(Span::styled(
-                buf.to_uppercase(),
-                Style::default().add_modifier(Modifier::BOLD),
-            ));
-            spans.push(Span::styled("▏", Style::default().fg(color_from_name(&state.border_color))));
-            Line::from(spans)
-        } else {
-            // Group mode always shows a group's real (flippable) header color,
-            // regardless of membership: dimming empty groups here can collide
-            // with the DarkGray selection bar and render the name invisible
-            // (issue #14).
-            let name_color = group_color(g, gi, &state.active_palette);
-            let mut spans = group_label_spans(g, true, name_color, &state.inbox_icon);
-            spans.push(Span::styled(format!("  · {}", state.group_session_count(gi)), secondary(selected)));
-            if let Some((glyph, color)) = swap_marker_glyph(state.group_swap_marker(&g.name), selected) {
-                spans.push(Span::raw("  "));
-                spans.push(Span::styled(glyph, Style::default().fg(color)));
-            }
-            Line::from(spans)
-        };
-        items.push(ListItem::new(line));
-    }
-
-    let list = List::new(items).highlight_style(Style::default().bg(SEL_BG));
-    let mut list_state = ListState::default();
-    list_state.select(selected_line);
-    frame.render_stateful_widget(list, list_area, &mut list_state);
-
-    let rule = "─".repeat(footer_area.width as usize);
-    // A pending group-delete confirm takes priority over the blocked-reorder
-    // warning: it's the more severe/destructive pending action, and the two
-    // can't be armed simultaneously anyway (any input clears the other's
-    // arm). Both replace the hint line with a one-shot warning, same
-    // treatment as the pending window-move warning in command mode.
-    let hint_line = if let Some(warning) = state.pending_group_delete_warning() {
-        Line::from(Span::styled(
-            warning,
-            Style::default().fg(WARNING).add_modifier(Modifier::BOLD),
-        ))
-    } else if let Some(warning) = state.group_reorder_blocked_warning() {
-        Line::from(Span::styled(
-            warning.to_string(),
-            Style::default().fg(WARNING).add_modifier(Modifier::BOLD),
-        ))
-    } else {
-        shortcut_hint_line(state, GROUP_FOOTER_HINT)
-    };
-    let footer = Paragraph::new(vec![
-        Line::from(Span::styled(rule, Style::default().fg(DIM))),
-        hint_line,
-    ]);
-    frame.render_widget(footer, footer_area);
-}
-
 /// Map a named color to its ANSI `Color` (never RGB, so headers follow the
 /// terminal theme). `magenta` is the Nord purple. Unknown names fall back to
 /// the accent so a hand-edited config can never crash the picker.
@@ -620,27 +549,53 @@ fn group_color(group: &Group, index: usize, active_palette: &[String]) -> Color 
     color_from_name(name)
 }
 
-/// Push a section header, preceding it with a blank spacer unless it is the very
+/// Fade a session or window row while the cursor is at group altitude. The
+/// modifier lands on the whole row rather than on each span: ratatui patches
+/// an item-level style *under* every span's own style, so each cell gains DIM
+/// while keeping the fg and modifiers that give the row its identity (attached
+/// cyan and bold, dormant DarkGray, the jump number). Recede is a plane
+/// transform; dormancy stays a state recolor, and the two never collide.
+fn recede(item: ListItem<'static>, raised: bool) -> ListItem<'static> {
+    if raised {
+        item.style(Style::default().add_modifier(Modifier::DIM))
+    } else {
+        item
+    }
+}
+
+/// Point `selected_line` at the header just pushed as `items`' last entry when
+/// that header is the one the group cursor is on. At group altitude the
+/// selection bar rides a group header instead of a session row, and `List`'s
+/// `highlight_style` only knows about item indices.
+fn note_highlighted_header(
+    selected_line: &mut Option<usize>,
+    items: &[ListItem<'static>],
+    state: &PickerState,
+    gi: usize,
+) {
+    if state.mode == Mode::Groups && gi == state.group_cursor() {
+        *selected_line = Some(items.len() - 1);
+    }
+}
+
+/// Push a group header, preceding it with a blank spacer unless it is the very
 /// first item in the list.
-fn push_section_header(items: &mut Vec<ListItem<'static>>, g: &Group, width: u16, color: Color, icon: &str) {
+fn push_group_header(items: &mut Vec<ListItem<'static>>, state: &PickerState, gi: usize, width: u16, color: Color) {
     if !items.is_empty() {
         items.push(ListItem::new(Line::from("")));
     }
-    items.push(header_item(g, width, color, icon));
+    items.push(header_item(state, gi, width, color));
 }
 
 /// Push the live `⇧N` quick-create row: the typed buffer in the same
 /// uppercased-bold-plus-caret style as an inline group rename, preceded by a
-/// blank spacer like `push_section_header`, marking where the new group will
+/// blank spacer like `push_group_header`, marking where the new group will
 /// land once committed.
 fn push_quick_create_phantom_row(items: &mut Vec<ListItem<'static>>, buf: &str, caret_color: Color) {
     if !items.is_empty() {
         items.push(ListItem::new(Line::from("")));
     }
-    items.push(ListItem::new(Line::from(vec![
-        Span::styled(buf.to_uppercase(), Style::default().add_modifier(Modifier::BOLD)),
-        Span::styled("▏", Style::default().fg(caret_color)),
-    ])));
+    items.push(ListItem::new(group_edit_line(buf, None, caret_color)));
 }
 
 fn push_create_group_hint(items: &mut Vec<ListItem<'static>>) {
@@ -650,25 +605,35 @@ fn push_create_group_hint(items: &mut Vec<ListItem<'static>>) {
     ])));
 }
 
-/// Push a bare, dimmed header for an empty named group (a labeled shelf to fill).
-fn push_empty_group_header(items: &mut Vec<ListItem<'static>>, g: &Group, width: u16, icon: &str) {
-    push_section_header(items, g, width, DIM, icon);
+/// Push a bare, dimmed header for an empty named group (a labeled shelf to
+/// fill). The group under the cursor at group altitude is the exception: DIM
+/// is `DarkGray`, exactly `SEL_BG`, so dimming it under the selection bar
+/// would render its name invisible (issue #14). It keeps its real color.
+fn push_empty_group_header(items: &mut Vec<ListItem<'static>>, state: &PickerState, gi: usize, width: u16) {
+    let color = if state.mode == Mode::Groups && gi == state.group_cursor() {
+        group_color(&state.groups[gi], gi, &state.active_palette)
+    } else {
+        DIM
+    };
+    push_group_header(items, state, gi, width, color);
 }
 
-/// Same as `push_empty_group_header`, but skipped entirely in focus mode. Every
-/// call site reaches this only for a group already known to have zero visible
-/// sessions (a group with any visible session always gets its real header via
-/// `push_section_header` instead), so gating on `focus_mode` alone is correct.
+/// Same as `push_empty_group_header`, but skipped entirely in focus mode;
+/// returns whether a header was actually pushed. Every call site reaches this
+/// only for a group already known to have zero visible sessions (a group with
+/// any visible session always gets its real header via `push_group_header`
+/// instead), so gating on `focus_mode` alone is correct.
 fn push_empty_group_header_unless_focused(
     items: &mut Vec<ListItem<'static>>,
-    g: &Group,
+    state: &PickerState,
+    gi: usize,
     width: u16,
-    focus_mode: bool,
-    icon: &str,
-) {
-    if !focus_mode {
-        push_empty_group_header(items, g, width, icon);
+) -> bool {
+    if state.focus_mode() {
+        return false;
     }
+    push_empty_group_header(items, state, gi, width);
+    true
 }
 
 fn group_name(g: &Group, upper: bool) -> String {
@@ -698,10 +663,41 @@ fn group_label_spans(g: &Group, upper: bool, color: Color, icon: &str) -> Vec<Sp
     spans
 }
 
-fn header_item(g: &Group, width: u16, color: Color, icon: &str) -> ListItem<'static> {
-    let rule_len = (width as usize).saturating_sub(group_label_width(g, true, icon) + 2);
+/// An in-flight group name: the typed buffer uppercased and bold, trailed by
+/// a caret in the border color. Shared by an inline rename or create on a
+/// group header and by the `⇧N` quick-create phantom row.
+fn group_edit_line(buf: &str, icon: Option<&str>, caret_color: Color) -> Line<'static> {
+    let mut spans = Vec::new();
+    if let Some(icon) = icon {
+        spans.push(Span::raw(format!("{icon} ")));
+    }
+    spans.push(Span::styled(buf.to_uppercase(), Style::default().add_modifier(Modifier::BOLD)));
+    spans.push(Span::styled("▏", Style::default().fg(caret_color)));
+    Line::from(spans)
+}
+
+fn header_item(state: &PickerState, gi: usize, width: u16, color: Color) -> ListItem<'static> {
+    let g = &state.groups[gi];
+    let icon = state.inbox_icon.as_str();
+    let highlighted = state.mode == Mode::Groups && gi == state.group_cursor();
+    if highlighted && state.group_editing() {
+        return ListItem::new(group_edit_line(
+            state.group_edit_buffer().unwrap_or(""),
+            g.inbox.then_some(icon),
+            color_from_name(&state.border_color),
+        ));
+    }
+    // The post-`⇧J`/`⇧K` flash rides in the rule, replacing two of its cells
+    // so the header's width never shifts as the marker comes and goes.
+    let marker = swap_marker_glyph(state.group_swap_marker(&g.name), highlighted);
+    let marker_width = if marker.is_some() { 2 } else { 0 };
+    let rule_len = (width as usize).saturating_sub(group_label_width(g, true, icon) + 2 + marker_width);
     let mut spans = group_label_spans(g, true, color, icon);
     spans.push(Span::raw(" "));
+    if let Some((glyph, marker_color)) = marker {
+        spans.push(Span::styled(glyph, Style::default().fg(marker_color)));
+        spans.push(Span::raw(" "));
+    }
     spans.push(Span::styled("─".repeat(rule_len), Style::default().fg(color)));
     ListItem::new(Line::from(spans))
 }
@@ -738,6 +734,9 @@ fn footer_rule(width: u16, state: &PickerState) -> String {
 }
 
 fn command_footer_hint(state: &PickerState) -> String {
+    if state.mode == Mode::Groups {
+        return ALTITUDE_FOOTER_HINT.to_string();
+    }
     if let Some(warning) = state.pending_kill_warning() {
         return warning;
     }
@@ -1107,13 +1106,12 @@ mod tests {
     }
 
     #[test]
-    fn selected_inbox_glyph_is_not_bold_but_name_is() {
+    fn inbox_glyph_is_not_bold_but_name_is() {
         let sessions = vec![
             Session { id: String::new(), name: "a".into(), activity: 1, created: 1, attached: false, windows: vec![] },
         ];
         let cfg = Config::default();
-        let mut state = PickerState::build(sessions, &cfg);
-        state.enter_groups();
+        let state = PickerState::build(sessions, &cfg);
 
         let backend = TestBackend::new(80, 20);
         let mut terminal = Terminal::new(backend).unwrap();
@@ -2174,15 +2172,6 @@ mod tests {
     }
 
     #[test]
-    fn group_footer_hint_uses_styled_hint() {
-        let state = groups_view(false);
-        let backend = TestBackend::new(84, 20);
-        let mut terminal = Terminal::new(backend).unwrap();
-        terminal.draw(|f| draw(f, &state)).unwrap();
-        assert_footer_key_is_styled(terminal.backend().buffer());
-    }
-
-    #[test]
     fn settings_footer_hint_uses_styled_hint() {
         let state = settings_view();
         let backend = TestBackend::new(84, 20);
@@ -2456,30 +2445,6 @@ mod tests {
     }
 
     #[test]
-    fn group_swap_marker_renders_only_the_moved_groups_arrow() {
-        let mut state = grouped_state();
-        state.enter_groups();
-        state.group_reorder(1); // G1 (cursor) moves down past G2
-
-        let backend = TestBackend::new(80, 20);
-        let mut terminal = Terminal::new(backend).unwrap();
-        terminal.draw(|f| draw(f, &state)).unwrap();
-        let buf = terminal.backend().buffer().clone();
-
-        let row_of = |name: &str| -> u16 {
-            (0..buf.area.height)
-                .find(|&y| find_text_x(&buf, y, name).is_some())
-                .unwrap_or_else(|| panic!("no row contains {name:?}"))
-        };
-        assert!(find_text_x(&buf, row_of("G1"), "▼").is_some(), "G1 moved down");
-        let g2_y = row_of("G2");
-        assert!(
-            find_text_x(&buf, g2_y, "▲").is_none() && find_text_x(&buf, g2_y, "▼").is_none(),
-            "G2 (bumped) row gets no marker"
-        );
-    }
-
-    #[test]
     fn window_swap_marker_renders_only_the_moved_windows_arrow() {
         let sessions = vec![Session {
             id: String::new(), name: "work".into(), activity: 1, created: 1, attached: false,
@@ -2717,7 +2682,7 @@ mod tests {
         assert!(found, "pr-review row must be present");
 
         // Expected color comes from group_color() itself, mirroring the
-        // pattern in draw_groups_selected_empty_group_name_is_visible, so
+        // pattern in raised_selected_empty_group_name_is_visible, so
         // this stays correct even if the default palette order changes.
         let expected_color = group_color(&state.groups[0], 0, &state.active_palette);
         let backend = TestBackend::new(80, 20);
@@ -2908,142 +2873,274 @@ mod tests {
         assert!(tools_magenta, "explicit magenta group header is purple");
     }
 
-    fn groups_view(edit: bool) -> PickerState {
+    /// A picker raised to group altitude over a realistic list: two named
+    /// groups plus the inbox, one attached session, one dormant session, and
+    /// one expanded session so window rows are on screen too. The cursor
+    /// starts on `work`, so ALPHA is the highlighted group.
+    fn raised_view() -> PickerState {
         let sessions = vec![
-            Session { id: String::new(), name: "claude".into(), activity: 30, created: 1, attached: false,
-                      windows: vec![Window { id: String::new(), index: 0, name: "w".into(), active: true }] },
-            Session { id: String::new(), name: "ticket".into(), activity: 10, created: 2, attached: false,
-                      windows: vec![Window { id: String::new(), index: 0, name: "w".into(), active: true }] },
+            Session { id: String::new(), name: "work".into(), activity: 30, created: 1, attached: true,
+                      windows: vec![Window { id: String::new(), index: 0, name: "editor".into(), active: true }] },
+            Session { id: String::new(), name: "stale".into(), activity: 20, created: 2, attached: false,
+                      windows: vec![Window { id: String::new(), index: 0, name: "shell".into(), active: true }] },
+            Session { id: String::new(), name: "notes".into(), activity: 10, created: 3, attached: false,
+                      windows: vec![Window { id: String::new(), index: 0, name: "draft".into(), active: true }] },
         ];
-        let cfg = Config { groups: vec![Group { name: "config".into(), members: vec!["claude".into()], color: String::new(), ..Default::default() }], ..Default::default() };
+        let cfg = Config {
+            dormant: vec!["stale".into()],
+            groups: vec![
+                Group { name: "alpha".into(), members: vec!["work".into()], ..Default::default() },
+                Group { name: "beta".into(), members: vec!["stale".into()], ..Default::default() },
+            ],
+            ..Default::default()
+        };
         let mut st = PickerState::build(sessions, &cfg);
+        st.expand_session("work");
         st.enter_groups();
-        if edit { st.group_start_rename(); }
         st
     }
 
-    #[test]
-    fn draw_groups_lists_group_with_count_and_residual_anchor() {
-        let text = render_to_string(&groups_view(false));
-        assert!(text.contains("CONFIG"), "group header");
-        assert!(text.contains("· 1"), "member count");
-        assert!(text.contains("⊛ INBOX"), "inbox row renders through the normal group path");
-        assert!(text.contains("Enter rename"), "group footer");
+    fn render_buf(state: &PickerState) -> ratatui::buffer::Buffer {
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| draw(f, state)).unwrap();
+        terminal.backend().buffer().clone()
     }
 
-    fn is_dim_rule_line(line: &str) -> bool {
-        let content: String = line.chars().skip(3).take_while(|c| *c != '│').collect();
-        !content.is_empty() && content.chars().all(|c| c == '─')
+    fn row_of(buf: &ratatui::buffer::Buffer, needle: &str) -> u16 {
+        (0..buf.area.height)
+            .find(|&y| find_text_x(buf, y, needle).is_some())
+            .unwrap_or_else(|| panic!("no row contains {needle:?}"))
+    }
+
+    /// The x range of the card's interior on any row: everything inside the
+    /// popup margin and the border, i.e. exactly the cells a list row owns.
+    fn card_interior(buf: &ratatui::buffer::Buffer) -> std::ops::Range<u16> {
+        (POPUP_MARGIN + 1)..(buf.area.width - POPUP_MARGIN - 1)
     }
 
     #[test]
-    fn draw_groups_shows_a_divider_above_the_inbox_when_a_named_group_exists() {
-        let text = render_to_string(&groups_view(false)); // CONFIG + INBOX
-        let lines: Vec<&str> = text.lines().collect();
-        let inbox_idx = lines.iter().position(|l| l.contains("⊛ INBOX")).expect("inbox row rendered");
+    fn raised_sessions_recede_with_dim_but_keep_identity() {
+        let st = raised_view();
+        let buf = render_buf(&st);
+
+        // Recede is a whole-plane transform: every cell a session or window
+        // row owns is dimmed, not just its name.
+        for needle in ["work", "editor", "stale", "notes"] {
+            let y = row_of(&buf, needle);
+            for x in card_interior(&buf) {
+                assert!(
+                    buf[(x, y)].style().add_modifier.contains(Modifier::DIM),
+                    "row {needle:?} cell at x={x} should be dimmed"
+                );
+            }
+        }
+
+        // ...while each row keeps the identity it has at session altitude.
+        let attached_fg = match st.attached_color_mode {
+            AttachedColorMode::Match => group_color(&st.groups[0], 0, &st.active_palette),
+            AttachedColorMode::Static => color_from_name(&st.attached_color),
+        };
+        let work_y = row_of(&buf, "work");
+        let work_x = find_text_x(&buf, work_y, "work").unwrap();
+        assert_eq!(buf[(work_x, work_y)].style().fg, Some(attached_fg), "attached session keeps its color");
+        assert!(buf[(work_x, work_y)].style().add_modifier.contains(Modifier::BOLD), "attached session stays bold");
+        assert!(find_text_x(&buf, work_y, "●").is_some(), "attached dot survives");
+
+        let stale_y = row_of(&buf, "stale");
+        let stale_x = find_text_x(&buf, stale_y, "stale").unwrap();
+        assert_eq!(buf[(stale_x, stale_y)].style().fg, Some(Color::DarkGray), "dormant session stays DarkGray");
+
+        let notes_y = row_of(&buf, "notes");
+        let notes_x = find_text_x(&buf, notes_y, "notes").unwrap();
+        assert_ne!(buf[(notes_x, notes_y)].style().fg, Some(Color::DarkGray), "a normal row is not recolored as dormant");
+
+        // Numbers mean jumpable at every altitude, so they stay on screen.
+        let gutter_x = card_interior(&buf).start;
+        assert_eq!(buf[(gutter_x, work_y)].symbol(), "│", "group gutter bar leads the row");
+        assert_eq!(buf[(gutter_x + 1, work_y)].symbol(), "1", "jump number still rendered while raised");
+    }
+
+    #[test]
+    fn raised_highlighted_header_carries_selection_bar() {
+        let st = raised_view();
+        let buf = render_buf(&st);
+        let alpha_y = row_of(&buf, "ALPHA");
+        let beta_y = row_of(&buf, "BETA");
+
+        for x in card_interior(&buf) {
+            assert_eq!(
+                buf[(x, alpha_y)].style().bg,
+                Some(SEL_BG),
+                "the highlighted group's header wears the selection bar across the full row (x={x})"
+            );
+            assert_ne!(buf[(x, beta_y)].style().bg, Some(SEL_BG), "unhighlighted headers get no bar (x={x})");
+        }
+        let alpha_x = find_text_x(&buf, alpha_y, "ALPHA").unwrap();
+        assert!(buf[(alpha_x, alpha_y)].style().add_modifier.contains(Modifier::BOLD), "selection bar is bold");
+    }
+
+    #[test]
+    fn raised_headers_are_not_dimmed() {
+        let st = raised_view();
+        let buf = render_buf(&st);
+        for label in ["ALPHA", "BETA", "INBOX"] {
+            let y = row_of(&buf, label);
+            for x in card_interior(&buf) {
+                assert!(
+                    !buf[(x, y)].style().add_modifier.contains(Modifier::DIM),
+                    "header {label:?} keeps its full color (x={x})"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn raised_footer_shows_altitude_hints() {
+        let text = render_to_string(&raised_view());
+        assert!(text.contains("x delete"), "altitude hint present");
+        assert!(text.contains("Enter open"), "altitude hint present");
+        assert!(!text.contains("x kill"), "session-altitude hints step aside while raised");
+    }
+
+    #[test]
+    fn altitude_footer_hint_fits_the_card() {
         assert!(
-            is_dim_rule_line(lines[inbox_idx - 1]),
-            "a dim rule should sit directly above the inbox row: {:?}",
-            lines[inbox_idx - 1]
+            ALTITUDE_FOOTER_HINT.chars().count() <= 78,
+            "ALTITUDE_FOOTER_HINT must fit the 78-col footer at real 84-col popup width"
         );
-        // Exactly two dash-only rows: the divider and the footer's own rule.
-        assert_eq!(lines.iter().filter(|l| is_dim_rule_line(l)).count(), 2);
     }
 
     #[test]
-    fn draw_groups_hides_the_divider_when_inbox_is_the_only_group() {
-        let sessions = vec![Session {
-            id: String::new(), name: "claude".into(), activity: 30, created: 1, attached: false,
-            windows: vec![Window { id: String::new(), index: 0, name: "w".into(), active: true }],
-        }];
-        let cfg = Config { groups: vec![], ..Default::default() }; // synthesizes INBOX alone
-        let mut st = PickerState::build(sessions, &cfg);
-        st.enter_groups();
-        let text = render_to_string(&st);
-        let lines: Vec<&str> = text.lines().collect();
-        assert!(lines.iter().any(|l| l.contains("⊛ INBOX")));
-        // Only the footer's own rule, no divider above the sole inbox row.
-        assert_eq!(lines.iter().filter(|l| is_dim_rule_line(l)).count(), 1);
+    fn altitude_footer_hint_uses_styled_hint() {
+        let state = raised_view();
+        let backend = TestBackend::new(84, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| draw(f, &state)).unwrap();
+        assert_footer_key_is_styled(terminal.backend().buffer());
     }
 
     #[test]
-    fn draw_groups_footer_shows_warning_after_a_blocked_inbox_reorder() {
-        let mut st = groups_view(false); // CONFIG + INBOX
-        st.group_move_cursor(1); // land on INBOX
+    fn raised_footer_shows_warning_after_a_blocked_inbox_reorder() {
+        let mut st = raised_view(); // ALPHA + BETA + INBOX
+        st.group_move_cursor(2); // land on the inbox
         st.group_reorder(-1); // blocked
         let text = render_to_string(&st);
         assert!(text.contains("Inbox can't be reordered"));
-        assert!(!text.contains("Enter rename"), "warning replaces the normal footer hint, not alongside it");
+        assert!(!text.contains("Enter open"), "warning replaces the hint line, not alongside it");
     }
 
     #[test]
-    fn draw_groups_footer_shows_warning_when_delete_is_armed() {
-        let mut st = groups_view(false); // CONFIG + INBOX
+    fn raised_footer_shows_warning_when_delete_is_armed() {
+        let mut st = raised_view();
         st.arm_group_delete();
         let text = render_to_string(&st);
-        assert!(text.contains("x again to delete group 'config'"));
-        assert!(!text.contains("Enter rename"), "warning replaces the normal footer hint, not alongside it");
+        assert!(text.contains("x again to delete group 'alpha'"));
+        assert!(!text.contains("Enter open"), "warning replaces the hint line, not alongside it");
     }
 
     #[test]
-    fn draw_groups_footer_warning_is_red_not_dim() {
-        let mut st = groups_view(false);
-        st.group_move_cursor(1);
+    fn raised_footer_warning_is_red_not_dim() {
+        let mut st = raised_view();
+        st.group_move_cursor(2);
         st.group_reorder(-1);
-        let backend = TestBackend::new(80, 20);
-        let mut terminal = Terminal::new(backend).unwrap();
-        terminal.draw(|f| draw(f, &st)).unwrap();
-        let buf = terminal.backend().buffer().clone();
-        let mut found_red = false;
-        for y in 0..buf.area.height {
-            let line: String = (0..buf.area.width).map(|x| buf[(x, y)].symbol()).collect();
-            if line.contains("Inbox can't be reordered") {
-                found_red = buf[(POPUP_MARGIN + 1, y)].style().fg == Some(Color::Red);
-            }
-        }
-        assert!(found_red, "blocked-reorder warning should render in WARNING red, not the dim hint color");
+        let buf = render_buf(&st);
+        let y = row_of(&buf, "Inbox can't be reordered");
+        let x = find_text_x(&buf, y, "Inbox can't be reordered").unwrap();
+        assert_eq!(
+            buf[(x, y)].style().fg,
+            Some(WARNING),
+            "blocked-reorder warning should render in WARNING red, not the dim hint color"
+        );
     }
 
     #[test]
-    fn draw_groups_selected_empty_group_name_is_visible() {
-        // Issue #14: a newly created (empty) group sits selected against the
-        // DarkGray highlight bar. Dimming its name to DarkGray for being empty
-        // renders DarkGray-on-DarkGray: an invisible name. Group-mode names
-        // must always show the group's real color, regardless of membership.
-        let mut st = groups_view(false);
+    fn raised_selected_empty_group_name_is_visible() {
+        // Issue #14: a newly created (empty) group sits highlighted against
+        // the DarkGray selection bar. Dimming its name to DarkGray for being
+        // empty renders DarkGray-on-DarkGray: an invisible name. The
+        // highlighted group's header always shows its real color.
+        let mut st = raised_view();
         st.group_new();
-        for c in "test".chars() { st.group_edit_push(c); }
+        for c in "shelf".chars() { st.group_edit_push(c); }
         st.group_commit_rename();
         let gi = st.group_cursor();
-
-        let backend = TestBackend::new(80, 20);
-        let mut terminal = Terminal::new(backend).unwrap();
-        terminal.draw(|f| draw(f, &st)).unwrap();
-        let buf = terminal.backend().buffer().clone();
+        let buf = render_buf(&st);
 
         let expected = group_color(&st.groups[gi], gi, &st.active_palette);
         let mut found_visible_name_cell = false;
         for y in 0..buf.area.height {
             for x in 0..buf.area.width {
                 let cell = &buf[(x, y)];
-                if cell.style().bg == Some(Color::DarkGray) && cell.style().fg == Some(expected) {
+                if cell.style().bg == Some(SEL_BG) && cell.style().fg == Some(expected) {
                     found_visible_name_cell = true;
                 }
-                let invisible = cell.style().bg == Some(Color::DarkGray)
-                    && cell.style().fg == Some(Color::DarkGray);
-                assert!(!invisible, "selected empty group row has DarkGray-on-DarkGray cell at x={x}, y={y}");
+                let invisible = cell.style().bg == Some(SEL_BG) && cell.style().fg == Some(Color::DarkGray);
+                assert!(!invisible, "highlighted empty group row has DarkGray-on-DarkGray cell at x={x}, y={y}");
             }
         }
-        assert!(found_visible_name_cell, "selected empty group name renders in its real header color");
+        assert!(found_visible_name_cell, "highlighted empty group name renders in its real header color");
     }
 
     #[test]
-    fn draw_groups_shows_inline_rename_field() {
-        let mut st = groups_view(true);
+    fn raised_rename_edits_inline_on_the_header_row() {
+        let mut st = raised_view();
+        st.group_start_rename();
         st.group_edit_clear();
-        for c in "misc".chars() { st.group_edit_push(c); }
+        for c in "renamed".chars() { st.group_edit_push(c); }
+        let buf = render_buf(&st);
+
+        let y = row_of(&buf, "RENAMED");
+        let caret_x = find_text_x(&buf, y, "▏").expect("caret trails the buffer on the header row");
+        assert_eq!(
+            buf[(caret_x, y)].style().fg,
+            Some(color_from_name(&st.border_color)),
+            "caret takes the border color"
+        );
+        let text = render_to_string_sized(&st, 80, 24);
+        assert!(!text.contains("ALPHA"), "the edit buffer replaces the group's committed name");
+    }
+
+    #[test]
+    fn raised_new_group_names_inline_on_its_own_header_row() {
+        let mut st = raised_view();
+        st.group_new();
+        for c in "fresh".chars() { st.group_edit_push(c); }
+        let text = render_to_string_sized(&st, 80, 24);
+        assert!(text.contains("FRESH▏"), "a just-created group is named in place, uppercased, with a caret");
+    }
+
+    #[test]
+    fn raised_group_swap_marker_flashes_on_the_moved_header() {
+        let mut st = raised_view();
+        st.group_reorder(1); // ALPHA moves down past BETA
+        let buf = render_buf(&st);
+        assert!(find_text_x(&buf, row_of(&buf, "ALPHA"), "▼").is_some(), "ALPHA moved down");
+        let beta_y = row_of(&buf, "BETA");
+        assert!(
+            find_text_x(&buf, beta_y, "▲").is_none() && find_text_x(&buf, beta_y, "▼").is_none(),
+            "BETA (bumped) gets no marker"
+        );
+    }
+
+    #[test]
+    fn raised_still_shows_the_create_group_hint() {
+        let sessions = vec![
+            Session { id: String::new(), name: "alpha".into(), activity: 1, created: 1, attached: false, windows: vec![] },
+        ];
+        let mut st = PickerState::build(sessions, &Config::default());
+        st.enter_groups();
         let text = render_to_string(&st);
-        assert!(text.contains("MISC"), "inline buffer uppercased");
+        assert!(text.contains("No groups yet"), "first-run group hint survives the raise");
+        assert!(text.contains("g then n"), "hint tells the user how to create a group");
+    }
+
+    #[test]
+    fn create_group_hint_still_names_live_keys() {
+        // The hint promises `g` then `n`; both must still be what they say.
+        assert!(CREATE_GROUP_HINT.contains("g then n"));
+        assert!(FOOTER_HINT.contains("g grp"), "`g` still raises to group altitude");
+        assert!(ALTITUDE_FOOTER_HINT.contains("n new"), "`n` still creates a group once raised");
     }
 
     #[test]
@@ -4125,3 +4222,4 @@ mod tests {
         assert!(text.contains("activate row"));
     }
 }
+
