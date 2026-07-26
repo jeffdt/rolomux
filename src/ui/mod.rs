@@ -273,7 +273,7 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
                 if last_section != Some(section) {
                     let target = section;
                     while next_group < target {
-                        if push_empty_group_header_unless_focused(&mut items, state, next_group, list_area.width) {
+                        if push_empty_group_header_unless_focused(&mut items, state, next_group, list_area.width, raised) {
                             note_highlighted_header(&mut selected_line, &items, state, next_group);
                         }
                         next_group += 1;
@@ -362,7 +362,7 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
     }
     // Trailing empty groups (after the last session row, with no residual below).
     while next_group < state.groups.len() {
-        if push_empty_group_header_unless_focused(&mut items, state, next_group, list_area.width) {
+        if push_empty_group_header_unless_focused(&mut items, state, next_group, list_area.width, raised) {
             note_highlighted_header(&mut selected_line, &items, state, next_group);
         }
         next_group += 1;
@@ -622,14 +622,18 @@ fn push_empty_group_header(items: &mut Vec<ListItem<'static>>, state: &PickerSta
 /// returns whether a header was actually pushed. Every call site reaches this
 /// only for a group already known to have zero visible sessions (a group with
 /// any visible session always gets its real header via `push_group_header`
-/// instead), so gating on `focus_mode` alone is correct.
+/// instead), so gating on `focus_mode` alone is correct -- except while
+/// `raised` (group altitude): there the user is managing group structure
+/// itself, so focus mode's hiding is suspended and every group, including
+/// empty ones, must stay reachable to the group cursor.
 fn push_empty_group_header_unless_focused(
     items: &mut Vec<ListItem<'static>>,
     state: &PickerState,
     gi: usize,
     width: u16,
+    raised: bool,
 ) -> bool {
-    if state.focus_mode() {
+    if state.focus_mode() && !raised {
         return false;
     }
     push_empty_group_header(items, state, gi, width);
@@ -2001,6 +2005,14 @@ mod tests {
         state.toggle_focus_mode();
         let on_text = render_to_string(&state);
         assert!(!on_text.contains("TOOLS"), "focus mode on: genuinely empty group is hidden too");
+
+        state.enter_groups();
+        let raised_text = render_to_string(&state);
+        assert!(raised_text.contains("TOOLS"), "raised: focus mode suspends hiding so empty groups are reachable");
+
+        state.exit_groups();
+        let descended_text = render_to_string(&state);
+        assert!(!descended_text.contains("TOOLS"), "descended: focus mode hides the empty group again");
     }
 
     #[test]

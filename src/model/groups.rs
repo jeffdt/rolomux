@@ -460,6 +460,49 @@ mod tests {
     }
 
     #[test]
+    fn group_move_cursor_can_land_on_a_focus_hidden_empty_group() {
+        // EMPTY has no members, so it renders no header at session altitude
+        // while focus mode is on -- but group_move_cursor walks every group
+        // unconditionally, so raised it must still be reachable.
+        let sessions = vec![s("a", 1, 1)];
+        let cfg = Config {
+            groups: vec![
+                Group { name: "G1".into(), members: vec!["a".into()], ..Default::default() },
+                Group { name: "EMPTY".into(), members: vec![], ..Default::default() },
+                Group { name: "INBOX".into(), inbox: true, ..Default::default() },
+            ],
+            ..Default::default()
+        };
+        let mut st = PickerState::build(sessions, &cfg);
+        st.toggle_focus_mode();
+        st.enter_groups();
+        assert_eq!(st.group_cursor(), 0);
+        st.group_move_cursor(1);
+        assert_eq!(st.groups[st.group_cursor()].name, "EMPTY", "cursor reaches the focus-hidden group");
+    }
+
+    #[test]
+    fn search_from_altitude_descends_and_reapplies_focus_filter() {
+        // AltitudeInput::EnterSearch (src/main.rs) wires `/` from group
+        // altitude to exit_groups() followed by enter_search(); this proves
+        // that sequence lands in Mode::Search with the focus filter
+        // untouched -- descending out of Mode::Groups is what naturally
+        // re-engages push_empty_group_header_unless_focused's gate, so no
+        // extra plumbing is needed here.
+        let mut st = grouped_state();
+        st.toggle_focus_mode();
+        assert!(st.focus_mode());
+        st.enter_groups();
+        assert_eq!(st.mode, Mode::Groups);
+
+        st.exit_groups();
+        st.enter_search();
+
+        assert_eq!(st.mode, Mode::Search);
+        assert!(st.focus_mode(), "focus filter is untouched by the raise/descend/search sequence");
+    }
+
+    #[test]
     fn raise_from_window_row_uses_parent_sessions_group() {
         let mut st = grouped_state();
         st.cursor = 1; // session "b", in G2
