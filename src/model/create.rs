@@ -38,11 +38,6 @@ pub(super) struct CreatePrompt {
     placement: CreatePlacement,
 }
 
-// This module is pure model machinery, landing ahead of its `n`/`⇧N` input
-// wiring (Task 3, touching input.rs/main.rs). Until that wiring calls these
-// methods, the non-test build has no caller for any of them -- exercised
-// only by this module's own tests.
-#[allow(dead_code)]
 impl PickerState {
     /// Whether an in-flight create prompt (either stage) is open.
     pub fn creating(&self) -> bool {
@@ -55,6 +50,8 @@ impl PickerState {
     }
 
     /// The in-flight buffer for whichever stage is currently active.
+    // Consumed by Task 4's phantom-row rendering, not yet wired.
+    #[allow(dead_code)]
     pub fn create_buffer(&self) -> Option<&str> {
         self.create_prompt.as_ref().map(|p| match p.stage {
             CreateStage::SessionName => p.session_buffer.as_str(),

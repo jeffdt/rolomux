@@ -22,10 +22,11 @@ use groups::PendingGroupDelete;
 mod quick_create;
 
 mod create;
-// Re-exported ahead of the `n`/`⇧N` input wiring (Task 3) that will consume
-// these from main.rs; unused in the non-test build until then.
+pub use create::{CreateStage, PendingCreate};
+// CreatePlacement is only referenced from create.rs itself and this
+// module's tests until Task 4's rendering needs to inspect it directly.
 #[allow(unused_imports)]
-pub use create::{CreatePlacement, CreateStage, PendingCreate};
+pub use create::CreatePlacement;
 use create::CreatePrompt;
 
 mod search;
