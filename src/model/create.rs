@@ -258,7 +258,7 @@ mod tests {
         st.focus_session("a");
         st.start_create_here();
         for c in "newsess".chars() { st.create_push(c); }
-        st.create_commit(); // advance to WindowName
+        assert_eq!(st.create_commit(), None, "advances to WindowName");
         for c in "logs".chars() { st.create_push(c); }
         st.create_back();
         assert_eq!(st.create_stage(), Some(CreateStage::SessionName));
@@ -272,7 +272,7 @@ mod tests {
         st.focus_session("a");
         st.start_create_here();
         for c in "newsess".chars() { st.create_push(c); }
-        st.create_commit();
+        assert_eq!(st.create_commit(), None);
         let pending = st.create_commit().expect("empty window name still commits");
         assert_eq!(pending.session_name, "newsess");
         assert_eq!(pending.window_name, None);
@@ -285,7 +285,7 @@ mod tests {
         st.focus_session("b");
         st.start_create_here();
         for c in "x".chars() { st.create_push(c); }
-        st.create_commit();
+        assert_eq!(st.create_commit(), None);
         let pending = st.create_commit().unwrap();
         assert_eq!(
             pending.placement,
@@ -304,7 +304,7 @@ mod tests {
 
         st.start_create_here();
         for c in "x".chars() { st.create_push(c); }
-        st.create_commit();
+        assert_eq!(st.create_commit(), None);
         let pending = st.create_commit().unwrap();
         assert_eq!(
             pending.placement,
@@ -321,7 +321,7 @@ mod tests {
 
         st.start_create_here();
         for c in "x".chars() { st.create_push(c); }
-        st.create_commit();
+        assert_eq!(st.create_commit(), None);
         let pending = st.create_commit().unwrap();
         assert_eq!(pending.placement, CreatePlacement::EndOfGroup { group: inbox });
     }
@@ -334,7 +334,7 @@ mod tests {
         st.start_create_in_group();
         assert!(st.creating());
         for c in "x".chars() { st.create_push(c); }
-        st.create_commit();
+        assert_eq!(st.create_commit(), None);
         let pending = st.create_commit().unwrap();
         assert_eq!(pending.placement, CreatePlacement::EndOfGroup { group: 1 });
     }
@@ -356,9 +356,65 @@ mod tests {
         st.start_create_in_group();
         assert!(st.creating(), "works identically for an empty group -- the only slot in it");
         for c in "x".chars() { st.create_push(c); }
-        st.create_commit();
+        assert_eq!(st.create_commit(), None);
         let pending = st.create_commit().unwrap();
         assert_eq!(pending.placement, CreatePlacement::EndOfGroup { group: 1 });
+    }
+
+    #[test]
+    fn n_places_above_unlisted_fallback_member_in_the_inbox() {
+        // state_with_two_groups: G1=[a,b], G2=[c]; d (created 4) and e
+        // (created 5) are never listed in any group's `members` -- they
+        // fall back to the auto-appended inbox purely via
+        // group_index_of's fallback, oldest-created-first.
+        let mut st = state_with_two_groups();
+        let inbox = st.inbox_index().unwrap();
+        assert_eq!(
+            st.group_index_of("e"), Some(inbox),
+            "precondition: e is an unlisted inbox fallback member, not an explicit member of any group"
+        );
+
+        st.focus_session("e");
+        st.start_create_here();
+        for c in "newsess".chars() { st.create_push(c); }
+        assert_eq!(st.create_commit(), None);
+        let pending = st.create_commit().unwrap();
+        assert_eq!(
+            pending.placement,
+            CreatePlacement::AboveSelected { group: inbox, member_index: 1 },
+            "e sits at index 1 of the inbox's effective order (d, e)"
+        );
+
+        st.apply_create(&pending);
+        assert_eq!(
+            st.groups[inbox].members,
+            vec!["d".to_string(), "newsess".to_string(), "e".to_string()],
+            "inserted between the previously-unlisted fallback members d and e, freezing both into members"
+        );
+    }
+
+    #[test]
+    fn shift_n_appends_after_existing_inbox_overflow() {
+        // Same fixture: d, e fall back to the inbox, unfrozen. Highlighting
+        // the inbox itself at group altitude and appending must land the
+        // new session after that overflow, not before it.
+        let mut st = state_with_two_groups();
+        let inbox = st.inbox_index().unwrap();
+        st.enter_groups();
+        st.group_cursor = inbox;
+
+        st.start_create_in_group();
+        for c in "newsess".chars() { st.create_push(c); }
+        assert_eq!(st.create_commit(), None);
+        let pending = st.create_commit().unwrap();
+        assert_eq!(pending.placement, CreatePlacement::EndOfGroup { group: inbox });
+
+        st.apply_create(&pending);
+        assert_eq!(
+            st.groups[inbox].members,
+            vec!["d".to_string(), "e".to_string(), "newsess".to_string()],
+            "new session appended after the now-frozen fallback overflow, not before it"
+        );
     }
 
     #[test]
