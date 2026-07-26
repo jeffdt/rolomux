@@ -153,8 +153,11 @@ impl PickerState {
     /// then -- only possible when `gi` is the inbox -- every other session
     /// that falls back to it but isn't persisted yet, oldest-created first.
     /// For any non-inbox group this is just `members.clone()`, since a
-    /// named group never has fallback content.
-    fn effective_order(&self, gi: usize) -> Vec<String> {
+    /// named group never has fallback content. `pub(super)` (not private)
+    /// because `create.rs` needs this same materialized order to insert a
+    /// new session at the right visual spot relative to implicit inbox
+    /// fallback members.
+    pub(super) fn effective_order(&self, gi: usize) -> Vec<String> {
         let mut order = self.groups[gi].members.clone();
         if self.groups[gi].inbox {
             let overflow: Vec<String> = self

@@ -74,6 +74,7 @@ bind C new-session \; command-prompt -I "" "rename-session '%%'" \; command-prom
 | `r` | Rename the selected session or window |
 | `x` | Kill the selected session or window (press again to confirm) |
 | `g` | Raise the cursor to group altitude |
+| `n` | Create a new session and switch to it |
 | `⇧N` | Create a new group around the selected session |
 | `,` | Open settings |
 | `d` | Toggle dormant (dim) on the selected session, or the selected window if the cursor is on one |
@@ -102,6 +103,7 @@ Press `g` to raise the cursor to group altitude: the cursor moves up onto group 
 | `⇧J` / `⇧K` | Reorder the selected group down / up (also `⇧↓` / `⇧↑`) |
 | `r` | Rename the selected group |
 | `n` | Create a new group above the selected one and name it |
+| `⇧N` | Create a new session in the selected group and switch to it |
 | `c` | Cycle the selected group's header color |
 | `x` | Delete the selected group (press again to confirm; its sessions fall back to the inbox group) |
 | `↵` | Descend into the selected group, landing on its first session |
@@ -114,6 +116,8 @@ As you create groups, they'll be assigned a color from your terminal theme (cyan
 The inbox can be renamed and recolored like any other group, but it always stays last and can't be reordered or deleted.
 
 You don't have to raise to group altitude just to sort a single session: at session altitude, `⇧N` creates a new group around whichever session the cursor is on, without leaving the session list.
+
+Press `n` at session altitude to create a brand new tmux session, or `⇧N` at group altitude to create one directly inside the selected group. Either way you're prompted first for a session name, then optionally for a window name (leave it blank and press `↵` to skip and let tmux name it), and rolomux switches you straight to the new session once it's created.
 
 ### Search
 

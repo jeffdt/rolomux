@@ -15,6 +15,7 @@ const COMMAND_SHORTCUTS: &[(&str, &str)] = &[
     ("1-9,0 / Alt+1-9,0", "jump to session N (1-20)"),
     ("/", "search"),
     ("g", "group altitude"),
+    ("n", "new session"),
     ("⇧N", "new group around session"),
     (",", "settings"),
     ("z", "expand/collapse all"),
@@ -32,6 +33,7 @@ const ALTITUDE_SHORTCUTS: &[(&str, &str)] = &[
     ("j/k, ↑/↓", "move cursor"),
     ("⇧J/⇧K", "reorder group"),
     ("n", "new group"),
+    ("⇧N", "new session in group"),
     ("r", "rename group"),
     ("c", "cycle color"),
     ("x", "delete group (press twice)"),
@@ -185,6 +187,25 @@ mod tests {
         assert!(
             rendered.contains("group altitude"),
             "Command mode help should describe g as 'group altitude'"
+        );
+    }
+
+    #[test]
+    fn command_mode_help_contains_new_session_key() {
+        let mut state = PickerState::build(vec![], &Config::default());
+        state.mode = Mode::Command;
+        let rendered = render_help_to_string(&state);
+        assert!(rendered.contains("new session"), "Command mode help should describe n as 'new session'");
+    }
+
+    #[test]
+    fn altitude_mode_help_contains_new_session_in_group_key() {
+        let mut state = PickerState::build(vec![], &Config::default());
+        state.mode = Mode::Groups;
+        let rendered = render_help_to_string(&state);
+        assert!(
+            rendered.contains("⇧N") && rendered.contains("new session in group"),
+            "Group altitude help should describe ⇧N as 'new session in group'"
         );
     }
 
