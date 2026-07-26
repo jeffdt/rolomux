@@ -46,10 +46,13 @@ pub struct PickerState {
     pub group_cursor: usize,
     /// In-flight rename buffer; `Some` while a rename is in progress.
     pub group_edit: Option<String>,
-    /// The visible-rows index the cursor was on when `g` raised to group
-    /// altitude; `descend`'s target to return to. `None` outside group
-    /// altitude.
-    altitude_origin: Option<usize>,
+    /// The session (and window index, if the cursor was on a window row)
+    /// the cursor was on when `g` raised to group altitude; `exit_groups`'s
+    /// target to return to. Tracked by identity, not a raw `visible_rows`
+    /// index, because a reorder or delete performed while raised changes
+    /// which row that index points at without changing the row count.
+    /// `None` outside group altitude.
+    altitude_origin: Option<(String, Option<u32>)>,
     /// In-flight session/window rename buffer; `Some` while a rename is in progress.
     rename_edit: Option<String>,
     /// In-flight window-move confirmation, armed when a press would destroy
@@ -319,6 +322,39 @@ impl PickerState {
         rows.get(self.cursor).map(|r| match r {
             Row::Session(si) => *si,
             Row::Window(si, _) => *si,
+        })
+    }
+
+    /// The identity of the row under the cursor: a session name, plus its
+    /// tmux window index if the cursor is on a window row. Unlike a raw
+    /// `visible_rows` index, this identity survives a reorder or delete that
+    /// shifts row positions -- see `search_cursor_target`, the analogous
+    /// helper for search mode's cursor.
+    fn cursor_target(&self) -> Option<(String, Option<u32>)> {
+        let rows = self.visible_rows();
+        let ordered = self.ordered();
+        match rows.get(self.cursor)? {
+            Row::Session(si) => Some((ordered[*si].name.clone(), None)),
+            Row::Window(si, wi) => {
+                let sess = ordered[*si];
+                Some((sess.name.clone(), Some(sess.windows[*wi].index)))
+            }
+        }
+    }
+
+    /// The visible-rows index currently holding `name` (a session row when
+    /// `window` is `None`, else the specific window row), if it's still
+    /// visible. The identity-based counterpart to `focus_session`/
+    /// `focus_window`, used to re-derive an origin row after a mutation may
+    /// have shifted row positions.
+    fn row_index_for(&self, name: &str, window: Option<u32>) -> Option<usize> {
+        let ordered = self.ordered();
+        self.visible_rows().iter().position(|r| match (r, window) {
+            (Row::Session(si), None) => ordered[*si].name == name,
+            (Row::Window(si, wi), Some(idx)) => {
+                ordered[*si].name == name && ordered[*si].windows[*wi].index == idx
+            }
+            _ => false,
         })
     }
 

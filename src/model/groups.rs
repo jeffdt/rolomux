@@ -8,12 +8,15 @@ use std::time::{SystemTime, UNIX_EPOCH};
 impl PickerState {
     /// Raise from session altitude to group altitude: the cursor snaps to
     /// the header of the group containing the currently selected session (a
-    /// window row resolves via its parent session), and the exact
-    /// visible-rows position is recorded as the origin so `exit_groups` can
-    /// return to it.
+    /// window row resolves via its parent session), and the row's identity
+    /// (session name, plus window index if applicable) is recorded as the
+    /// origin so `exit_groups` can return to it. Identity, not a raw
+    /// `visible_rows` position, because `⇧J`/`⇧K` and delete reshuffle which
+    /// row that position points at while raised.
     pub fn enter_groups(&mut self) {
-        self.altitude_origin = Some(self.cursor);
-        if let Some(name) = self.cursor_session_name() {
+        let target = self.cursor_target();
+        self.altitude_origin = target.clone();
+        if let Some((name, _)) = target {
             if let Some(gi) = self.group_index_of(&name) {
                 self.group_cursor = gi;
             }
@@ -24,18 +27,20 @@ impl PickerState {
     }
 
     /// Descend from group altitude back to session altitude, restoring the
-    /// cursor to the exact row it was on when raised. If that row no longer
-    /// exists (e.g. something was deleted while raised), falls back to the
-    /// first visible session of the highlighted group, then the first
-    /// visible row.
+    /// cursor to the exact row it was on when raised (re-derived from the
+    /// origin's identity, so a reorder or delete performed while raised
+    /// doesn't strand it on the wrong row). If that row no longer exists
+    /// (e.g. its session was deleted while raised), falls back to the first
+    /// visible session of the highlighted group, then the first visible row.
     pub fn exit_groups(&mut self) {
         if self.group_editing() {
             self.group_cancel_rename();
         }
-        let rows_len = self.visible_rows().len();
-        self.cursor = self
+        let origin_row = self
             .altitude_origin
-            .filter(|&origin| origin < rows_len)
+            .as_ref()
+            .and_then(|(name, window)| self.row_index_for(name, *window));
+        self.cursor = origin_row
             .or_else(|| self.first_visible_session_row(self.group_cursor))
             .unwrap_or(0);
         self.altitude_origin = None;
@@ -318,6 +323,55 @@ mod tests {
         st.exit_groups();
         assert_eq!(st.mode, Mode::Command);
         assert_eq!(st.cursor, 1, "lands back on the exact row it was raised from");
+    }
+
+    #[test]
+    fn descend_after_reorder_still_lands_on_the_originally_selected_session() {
+        // grouped_state: G1=[a], G2=[b], INBOX=[c]; ordered/visible rows
+        // start as [a, b, c]. Reordering the groups while raised must not
+        // strand the cursor on whatever session now occupies the old row
+        // index -- it should follow session "b" by identity.
+        let mut st = grouped_state();
+        st.cursor = 1; // session "b"
+        st.enter_groups();
+        assert_eq!(st.group_cursor(), 1); // highlighted G2
+        st.group_reorder(-1); // swap G2 above G1: order becomes [G2, G1, INBOX]
+        assert_eq!(st.groups[0].name, "G2");
+        assert_eq!(st.ordered()[0].name, "b", "b now renders first");
+        st.exit_groups();
+        assert_eq!(st.mode, Mode::Command);
+        assert_eq!(
+            st.selected_action(),
+            Some(Action::SwitchSession("b".into())),
+            "cursor follows session b by identity, not the stale row index"
+        );
+    }
+
+    #[test]
+    fn descend_after_group_delete_still_lands_on_the_originally_selected_session() {
+        // Deleting a group ahead of the origin's group in render order
+        // shifts every later row's index without changing row count.
+        let sessions = vec![s("a", 1, 1), s("b", 1, 2), s("c", 1, 3)];
+        let cfg = Config {
+            groups: vec![
+                Group { name: "G1".into(), members: vec!["a".into()], ..Default::default() },
+                Group { name: "G2".into(), members: vec!["b".into()], ..Default::default() },
+                Group { name: "G3".into(), members: vec!["c".into()], ..Default::default() },
+            ],
+            ..Default::default()
+        };
+        let mut st = PickerState::build(sessions, &cfg);
+        st.cursor = 1; // session "b", in G2
+        st.enter_groups();
+        st.group_move_cursor(-1); // highlight G1, which renders before G2
+        st.group_delete(); // removes G1; G2 (and session b) shift up a row
+        st.exit_groups();
+        assert_eq!(st.mode, Mode::Command);
+        assert_eq!(
+            st.selected_action(),
+            Some(Action::SwitchSession("b".into())),
+            "still follows session b even though its row index shifted"
+        );
     }
 
     #[test]
