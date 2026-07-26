@@ -100,11 +100,9 @@ impl PickerState {
     /// unset (positional default, resolved at render/cycle time from the
     /// live active palette); Random picks once now from the active palette;
     /// Static uses the configured static color. Neither Random nor Static
-    /// retroactively touch any other group. The insertion point is governed
-    /// by `new_group_position`: `Top` is the absolute top of `groups`;
-    /// `Bottom` lands immediately above the inbox, which always occupies the
-    /// trailing slot (see `ensure_inbox_last`) -- so "Bottom" reads as "the
-    /// bottom of the named groups," not literally the end of the vector.
+    /// retroactively touch any other group. The insertion point is the current
+    /// `group_cursor` position, clamped so the new group never lands after the
+    /// inbox, which always occupies the trailing slot (see `ensure_inbox_last`).
     pub fn group_new(&mut self) {
         let color = match self.new_group_color_policy {
             ColorPolicy::Rotate => String::new(),
@@ -112,10 +110,7 @@ impl PickerState {
             ColorPolicy::Static => self.static_color.clone(),
         };
         let group = Group { name: String::new(), members: Vec::new(), color, inbox: false };
-        let index = match self.new_group_position {
-            NewGroupPosition::Top => 0,
-            NewGroupPosition::Bottom => self.inbox_index().unwrap_or(self.groups.len()),
-        };
+        let index = self.group_cursor.min(self.inbox_index().unwrap_or(self.groups.len()));
         self.groups.insert(index, group);
         self.group_cursor = index;
         self.group_edit = Some(String::new());
@@ -341,66 +336,57 @@ mod tests {
     }
 
     #[test]
-    fn group_new_defaults_to_bottom() {
-        let mut st = grouped_state();
-        assert_eq!(st.new_group_position, NewGroupPosition::Bottom);
+    fn group_new_inserts_above_highlighted_group() {
+        let mut st = grouped_state(); // groups: G1=[a], G2=[b], INBOX=[c]
         st.enter_groups();
+        st.group_move_cursor(1); // highlight G2
         st.group_new();
-        assert_eq!(st.groups[2].name, "", "default position lands above the inbox");
-        assert!(st.groups[3].inbox);
+        assert_eq!(st.group_cursor, 1, "cursor lands on the new group");
+        assert!(st.group_editing(), "drops straight into inline naming");
+        assert_eq!(st.groups[1].name, "", "new unnamed group sits where G2 was (above it)");
+    }
+
+    #[test]
+    fn group_new_on_first_group_creates_at_top() {
+        let mut st = grouped_state();
+        st.enter_groups(); // cursor on 0 (G1)
+        st.group_new();
+        assert_eq!(st.group_cursor, 0, "cursor lands on the new group");
+        assert!(st.groups[0].name.is_empty(), "new group is at index 0");
+        assert_eq!(st.groups[1].name, "G1", "existing groups shift down");
+    }
+
+    #[test]
+    fn group_new_on_inbox_lands_immediately_above_inbox() {
+        let mut st = grouped_state(); // groups: G1, G2, INBOX (synthesized last)
+        st.enter_groups();
+        assert_eq!(st.groups.len(), 3);
+        let inbox_idx = st.inbox_index().unwrap();
+        st.group_cursor = inbox_idx; // highlight inbox
+        st.group_new();
+        assert_eq!(st.groups.len(), 4, "one group added");
+        assert!(st.groups[inbox_idx + 1].inbox, "inbox stays at end (shifted by insertion)");
+        assert!(st.groups[inbox_idx].name.is_empty(), "new group sits directly above inbox");
     }
 
     #[test]
     fn group_new_leaves_color_positional_and_cycle_pins_explicit() {
         let mut st = grouped_state();
-        st.new_group_position = NewGroupPosition::Bottom; // lands at index 2, just above the inbox
         st.enter_groups();
-        st.group_new(); // empty color -> positional default (HEADER_COLORS[index])
-        assert!(st.groups[2].color.is_empty(), "new group defaults to positional color");
+        st.group_new(); // now inserts at cursor position (0)
+        assert!(st.groups[0].color.is_empty(), "new group defaults to positional color");
 
         st.dirty = false;
-        // Cursor is on the new group (index 2); its positional color is
-        // HEADER_COLORS[2] ("yellow"), so a flip advances to "magenta".
+        // Cursor is on the new group (index 0); its positional color is
+        // HEADER_COLORS[0] ("cyan"), so a flip advances to "green".
         st.group_cycle_color();
-        assert_eq!(st.groups[2].color, "magenta");
+        assert_eq!(st.groups[0].color, "green");
         assert!(st.dirty, "flipping a color dirties state");
 
         // Cycling wraps around the palette back to the start.
-        st.groups[2].color = HEADER_COLORS[HEADER_COLORS.len() - 1].to_string();
+        st.groups[0].color = HEADER_COLORS[HEADER_COLORS.len() - 1].to_string();
         st.group_cycle_color();
-        assert_eq!(st.groups[2].color, HEADER_COLORS[0]);
-    }
-
-    #[test]
-    fn group_new_position_bottom_lands_immediately_above_the_inbox() {
-        let mut st = grouped_state();
-        st.new_group_position = NewGroupPosition::Bottom;
-        st.enter_groups();
-        st.group_new();
-        assert_eq!(st.groups.len(), 4);
-        assert_eq!(st.groups[2].name, "", "new group lands just above the inbox, not at the absolute end");
-        assert_eq!(st.group_cursor(), 2);
-        assert!(st.groups[3].inbox, "inbox stays in the trailing slot");
-    }
-
-    #[test]
-    fn group_new_position_top_inserts_at_index_zero_and_starts_rename() {
-        let mut st = grouped_state();
-        st.new_group_position = NewGroupPosition::Top;
-        st.enter_groups();
-        st.group_new();
-        assert_eq!(st.groups.len(), 4);
-        assert_eq!(st.groups[0].name, "");
-        assert!(st.groups[0].members.is_empty());
-        assert_eq!(st.group_cursor(), 0);
-        assert!(st.group_editing());
-        for c in "TOOLS".chars() { st.group_edit_push(c); }
-        st.group_commit_rename();
-        assert_eq!(st.groups[0].name, "TOOLS");
-        assert!(!st.group_editing());
-        assert!(st.dirty);
-        assert_eq!(st.groups[1].name, "G1", "existing groups keep their relative order");
-        assert_eq!(st.groups[2].name, "G2");
+        assert_eq!(st.groups[0].color, HEADER_COLORS[0]);
     }
 
     #[test]
@@ -417,10 +403,9 @@ mod tests {
     fn group_new_under_random_policy_picks_from_the_active_palette() {
         let mut st = grouped_state();
         st.new_group_color_policy = ColorPolicy::Random;
-        st.new_group_position = NewGroupPosition::Top;
         st.enter_groups();
         st.group_new();
-        let picked = st.groups.first().unwrap().color.clone();
+        let picked = st.groups[st.group_cursor].color.clone();
         assert!(
             st.active_palette.contains(&picked),
             "random pick must come from the active palette"
@@ -430,10 +415,9 @@ mod tests {
     #[test]
     fn group_new_under_rotate_policy_leaves_color_empty() {
         let mut st = grouped_state(); // default policy is Rotate
-        st.new_group_position = NewGroupPosition::Top;
         st.enter_groups();
         st.group_new();
-        assert!(st.groups.first().unwrap().color.is_empty(), "unchanged Rotate behavior");
+        assert!(st.groups[st.group_cursor].color.is_empty(), "unchanged Rotate behavior");
     }
 
     #[test]
@@ -441,10 +425,9 @@ mod tests {
         let mut st = grouped_state();
         st.new_group_color_policy = ColorPolicy::Static;
         st.static_color = "magenta".to_string();
-        st.new_group_position = NewGroupPosition::Top;
         st.enter_groups();
         st.group_new();
-        assert_eq!(st.groups.first().unwrap().color, "magenta");
+        assert_eq!(st.groups[st.group_cursor].color, "magenta");
     }
 
     #[test]
