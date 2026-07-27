@@ -10,7 +10,7 @@ use ratatui::widgets::Clear;
 
 const COMMAND_SHORTCUTS: &[(&str, &str)] = &[
     ("j/k, ↑/↓", "move cursor"),
-    ("l/→, h/←", "expand / collapse session"),
+    ("l/h, →/←", "expand / collapse session"),
     ("Enter", "switch to selected session/window"),
     ("1-9,0 / Alt+1-9,0", "jump to session N (1-20)"),
     ("/", "search"),
