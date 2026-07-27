@@ -295,10 +295,6 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
         None
     };
     let create_buf = state.create_buffer().unwrap_or("");
-    let create_placeholder = match state.create_stage() {
-        Some(CreateStage::WindowName) => "window",
-        _ => "session",
-    };
 
     for row in rows.iter() {
         match row {
@@ -307,7 +303,7 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
                 let section = group_ids[*si];
                 if last_section != Some(section) {
                     if create_end_target_group.is_some() && create_end_target_group == last_section {
-                        push_create_phantom_row(&mut items, create_buf, create_placeholder, current_gutter_color, wide_numbering, raised, false);
+                        push_create_phantom_row(&mut items, create_buf, current_gutter_color, wide_numbering, raised, false);
                     }
                     let target = section;
                     while next_group < target {
@@ -315,7 +311,7 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
                             note_highlighted_header(&mut selected_line, &items, state, next_group);
                             if create_end_target_group == Some(next_group) {
                                 let color = group_color(&state.groups[next_group], next_group, &state.active_palette);
-                                push_create_phantom_row(&mut items, create_buf, create_placeholder, color, wide_numbering, raised, false);
+                                push_create_phantom_row(&mut items, create_buf, color, wide_numbering, raised, false);
                             }
                         }
                         next_group += 1;
@@ -358,7 +354,7 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
                     AttachedColorMode::Static => attached_static_color,
                 };
                 if create_above_session.as_deref() == Some(sess.name.as_str()) {
-                    push_create_phantom_row(&mut items, create_buf, create_placeholder, current_gutter_color, wide_numbering, raised, selected);
+                    push_create_phantom_row(&mut items, create_buf, current_gutter_color, wide_numbering, raised, selected);
                 }
                 items.push(recede(session_item(
                     sess,
@@ -410,7 +406,7 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
     // closing point (mirroring the mid-list check above) never fired inside
     // the loop.
     if create_end_target_group.is_some() && create_end_target_group == last_section {
-        push_create_phantom_row(&mut items, create_buf, create_placeholder, current_gutter_color, wide_numbering, raised, false);
+        push_create_phantom_row(&mut items, create_buf, current_gutter_color, wide_numbering, raised, false);
     }
     // Trailing empty groups (after the last session row, with no residual below).
     while next_group < state.groups.len() {
@@ -418,7 +414,7 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
             note_highlighted_header(&mut selected_line, &items, state, next_group);
             if create_end_target_group == Some(next_group) {
                 let color = group_color(&state.groups[next_group], next_group, &state.active_palette);
-                push_create_phantom_row(&mut items, create_buf, create_placeholder, color, wide_numbering, raised, false);
+                push_create_phantom_row(&mut items, create_buf, color, wide_numbering, raised, false);
             }
         }
         next_group += 1;
@@ -654,7 +650,7 @@ fn push_quick_create_phantom_row(items: &mut Vec<ListItem<'static>>, buf: &str, 
     if !items.is_empty() {
         items.push(ListItem::new(Line::from("")));
     }
-    items.push(ListItem::new(group_edit_line(buf, None, caret_color, "GROUP", Style::default().fg(DIM))));
+    items.push(ListItem::new(group_edit_line(buf, None, caret_color, "NAME", Style::default().fg(DIM))));
 }
 
 /// Push the live create-session phantom row: the typed buffer in the same
@@ -662,18 +658,16 @@ fn push_quick_create_phantom_row(items: &mut Vec<ListItem<'static>>, buf: &str, 
 /// `rename_buf` branch via a placeholder `Session` whose fields are never
 /// read on that branch, so no real session's number or metadata is
 /// perturbed by pushing this directly into `items`. While `buf` is empty,
-/// shows a dim `placeholder` (`"session"`/`"window"`, picked by the caller
-/// from `CreateStage`) at the caret instead of leaving it blank, so the
-/// prompt reads as "type a name here" rather than looking like an
-/// unlabeled key hint. `selected` must be true exactly when this phantom
-/// row will inherit the list's selection bar (`SEL_BG`, which is the same
-/// color as `DIM`) -- otherwise the placeholder renders invisible on top
-/// of it, the same contrast trap `dormant_session`/swap-marker styling
-/// already works around elsewhere in this file.
+/// shows a dim `"name"` placeholder at the caret instead of leaving it
+/// blank, so the prompt reads as "type a name here" rather than looking
+/// like an unlabeled key hint. `selected` must be true exactly when this
+/// phantom row will inherit the list's selection bar (`SEL_BG`, which is
+/// the same color as `DIM`) -- otherwise the placeholder renders invisible
+/// on top of it, the same contrast trap `dormant_session`/swap-marker
+/// styling already works around elsewhere in this file.
 fn push_create_phantom_row(
     items: &mut Vec<ListItem<'static>>,
     buf: &str,
-    placeholder: &str,
     gutter_color: Color,
     wide_numbering: bool,
     raised: bool,
@@ -683,7 +677,7 @@ fn push_create_phantom_row(
         id: String::new(), name: String::new(), activity: 0, created: 0, attached: false, windows: vec![],
     };
     let meta = MetaLayout { col: 0, count_width: 0 };
-    let (rename_buf, dim_buf) = if buf.is_empty() { (placeholder, true) } else { (buf, false) };
+    let (rename_buf, dim_buf) = if buf.is_empty() { ("name", true) } else { (buf, false) };
     items.push(recede(
         session_item(
             &sess,
@@ -786,11 +780,14 @@ fn group_edit_line(buf: &str, icon: Option<&str>, caret_color: Color, placeholde
         spans.push(Span::raw(format!("{icon} ")));
     }
     if buf.is_empty() {
+        // Caret leads the placeholder so it reads as "type here", not as a
+        // cursor sitting after real, already-typed text.
+        spans.push(Span::styled("▏", Style::default().fg(caret_color)));
         spans.push(Span::styled(placeholder.to_string(), placeholder_style));
     } else {
         spans.push(Span::styled(buf.to_uppercase(), Style::default().add_modifier(Modifier::BOLD)));
+        spans.push(Span::styled("▏", Style::default().fg(caret_color)));
     }
-    spans.push(Span::styled("▏", Style::default().fg(caret_color)));
     Line::from(spans)
 }
 
@@ -803,7 +800,7 @@ fn header_item(state: &PickerState, gi: usize, width: u16, color: Color) -> List
             state.group_edit_buffer().unwrap_or(""),
             g.inbox.then_some(icon),
             color_from_name(&state.border_color),
-            "GROUP",
+            "NAME",
             Style::default().fg(Color::Gray),
         ));
     }
@@ -1015,13 +1012,15 @@ fn session_item(
         }
         spans.push(Span::styled(format!("{dot} "), dot_style));
         spans.push(Span::styled(format!("{glyph} "), secondary(selected)));
-        let buf_style = if dim_buf {
-            dormant_session(selected)
+        if dim_buf {
+            // Caret leads the placeholder so it reads as "type here", not
+            // as a cursor sitting after real, already-typed text.
+            spans.push(Span::raw("▏"));
+            spans.push(Span::styled(buf.to_string(), dormant_session(selected)));
         } else {
-            Style::default().add_modifier(Modifier::BOLD)
-        };
-        spans.push(Span::styled(buf.to_string(), buf_style));
-        spans.push(Span::raw("▏"));
+            spans.push(Span::styled(buf.to_string(), Style::default().add_modifier(Modifier::BOLD)));
+            spans.push(Span::raw("▏"));
+        }
         return ListItem::new(Line::from(spans));
     }
     let gutter_width = if gutter.is_some() { 1 } else { 0 };
@@ -2242,8 +2241,8 @@ mod tests {
         st.start_quick_create(); // buffer starts empty; this row never carries the selection bar
 
         let buf = render_buf(&st);
-        let placeholder_y = row_of(&buf, "GROUP");
-        let x = find_text_x(&buf, placeholder_y, "GROUP").unwrap();
+        let placeholder_y = row_of(&buf, "NAME");
+        let x = find_text_x(&buf, placeholder_y, "NAME").unwrap();
         assert_ne!(buf[(x, placeholder_y)].style().bg, Some(SEL_BG), "quick-create phantom is never the selected row");
         assert_eq!(buf[(x, placeholder_y)].style().fg, Some(DIM), "placeholder dims normally off the selection bar");
     }
@@ -2296,9 +2295,9 @@ mod tests {
         let buf = terminal.backend().buffer().clone();
 
         let phantom_y = (0..buf.area.height)
-            .find(|&y| find_text_x(&buf, y, "session").is_some())
+            .find(|&y| find_text_x(&buf, y, "name").is_some())
             .expect("placeholder row visible");
-        let x = find_text_x(&buf, phantom_y, "session").unwrap();
+        let x = find_text_x(&buf, phantom_y, "name").unwrap();
         assert_eq!(buf[(x, phantom_y)].style().bg, Some(SEL_BG), "precondition: placeholder sits on the selection bar");
         assert_eq!(buf[(x, phantom_y)].style().fg, Some(Color::Gray), "placeholder must be Gray, not DarkGray-on-DarkGray");
     }
@@ -2408,7 +2407,7 @@ mod tests {
         assert!(text.contains("Enter next"), "create-stage hint wins over the altitude hint while creating in group mode");
         assert!(!text.contains("Enter open"), "altitude hint suppressed while creating");
         let phantom_line = text.lines().find(|l| l.contains('▏')).expect("phantom row visible");
-        assert!(phantom_line.contains("session"), "empty session-name buffer shows a 'session' placeholder");
+        assert!(phantom_line.contains("name"), "empty session-name buffer shows a 'name' placeholder");
     }
 
     #[test]
@@ -2419,14 +2418,14 @@ mod tests {
         let text = render_to_string(&st);
         assert!(text.contains("Enter next"), "SessionName stage hint shown");
         let phantom_line = text.lines().find(|l| l.contains('▏')).expect("phantom row visible");
-        assert!(phantom_line.contains("session"), "empty session-name buffer shows a 'session' placeholder");
+        assert!(phantom_line.contains("name"), "empty session-name buffer shows a 'name' placeholder");
 
         for c in "new".chars() { st.create_push(c); }
         assert_eq!(st.create_commit(), None, "advances to WindowName stage");
         let text2 = render_to_string(&st);
         assert!(text2.contains("Enter skip/create"), "WindowName stage hint shown after advancing");
         let phantom_line2 = text2.lines().find(|l| l.contains('▏')).expect("phantom row visible");
-        assert!(phantom_line2.contains("window"), "empty window-name buffer shows a 'window' placeholder");
+        assert!(phantom_line2.contains("name"), "empty window-name buffer shows a 'name' placeholder");
 
         st.create_cancel();
         let text3 = render_to_string(&st);
@@ -3485,8 +3484,8 @@ mod tests {
         let mut st = raised_view();
         st.group_new(); // buffer starts empty: this header row carries the selection bar
         let buf = render_buf(&st);
-        let placeholder_y = row_of(&buf, "GROUP");
-        let x = find_text_x(&buf, placeholder_y, "GROUP").unwrap();
+        let placeholder_y = row_of(&buf, "NAME");
+        let x = find_text_x(&buf, placeholder_y, "NAME").unwrap();
         assert_eq!(buf[(x, placeholder_y)].style().bg, Some(SEL_BG), "precondition: placeholder sits on the selection bar");
         assert_eq!(buf[(x, placeholder_y)].style().fg, Some(Color::Gray), "placeholder must be Gray, not DarkGray-on-DarkGray");
     }
