@@ -68,14 +68,14 @@ bind C new-session \; command-prompt -I "" "rename-session '%%'" \; command-prom
 | `M-1`-`M-9`, `M-0` | Switch to session 11-20 immediately (Option/Alt; `M-1` = 11th ... `M-0` = 20th) |
 | `j` / `k` | Move the cursor, wrapping between the top and bottom (also `↓` / `↑`) |
 | `l` / `→` | Expand a session's window tree |
-| `←` | Collapse a session's window tree |
+| `h` / `←` | Collapse a session's window tree |
 | `z` | Expand or collapse window trees for all sessions |
 | `⇧J` / `⇧K` | Move the selected session or window up/down (also `⇧↓` / `⇧↑`): a session row reorders within its group or crosses into the neighboring group; a window row reorders within its session or crosses into the neighboring session. Both wrap around at the top/bottom of the list. |
 | `r` | Rename the selected session or window |
 | `x` | Kill the selected session or window (press again to confirm) |
 | `g` | Raise the cursor to group altitude |
 | `n` | Create a new session and switch to it |
-| `⇧N` | Create a new group around the selected session |
+| `⇧N` | Create a new group for the selected session |
 | `,` | Open settings |
 | `d` | Toggle dormant (dim) on the selected session, or the selected window if the cursor is on one |
 | `Ctrl-d` | Undormant the selected session and all of its windows |

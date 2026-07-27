@@ -56,11 +56,11 @@ const ALTITUDE_FOOTER_HINT: &str =
 
 /// Footer hint while the in-flight create prompt is in its session-name
 /// stage (see `CreateStage`).
-const CREATE_SESSION_FOOTER_HINT: &str = "session name \u{b7} Enter next \u{b7} Esc cancel";
+const CREATE_SESSION_FOOTER_HINT: &str = "Enter next \u{b7} Esc cancel";
 
 /// Footer hint while the in-flight create prompt is in its window-name
 /// stage.
-const CREATE_WINDOW_FOOTER_HINT: &str = "window name \u{b7} Enter skip/create \u{b7} Esc back";
+const CREATE_WINDOW_FOOTER_HINT: &str = "Enter skip/create \u{b7} Esc back";
 
 /// The running binary's version, as `git describe --tags --dirty` saw it at
 /// build time (e.g. `v0.27.0` on a clean tagged release, `v0.27.0-3-gabc1234`
@@ -295,6 +295,10 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
         None
     };
     let create_buf = state.create_buffer().unwrap_or("");
+    let create_placeholder = match state.create_stage() {
+        Some(CreateStage::WindowName) => "window",
+        _ => "session",
+    };
 
     for row in rows.iter() {
         match row {
@@ -303,7 +307,7 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
                 let section = group_ids[*si];
                 if last_section != Some(section) {
                     if create_end_target_group.is_some() && create_end_target_group == last_section {
-                        push_create_phantom_row(&mut items, create_buf, current_gutter_color, wide_numbering, raised);
+                        push_create_phantom_row(&mut items, create_buf, create_placeholder, current_gutter_color, wide_numbering, raised);
                     }
                     let target = section;
                     while next_group < target {
@@ -311,7 +315,7 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
                             note_highlighted_header(&mut selected_line, &items, state, next_group);
                             if create_end_target_group == Some(next_group) {
                                 let color = group_color(&state.groups[next_group], next_group, &state.active_palette);
-                                push_create_phantom_row(&mut items, create_buf, color, wide_numbering, raised);
+                                push_create_phantom_row(&mut items, create_buf, create_placeholder, color, wide_numbering, raised);
                             }
                         }
                         next_group += 1;
@@ -354,7 +358,7 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
                     AttachedColorMode::Static => attached_static_color,
                 };
                 if create_above_session.as_deref() == Some(sess.name.as_str()) {
-                    push_create_phantom_row(&mut items, create_buf, current_gutter_color, wide_numbering, raised);
+                    push_create_phantom_row(&mut items, create_buf, create_placeholder, current_gutter_color, wide_numbering, raised);
                 }
                 items.push(recede(session_item(
                     sess,
@@ -368,6 +372,7 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
                     Some(current_gutter_color),
                     state.session_metric,
                     rename_buf,
+                    false,
                     state.session_swap_marker(&sess.name),
                     wide_numbering,
                 ), raised));
@@ -405,7 +410,7 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
     // closing point (mirroring the mid-list check above) never fired inside
     // the loop.
     if create_end_target_group.is_some() && create_end_target_group == last_section {
-        push_create_phantom_row(&mut items, create_buf, current_gutter_color, wide_numbering, raised);
+        push_create_phantom_row(&mut items, create_buf, create_placeholder, current_gutter_color, wide_numbering, raised);
     }
     // Trailing empty groups (after the last session row, with no residual below).
     while next_group < state.groups.len() {
@@ -413,7 +418,7 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
             note_highlighted_header(&mut selected_line, &items, state, next_group);
             if create_end_target_group == Some(next_group) {
                 let color = group_color(&state.groups[next_group], next_group, &state.active_palette);
-                push_create_phantom_row(&mut items, create_buf, color, wide_numbering, raised);
+                push_create_phantom_row(&mut items, create_buf, create_placeholder, color, wide_numbering, raised);
             }
         }
         next_group += 1;
@@ -522,7 +527,7 @@ fn draw_search(frame: &mut Frame, state: &PickerState, inner: Rect) {
                             .unwrap_or(attached_static_color),
                         AttachedColorMode::Static => attached_static_color,
                     };
-                    items.push(session_item(sess, state.is_expanded(&sess.name), selected, None, meta, state.is_dormant(&sess.name), attached_color, group_tag, None, state.session_metric, None, None, false));
+                    items.push(session_item(sess, state.is_expanded(&sess.name), selected, None, meta, state.is_dormant(&sess.name), attached_color, group_tag, None, state.session_metric, None, false, None, false));
                 }
                 Row::Window(si, wi) => {
                     let sess = results[*si];
@@ -653,15 +658,27 @@ fn push_quick_create_phantom_row(items: &mut Vec<ListItem<'static>>, buf: &str, 
 /// caret style as an inline session rename. Reuses `session_item`'s
 /// `rename_buf` branch via a placeholder `Session` whose fields are never
 /// read on that branch, so no real session's number or metadata is
-/// perturbed by pushing this directly into `items`.
-fn push_create_phantom_row(items: &mut Vec<ListItem<'static>>, buf: &str, gutter_color: Color, wide_numbering: bool, raised: bool) {
-    let placeholder = Session {
+/// perturbed by pushing this directly into `items`. While `buf` is empty,
+/// shows a dim `placeholder` (`"session"`/`"window"`, picked by the caller
+/// from `CreateStage`) at the caret instead of leaving it blank, so the
+/// prompt reads as "type a name here" rather than looking like an
+/// unlabeled key hint.
+fn push_create_phantom_row(
+    items: &mut Vec<ListItem<'static>>,
+    buf: &str,
+    placeholder: &str,
+    gutter_color: Color,
+    wide_numbering: bool,
+    raised: bool,
+) {
+    let sess = Session {
         id: String::new(), name: String::new(), activity: 0, created: 0, attached: false, windows: vec![],
     };
     let meta = MetaLayout { col: 0, count_width: 0 };
+    let (rename_buf, dim_buf) = if buf.is_empty() { (placeholder, true) } else { (buf, false) };
     items.push(recede(
         session_item(
-            &placeholder,
+            &sess,
             false,
             false,
             None,
@@ -671,7 +688,8 @@ fn push_create_phantom_row(items: &mut Vec<ListItem<'static>>, buf: &str, gutter
             None,
             Some(gutter_color),
             SessionMetric::Hidden,
-            Some(buf),
+            Some(rename_buf),
+            dim_buf,
             None,
             wide_numbering,
         ),
@@ -954,6 +972,7 @@ fn session_item(
     gutter: Option<Color>,
     metric: SessionMetric,
     rename_buf: Option<&str>,
+    dim_buf: bool,
     swap_marker: Option<(SwapDirection, bool)>,
     wide_numbering: bool,
 ) -> ListItem<'static> {
@@ -979,7 +998,12 @@ fn session_item(
         }
         spans.push(Span::styled(format!("{dot} "), dot_style));
         spans.push(Span::styled(format!("{glyph} "), secondary(selected)));
-        spans.push(Span::styled(buf.to_string(), Style::default().add_modifier(Modifier::BOLD)));
+        let buf_style = if dim_buf {
+            Style::default().fg(DIM)
+        } else {
+            Style::default().add_modifier(Modifier::BOLD)
+        };
+        spans.push(Span::styled(buf.to_string(), buf_style));
         spans.push(Span::raw("▏"));
         return ListItem::new(Line::from(spans));
     }
@@ -2328,8 +2352,10 @@ mod tests {
         st.start_create_in_group();
 
         let text = render_to_string(&st);
-        assert!(text.contains("session name"), "create-stage hint wins over the altitude hint while creating in group mode");
+        assert!(text.contains("Enter next"), "create-stage hint wins over the altitude hint while creating in group mode");
         assert!(!text.contains("Enter open"), "altitude hint suppressed while creating");
+        let phantom_line = text.lines().find(|l| l.contains('▏')).expect("phantom row visible");
+        assert!(phantom_line.contains("session"), "empty session-name buffer shows a 'session' placeholder");
     }
 
     #[test]
@@ -2338,16 +2364,20 @@ mod tests {
         st.focus_session("a");
         st.start_create_here();
         let text = render_to_string(&st);
-        assert!(text.contains("session name"), "SessionName stage hint shown");
+        assert!(text.contains("Enter next"), "SessionName stage hint shown");
+        let phantom_line = text.lines().find(|l| l.contains('▏')).expect("phantom row visible");
+        assert!(phantom_line.contains("session"), "empty session-name buffer shows a 'session' placeholder");
 
         for c in "new".chars() { st.create_push(c); }
         assert_eq!(st.create_commit(), None, "advances to WindowName stage");
         let text2 = render_to_string(&st);
-        assert!(text2.contains("window name"), "WindowName stage hint shown after advancing");
+        assert!(text2.contains("Enter skip/create"), "WindowName stage hint shown after advancing");
+        let phantom_line2 = text2.lines().find(|l| l.contains('▏')).expect("phantom row visible");
+        assert!(phantom_line2.contains("window"), "empty window-name buffer shows a 'window' placeholder");
 
         st.create_cancel();
         let text3 = render_to_string(&st);
-        assert!(!text3.contains("window name"), "stage hint gone after cancel");
+        assert!(!text3.contains("Enter skip/create"), "stage hint gone after cancel");
         assert!(!text3.contains('▏'), "phantom row gone after cancel");
     }
 

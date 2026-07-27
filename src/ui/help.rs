@@ -10,13 +10,13 @@ use ratatui::widgets::Clear;
 
 const COMMAND_SHORTCUTS: &[(&str, &str)] = &[
     ("j/k, ↑/↓", "move cursor"),
-    ("l/→, ←", "expand / collapse session"),
+    ("l/→, h/←", "expand / collapse session"),
     ("Enter", "switch to selected session/window"),
     ("1-9,0 / Alt+1-9,0", "jump to session N (1-20)"),
     ("/", "search"),
-    ("g", "group altitude"),
+    ("g", "switch to group mode"),
     ("n", "new session"),
-    ("⇧N", "new group around session"),
+    ("⇧N", "new group for session"),
     (",", "settings"),
     ("z", "expand/collapse all"),
     ("f", "toggle focus mode (hide dormant)"),
@@ -24,7 +24,7 @@ const COMMAND_SHORTCUTS: &[(&str, &str)] = &[
     ("Ctrl-d", "clear dormant for this session"),
     ("⇧D", "clear dormant for everything"),
     ("r", "rename session/window"),
-    ("⇧J/⇧K", "move window to adjacent session"),
+    ("⇧J/⇧K", "reorder session/window"),
     ("x", "kill session/window (press twice)"),
     ("q / Esc", "quit"),
 ];
@@ -40,7 +40,7 @@ const ALTITUDE_SHORTCUTS: &[(&str, &str)] = &[
     ("Enter", "open group"),
     ("/", "search"),
     ("1-9,0 / Alt+1-9,0", "jump to session N (1-20)"),
-    ("Esc / g", "back to session altitude"),
+    ("Esc / g", "back to session mode"),
     ("q", "quit"),
 ];
 
@@ -176,17 +176,17 @@ mod tests {
     }
 
     #[test]
-    fn command_mode_help_contains_new_group_and_group_altitude() {
+    fn command_mode_help_contains_new_group_and_switch_to_group_mode() {
         let mut state = PickerState::build(vec![], &Config::default());
         state.mode = Mode::Command;
         let rendered = render_help_to_string(&state);
         assert!(
             rendered.contains("⇧N"),
-            "Command mode help should contain ⇧N key for new group around session"
+            "Command mode help should contain ⇧N key for new group for session"
         );
         assert!(
-            rendered.contains("group altitude"),
-            "Command mode help should describe g as 'group altitude'"
+            rendered.contains("switch to group mode"),
+            "Command mode help should describe g as 'switch to group mode'"
         );
     }
 
@@ -230,8 +230,8 @@ mod tests {
             "q no longer shares a 'back to command mode' entry with Esc/g at group altitude"
         );
         assert!(
-            rendered.contains("back to session altitude"),
-            "Esc/g should still be documented as returning to session altitude"
+            rendered.contains("back to session mode"),
+            "Esc/g should still be documented as returning to session mode"
         );
         let q_quit_line = rendered.lines().any(|l| l.contains('q') && l.contains("quit"));
         assert!(q_quit_line, "q should be documented as quitting the picker at group altitude");

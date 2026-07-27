@@ -197,7 +197,7 @@ pub fn map_key(key: KeyEvent) -> Input {
         KeyCode::Char('n') => Input::NewSession,
         KeyCode::Char('r') => Input::Rename,
         KeyCode::Char('l') | KeyCode::Right => Input::Expand,
-        KeyCode::Left => Input::Collapse,
+        KeyCode::Char('h') | KeyCode::Left => Input::Collapse,
         KeyCode::Char('f') => Input::ToggleFocusMode,
         KeyCode::Char('z') => Input::ToggleAll,
         KeyCode::Enter => Input::Select,
@@ -292,7 +292,7 @@ mod tests {
         assert_eq!(map_key(key(KeyCode::Char('l'))), Input::Expand);
         assert_eq!(map_key(key(KeyCode::Right)), Input::Expand);
         assert_eq!(map_key(key(KeyCode::Left)), Input::Collapse);
-        assert_eq!(map_key(key(KeyCode::Char('h'))), Input::None, "h is retired; f replaces it");
+        assert_eq!(map_key(key(KeyCode::Char('h'))), Input::Collapse);
         assert_eq!(map_key(key(KeyCode::Char('f'))), Input::ToggleFocusMode);
         assert_eq!(map_key(key(KeyCode::Enter)), Input::Select);
         assert_eq!(map_key(key(KeyCode::Char('g'))), Input::EnterGroups);
