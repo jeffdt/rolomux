@@ -39,12 +39,18 @@ These are the reasons the project exists. Changes should preserve them.
   deleted at all. A legacy single `pinned` list migrates to one group named
   `PINNED`. A legacy `manual_order` list migrates to one group named
   `INBOX`, flagged as the inbox.
-- **Two altitudes, two modes.** Session mode operates on sessions (switch, jump,
-  move a session across group boundaries with `⇧J/⇧K`, search). A dedicated
-  full-screen group mode (`g`) operates only on group structure (create, rename,
-  delete, reorder) and never shows sessions. Entering group mode costs a
-  deliberate `g`, so once inside it is frictionless: no confirmation prompts, and
-  create drops straight into inline naming.
+- **A tree with cursor altitudes, not separate screens.** The picker is one
+  tree the cursor moves through at different altitudes, all on the same
+  screen. Session altitude operates on sessions (switch, jump, move a session
+  across group boundaries with `⇧J/⇧K`, search) and expands into window
+  altitude (see "Numbering philosophy"). `g` raises the cursor to group
+  altitude, operating on group structure (create, rename, recolor, delete,
+  reorder) in place: the session list stays visible underneath, receded
+  visually, because reorder and recolor are exactly the operations where
+  seeing sessions matters. `g`/`Esc` descends back to the exact row the
+  cursor was raised from. Raising costs a deliberate `g`, so once raised it
+  is frictionless: no confirmation prompts, and create drops straight into
+  inline naming.
 - **Collapsible session/window tree.** Sessions expand into their windows, with
   a choose-tree feel but calmer behavior (see "Numbering philosophy").
 - **Keyboard-driven, in-picker mutation.** Group membership, group structure,
@@ -109,8 +115,8 @@ These are deliberate and have driven past work. Do not reverse them casually.
 User config persists to `$XDG_CONFIG_HOME/rolomux/config.toml` (else
 `~/.config/rolomux/config.toml`): a `[[groups]]` array (each with a `name`, an
 ordered `members` list, and an optional `color` from the named palette in
-`HEADER_COLORS`; empty/absent means the positional default, and `c` in group
-mode flips it; exactly one group is marked `inbox = true`), a top-level `dormant`
+`HEADER_COLORS`; empty/absent means the positional default, and `c` at group
+altitude flips it; exactly one group is marked `inbox = true`), a top-level `dormant`
 list, a top-level `focus_mode` bool that persists the current focus filter
 (hiding dormant sessions and any group left with nothing visible) across
 popups, and `[settings]` preferences including

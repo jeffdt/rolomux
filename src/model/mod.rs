@@ -17,6 +17,18 @@ pub use settings::SettingsRow;
 use settings::SettingsUiState;
 
 mod groups;
+use groups::PendingGroupDelete;
+
+mod quick_create;
+
+mod create;
+pub use create::{CreateStage, PendingCreate};
+// CreatePlacement is re-exported for use in main.rs's test fixtures
+// (which construct PendingCreate values with explicit CreatePlacement::AboveSelected),
+// even though no non-test production code path reads it directly.
+#[allow(unused_imports)]
+pub use create::CreatePlacement;
+use create::CreatePrompt;
 
 mod search;
 
@@ -26,8 +38,11 @@ mod swap_indicator;
 pub use swap_indicator::SwapDirection;
 use swap_indicator::SwapIndicator;
 
+mod blink;
+
 use crate::store::Config;
 use std::collections::HashSet;
+use std::time::Instant;
 
 pub struct PickerState {
     all: Vec<Session>,
@@ -46,8 +61,22 @@ pub struct PickerState {
     pub group_cursor: usize,
     /// In-flight rename buffer; `Some` while a rename is in progress.
     pub group_edit: Option<String>,
+    /// The session (and window index, if the cursor was on a window row)
+    /// the cursor was on when `g` raised to group altitude; `exit_groups`'s
+    /// target to return to. Tracked by identity, not a raw `visible_rows`
+    /// index, because a reorder or delete performed while raised changes
+    /// which row that index points at without changing the row count.
+    /// `None` outside group altitude.
+    altitude_origin: Option<(String, Option<u32>)>,
     /// In-flight session/window rename buffer; `Some` while a rename is in progress.
     rename_edit: Option<String>,
+    /// In-flight `⇧N` quick-create buffer; `Some` while naming a new group
+    /// around the currently-selected session. See `src/model/quick_create.rs`.
+    quick_create_edit: Option<String>,
+    /// In-flight two-stage session-create buffer; `Some` while naming a new
+    /// session (session-name stage, then optional window-name stage). See
+    /// `src/model/create.rs`.
+    create_prompt: Option<CreatePrompt>,
     /// In-flight window-move confirmation, armed when a press would destroy
     /// a session; `Some` until the same-direction key repeats it or any
     /// other key clears it.
@@ -64,12 +93,15 @@ pub struct PickerState {
     /// cleared by any other group-mode input, mirroring
     /// `pending_window_move`'s clear-on-any-other-key lifecycle.
     group_reorder_blocked: bool,
+    /// In-flight group-delete confirmation, armed when `x` targets a
+    /// non-inbox group; `Some` until a second `x` confirms it or any other
+    /// key clears it. See `src/model/groups.rs`.
+    pending_group_delete: Option<PendingGroupDelete>,
     pub default_mode: DefaultMode,
     pub number_dormant_sessions: bool,
     pub remember_expanded_sessions: bool,
     pub clear_dormant_on_attach: bool,
     pub session_metric: SessionMetric,
-    pub new_group_position: NewGroupPosition,
     pub new_group_color_policy: ColorPolicy,
     pub static_color: String,
     pub active_palette: Vec<String>,
@@ -88,6 +120,9 @@ pub struct PickerState {
     pub inbox_icon: String,
     /// Transient per-open state for the settings overlay (see `SettingsUiState`).
     settings_ui: SettingsUiState,
+    /// Anchors the slow-blink clock for empty create/rename placeholder text.
+    /// See `src/model/blink.rs`.
+    blink_since: Instant,
 }
 
 impl PickerState {
@@ -136,18 +171,21 @@ impl PickerState {
             search_cursor: 0,
             group_cursor: 0,
             group_edit: None,
+            altitude_origin: None,
             rename_edit: None,
+            quick_create_edit: None,
+            create_prompt: None,
             pending_window_move: None,
             pending_kill: None,
             swap_indicator: None,
             group_reorder_blocked: false,
+            pending_group_delete: None,
             default_mode: config.default_mode,
             start_focus_mode: config.start_focus_mode,
             number_dormant_sessions: config.number_dormant_sessions,
             remember_expanded_sessions: config.remember_expanded_sessions,
             clear_dormant_on_attach: config.clear_dormant_on_attach,
             session_metric: config.session_metric,
-            new_group_position: config.new_group_position,
             new_group_color_policy: config.new_group_color_policy,
             static_color: config.static_color.clone(),
             active_palette: config.active_palette.clone(),
@@ -162,6 +200,7 @@ impl PickerState {
             help_visible: false,
             inbox_icon: config.inbox_icon.clone(),
             settings_ui: SettingsUiState::default(),
+            blink_since: Instant::now(),
         };
         state.apply_clear_dormant_on_attach();
         state.apply_initial_focus(focus, current);
@@ -214,13 +253,6 @@ impl PickerState {
             .iter()
             .position(|g| g.members.iter().any(|m| m == name))
             .or_else(|| self.inbox_index())
-    }
-
-    /// Live sessions currently attributed to group `gi` (via `group_index_of`,
-    /// so an inbox group's count includes fallback members it hasn't
-    /// persisted into `members` yet, not just its explicit list).
-    pub fn group_session_count(&self, gi: usize) -> usize {
-        self.all.iter().filter(|s| self.group_index_of(&s.name) == Some(gi)).count()
     }
 
     /// Sessions that fall back to inbox group `gi` (via `group_index_of`)
@@ -319,6 +351,39 @@ impl PickerState {
         })
     }
 
+    /// The identity of the row under the cursor: a session name, plus its
+    /// tmux window index if the cursor is on a window row. Unlike a raw
+    /// `visible_rows` index, this identity survives a reorder or delete that
+    /// shifts row positions -- see `search_cursor_target`, the analogous
+    /// helper for search mode's cursor.
+    fn cursor_target(&self) -> Option<(String, Option<u32>)> {
+        let rows = self.visible_rows();
+        let ordered = self.ordered();
+        match rows.get(self.cursor)? {
+            Row::Session(si) => Some((ordered[*si].name.clone(), None)),
+            Row::Window(si, wi) => {
+                let sess = ordered[*si];
+                Some((sess.name.clone(), Some(sess.windows[*wi].index)))
+            }
+        }
+    }
+
+    /// The visible-rows index currently holding `name` (a session row when
+    /// `window` is `None`, else the specific window row), if it's still
+    /// visible. The identity-based counterpart to `focus_session`/
+    /// `focus_window`, used to re-derive an origin row after a mutation may
+    /// have shifted row positions.
+    fn row_index_for(&self, name: &str, window: Option<u32>) -> Option<usize> {
+        let ordered = self.ordered();
+        self.visible_rows().iter().position(|r| match (r, window) {
+            (Row::Session(si), None) => ordered[*si].name == name,
+            (Row::Window(si, wi), Some(idx)) => {
+                ordered[*si].name == name && ordered[*si].windows[*wi].index == idx
+            }
+            _ => false,
+        })
+    }
+
     pub fn cursor_session_name(&self) -> Option<String> {
         let si = self.cursor_ordered_index()?;
         self.ordered().get(si).map(|s| s.name.clone())
@@ -375,7 +440,6 @@ impl PickerState {
         config.start_focus_mode = self.start_focus_mode;
         config.default_mode = self.default_mode;
         config.number_dormant_sessions = self.number_dormant_sessions;
-        config.new_group_position = self.new_group_position;
         config.new_group_color_policy = self.new_group_color_policy;
         config.static_color = self.static_color.clone();
         config.active_palette = self.active_palette.clone();
@@ -638,21 +702,6 @@ mod tests {
         assert_eq!(st.group_index_of("a"), Some(0));
         assert_eq!(st.group_index_of("b"), st.inbox_index());
         assert_ne!(st.inbox_index(), Some(0));
-    }
-
-    #[test]
-    fn group_session_count_includes_inbox_fallback_members() {
-        let sessions = vec![s("a", 1, 1), s("b", 1, 2), s("c", 1, 3)];
-        let cfg = Config {
-            groups: vec![
-                Group { name: "WORK".into(), members: vec!["a".into()], ..Default::default() },
-                Group { name: "INBOX".into(), members: vec!["b".into()], inbox: true, ..Default::default() },
-            ],
-            ..Default::default()
-        };
-        let st = PickerState::build(sessions, &cfg);
-        assert_eq!(st.group_session_count(0), 1); // WORK: just "a"
-        assert_eq!(st.group_session_count(1), 2); // INBOX: persisted "b" + fallback "c"
     }
 
     #[test]
@@ -1016,7 +1065,8 @@ mod tests {
     #[test]
     fn residual_count_excludes_grouped() {
         let st = grouped_state(); // a,b grouped; c residual
-        assert_eq!(st.group_session_count(st.inbox_index().unwrap()), 1);
+        let inbox = st.inbox_index().unwrap();
+        assert_eq!(st.all.iter().filter(|s| st.group_index_of(&s.name) == Some(inbox)).count(), 1);
     }
 
     #[test]
@@ -1140,7 +1190,6 @@ mod tests {
         st.default_mode = DefaultMode::Search;
         st.number_dormant_sessions = false;
         st.focus_mode = true;
-        st.new_group_position = NewGroupPosition::Bottom;
         st.new_group_color_policy = ColorPolicy::Static;
         st.static_color = "white".to_string();
         st.active_palette = vec!["red".to_string(), "white".to_string()];
@@ -1162,7 +1211,6 @@ mod tests {
         assert_eq!(reloaded.default_mode, DefaultMode::Search);
         assert!(!reloaded.number_dormant_sessions);
         assert!(reloaded.focus_mode);
-        assert_eq!(reloaded.new_group_position, NewGroupPosition::Bottom);
         assert_eq!(reloaded.new_group_color_policy, ColorPolicy::Static);
         assert_eq!(reloaded.static_color, "white");
         assert_eq!(reloaded.active_palette, vec!["red".to_string(), "white".to_string()]);

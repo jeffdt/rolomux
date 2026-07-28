@@ -167,49 +167,12 @@ impl ColorPolicy {
     }
 }
 
-/// Governs where `PickerState::group_new` inserts a freshly created group in
-/// `groups`. The inbox always occupies the trailing slot (see
-/// `ensure_inbox_last`), so `Bottom` means immediately above the inbox, not
-/// the absolute end of the vector. Never retroactively moves any existing
-/// group.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum NewGroupPosition {
-    Top,
-    #[default]
-    Bottom,
-}
-
-impl NewGroupPosition {
-    pub fn from_config_str(s: &str) -> NewGroupPosition {
-        match s {
-            "top" => NewGroupPosition::Top,
-            _ => NewGroupPosition::Bottom,
-        }
-    }
-
-    pub fn as_config_str(self) -> &'static str {
-        match self {
-            NewGroupPosition::Top => "top",
-            NewGroupPosition::Bottom => "bottom",
-        }
-    }
-
-    /// Only two values, so a single `next` covers both `h` and `l` -- unlike
-    /// `ColorPolicy`'s three-way cycle, there's no separate `prev` direction.
-    pub fn next(self) -> NewGroupPosition {
-        match self {
-            NewGroupPosition::Top => NewGroupPosition::Bottom,
-            NewGroupPosition::Bottom => NewGroupPosition::Top,
-        }
-    }
-}
-
 /// Governs the color of the `●` marking a session's active window
 /// (`window_item`). `Static` uses a single fixed color (`Config::dot_color`,
 /// cycled via `c` same as `attached_color`/`border_color`); `Group` inherits
 /// the color of the session's own group header instead, so the dot recolors
 /// per-section like the gutter bar already does. Only two values, so `next`
-/// covers both `h` and `l` -- same shape as `NewGroupPosition`.
+/// covers both `h` and `l`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum DotColorMode {
     #[default]
@@ -305,10 +268,12 @@ pub enum InitialFocus {
 pub const INITIAL_FOCUS: InitialFocus = InitialFocus::CurrentSession;
 
 /// Picker interaction mode. `Command` is the single-keystroke command UI;
-/// `Search` routes typed characters into a fuzzy-filter query; `Groups` is the
-/// full-screen group-management overlay; `Settings` is the full-screen
-/// settings overlay. Which mode the picker launches in is governed by the
-/// persisted `default_mode` preference (`Config::default_mode`, of type
+/// `Search` routes typed characters into a fuzzy-filter query; `Groups` is
+/// group altitude, an in-picker cursor altitude for group-management
+/// operations (create, rename, recolor, reorder, delete) with session rows
+/// still rendered underneath; `Settings` is the full-screen settings
+/// overlay. Which mode the picker launches in is governed by the persisted
+/// `default_mode` preference (`Config::default_mode`, of type
 /// `DefaultMode`), read once at `build` time -- see `DefaultMode::as_mode`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {

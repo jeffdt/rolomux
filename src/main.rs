@@ -11,13 +11,13 @@ use crossterm::terminal::{
     disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
 };
 use crossterm::execute;
-use model::{KillTarget, Mode, PendingRename, PickerState, RenameTarget, Row, WindowMove};
+use model::{Action, KillTarget, Mode, PendingCreate, PendingRename, PickerState, RenameTarget, Row, WindowMove};
 use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
 use std::io::{self, stdout};
 use std::time::Duration;
 use tmux::{apply_action, RealTmux, Tmux};
-use input::{is_help_dismiss_key, map_group_key, map_key, map_search_key, map_settings_key, GroupInput, Input, SearchInput, SettingsInput};
+use input::{is_help_dismiss_key, map_altitude_key, map_key, map_search_key, map_settings_key, AltitudeInput, Input, SearchInput, SettingsInput};
 use ui::draw;
 
 const HELP: &str = "\
@@ -34,6 +34,13 @@ Bind it in ~/.tmux.conf, e.g.:
 /// Poll interval used only while a swap-flash indicator is in flight (see
 /// `event_loop`), so the bright-to-dim fade redraws without a keypress.
 const SWAP_INDICATOR_TICK: Duration = Duration::from_millis(50);
+
+/// Poll interval used only while an empty create/rename buffer is showing a
+/// blinking placeholder (see `event_loop`), so the on/off toggle redraws
+/// without a keypress. Coarser than `SWAP_INDICATOR_TICK` since the blink
+/// itself is much slower (`model::blink::BLINK_PERIOD`); this just needs to
+/// be well under that to catch the boundary promptly.
+const BLINK_TICK: Duration = Duration::from_millis(100);
 
 fn main() -> io::Result<()> {
     if let Some(arg) = std::env::args().nth(1) {
@@ -355,6 +362,27 @@ fn commit_kill(
     *state = PickerState::build_with_expanded(gathered.sessions, config, expanded_snapshot);
 }
 
+/// Attempt to create `pending`'s session via tmux. On success, writes its
+/// membership into config, persists, and returns the `SwitchSession` action
+/// for the event loop to exit with. On tmux failure (e.g. duplicate name),
+/// writes nothing and returns `None` -- the caller keeps the picker open with
+/// the create prompt already closed by `create_commit`.
+fn commit_create(
+    pending: &PendingCreate,
+    tmux: &dyn Tmux,
+    config: &mut store::Config,
+    path: &std::path::Path,
+    state: &mut PickerState,
+) -> Option<Action> {
+    tmux.new_session(&pending.session_name, pending.window_name.as_deref()).ok()?;
+    state.apply_create(pending);
+    if state.dirty {
+        state.apply_to_config(config);
+        let _ = config.save_to(path);
+    }
+    Some(Action::SwitchSession(pending.session_name.clone()))
+}
+
 fn event_loop(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     state: &mut PickerState,
@@ -370,8 +398,16 @@ fn event_loop(
         // bright-to-dim fade (and eventual disappearance) redraws on its
         // own. Once it clears, this reverts to a plain blocking read --
         // zero idle CPU cost outside the ~1s window after a ⇧J/⇧K press.
+        // The same idea covers the blinking create/rename placeholder: only
+        // poll while a buffer that would actually show one is both open and
+        // empty, so idle CPU cost stays zero the rest of the time.
+        let blink_showing = (state.creating() && state.create_buffer() == Some(""))
+            || (state.quick_creating() && state.quick_create_buffer() == Some(""))
+            || (state.group_editing() && state.group_edit_buffer() == Some(""));
         let event = if state.swap_indicator_active() {
             if event::poll(SWAP_INDICATOR_TICK)? { Some(event::read()?) } else { None }
+        } else if blink_showing {
+            if event::poll(BLINK_TICK)? { Some(event::read()?) } else { None }
         } else {
             Some(event::read()?)
         };
@@ -390,7 +426,26 @@ fn event_loop(
             }
             match state.mode {
                 Mode::Command => {
-                    if state.renaming() {
+                    if state.creating() {
+                        match map_search_key(key) {
+                            SearchInput::Char(c) => state.create_push(c),
+                            SearchInput::Backspace => state.create_backspace(),
+                            SearchInput::DeleteWord => state.create_delete_word(),
+                            SearchInput::Clear => state.create_clear(),
+                            SearchInput::Select => {
+                                if let Some(pending) = state.create_commit() {
+                                    if let Some(action) = commit_create(&pending, tmux, config, path, state) {
+                                        return Ok(Some(action));
+                                    }
+                                }
+                            }
+                            SearchInput::Exit => match state.create_stage() {
+                                Some(model::CreateStage::WindowName) => state.create_back(),
+                                _ => state.create_cancel(),
+                            },
+                            SearchInput::Up | SearchInput::Down | SearchInput::Expand | SearchInput::Collapse | SearchInput::ToggleFocusMode | SearchInput::None => {}
+                        }
+                    } else if state.renaming() {
                         match map_search_key(key) {
                             SearchInput::Char(c) => state.rename_edit_push(c),
                             SearchInput::Backspace => state.rename_edit_backspace(),
@@ -402,6 +457,18 @@ fn event_loop(
                                 }
                             }
                             SearchInput::Exit => state.cancel_rename(),
+                            SearchInput::Up | SearchInput::Down | SearchInput::Expand | SearchInput::Collapse | SearchInput::ToggleFocusMode | SearchInput::None => {}
+                        }
+                    } else if state.quick_creating() {
+                        match map_search_key(key) {
+                            SearchInput::Char(c) => state.quick_create_push(c),
+                            SearchInput::Backspace => state.quick_create_backspace(),
+                            SearchInput::DeleteWord => state.quick_create_delete_word(),
+                            SearchInput::Clear => state.quick_create_clear(),
+                            SearchInput::Select => {
+                                state.commit_quick_create();
+                            }
+                            SearchInput::Exit => state.cancel_quick_create(),
                             SearchInput::Up | SearchInput::Down | SearchInput::Expand | SearchInput::Collapse | SearchInput::ToggleFocusMode | SearchInput::None => {}
                         }
                     } else {
@@ -431,6 +498,8 @@ fn event_loop(
                             Input::ToggleFocusMode => state.toggle_focus_mode(),
                             Input::OpenHelp => state.open_help(),
                             Input::Rename => state.start_rename(),
+                            Input::QuickCreate => state.start_quick_create(),
+                            Input::NewSession => state.start_create_here(),
                             Input::Kill => handle_kill(state, tmux, config, path),
                             Input::Select => return Ok(state.selected_action()),
                             Input::Switch(n) => {
@@ -473,7 +542,26 @@ fn event_loop(
                     SearchInput::None => {}
                 },
                 Mode::Groups => {
-                    if state.group_editing() {
+                    if state.creating() {
+                        match map_search_key(key) {
+                            SearchInput::Char(c) => state.create_push(c),
+                            SearchInput::Backspace => state.create_backspace(),
+                            SearchInput::DeleteWord => state.create_delete_word(),
+                            SearchInput::Clear => state.create_clear(),
+                            SearchInput::Select => {
+                                if let Some(pending) = state.create_commit() {
+                                    if let Some(action) = commit_create(&pending, tmux, config, path, state) {
+                                        return Ok(Some(action));
+                                    }
+                                }
+                            }
+                            SearchInput::Exit => match state.create_stage() {
+                                Some(model::CreateStage::WindowName) => state.create_back(),
+                                _ => state.create_cancel(),
+                            },
+                            SearchInput::Up | SearchInput::Down | SearchInput::Expand | SearchInput::Collapse | SearchInput::ToggleFocusMode | SearchInput::None => {}
+                        }
+                    } else if state.group_editing() {
                         match map_search_key(key) {
                             SearchInput::Char(c) => state.group_edit_push(c),
                             SearchInput::Backspace => state.group_edit_backspace(),
@@ -484,22 +572,54 @@ fn event_loop(
                             SearchInput::Up | SearchInput::Down | SearchInput::Expand | SearchInput::Collapse | SearchInput::ToggleFocusMode | SearchInput::None => {}
                         }
                     } else {
-                        let input = map_group_key(key);
-                        if !matches!(input, GroupInput::MoveUp | GroupInput::MoveDown) {
+                        let input = map_altitude_key(key);
+                        if !matches!(input, AltitudeInput::MoveUp | AltitudeInput::MoveDown) {
                             state.clear_group_reorder_warning();
                         }
+                        let had_pending_group_delete = state.pending_group_delete_warning().is_some();
+                        if !matches!(input, AltitudeInput::Delete) {
+                            state.clear_pending_group_delete();
+                        }
                         match input {
-                            GroupInput::Up => state.group_move_cursor(-1),
-                            GroupInput::Down => state.group_move_cursor(1),
-                            GroupInput::MoveUp => state.group_reorder(-1),
-                            GroupInput::MoveDown => state.group_reorder(1),
-                            GroupInput::New => state.group_new(),
-                            GroupInput::Rename => state.group_start_rename(),
-                            GroupInput::CycleColor => state.group_cycle_color(),
-                            GroupInput::Delete => state.group_delete(),
-                            GroupInput::OpenHelp => state.open_help(),
-                            GroupInput::Exit => state.exit_groups(),
-                            GroupInput::None => {}
+                            AltitudeInput::Up => state.group_move_cursor(-1),
+                            AltitudeInput::Down => state.group_move_cursor(1),
+                            AltitudeInput::MoveUp => state.group_reorder(-1),
+                            AltitudeInput::MoveDown => state.group_reorder(1),
+                            AltitudeInput::New => state.group_new(),
+                            AltitudeInput::NewSessionInGroup => state.start_create_in_group(),
+                            AltitudeInput::Rename => state.group_start_rename(),
+                            AltitudeInput::CycleColor => state.group_cycle_color(),
+                            AltitudeInput::Delete => {
+                                if let Some(gi) = state.take_confirmed_group_delete() {
+                                    state.group_cursor = gi;
+                                    state.group_delete();
+                                } else {
+                                    state.arm_group_delete();
+                                }
+                            }
+                            AltitudeInput::OpenHelp => state.open_help(),
+                            // A pending delete confirm absorbs Descend
+                            // (`g`/Esc) as just a cancel-the-arm instead of
+                            // also dropping back to session altitude --
+                            // matches Command mode's had_pending_kill/Quit
+                            // absorption above.
+                            AltitudeInput::Descend => {
+                                if !had_pending_group_delete {
+                                    state.exit_groups();
+                                }
+                            }
+                            AltitudeInput::DescendInto => state.descend_into(),
+                            AltitudeInput::EnterSearch => {
+                                state.exit_groups();
+                                state.enter_search();
+                            }
+                            AltitudeInput::Switch(n) => {
+                                if let Some(action) = state.action_for_session_number(n) {
+                                    return Ok(Some(action));
+                                }
+                            }
+                            AltitudeInput::Quit => return Ok(None),
+                            AltitudeInput::None => {}
                         }
                     }
                 }
@@ -1055,6 +1175,67 @@ mod tests {
         handle_kill(&mut state, &tmux, &mut config, &path); // arm
         let warning = state.pending_kill_warning().expect("armed");
         assert!(warning.contains("exit tmux"), "killing the only window of an attached session is risky: {warning}");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn commit_create_writes_config_and_returns_switch_action_on_tmux_success() {
+        let dir = std::env::temp_dir().join(format!("rolomux-commit-create-ok-{}", std::process::id()));
+        let path = dir.join("config.toml");
+
+        let mut config = Config {
+            groups: vec![Group { name: "WORK".into(), members: vec!["alpha".into()], ..Default::default() }],
+            ..Default::default()
+        };
+        let sessions = vec![sess("alpha")];
+        let mut state = PickerState::build(sessions, &config);
+
+        let pending = crate::model::PendingCreate {
+            session_name: "newsess".into(),
+            window_name: Some("editor".into()),
+            placement: crate::model::CreatePlacement::AboveSelected { group: 0, member_index: 0 },
+        };
+
+        let tmux = FakeTmux::default();
+
+        let action = commit_create(&pending, &tmux, &mut config, &path, &mut state);
+
+        assert_eq!(*tmux.calls.borrow(), vec!["new-session:newsess:Some(\"editor\")".to_string()]);
+        assert_eq!(action, Some(crate::model::Action::SwitchSession("newsess".to_string())));
+        assert_eq!(config.groups[0].members, vec!["newsess".to_string(), "alpha".to_string()]);
+        assert!(std::fs::metadata(&path).is_ok(), "config should be written to disk on success");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn failed_create_writes_no_config_and_stays_open() {
+        let dir = std::env::temp_dir().join(format!("rolomux-commit-create-fail-{}", std::process::id()));
+        let path = dir.join("config.toml");
+
+        let mut config = Config {
+            groups: vec![Group { name: "WORK".into(), members: vec!["alpha".into()], ..Default::default() }],
+            ..Default::default()
+        };
+        let sessions = vec![sess("alpha")];
+        let mut state = PickerState::build(sessions, &config);
+
+        let pending = crate::model::PendingCreate {
+            session_name: "newsess".into(),
+            window_name: None,
+            placement: crate::model::CreatePlacement::AboveSelected { group: 0, member_index: 0 },
+        };
+
+        let tmux = FakeTmux::default().with_new_session_fails(true);
+
+        let action = commit_create(&pending, &tmux, &mut config, &path, &mut state);
+
+        assert_eq!(*tmux.calls.borrow(), vec!["new-session:newsess:None".to_string()]);
+        assert_eq!(action, None, "tmux failure yields no switch action");
+        assert_eq!(config.groups[0].members, vec!["alpha".to_string()], "no membership written on tmux failure");
+        assert!(!state.dirty, "state must not be marked dirty on tmux failure");
+        assert!(std::fs::metadata(&path).is_err(), "config must not be written to disk on tmux failure");
 
         let _ = std::fs::remove_dir_all(&dir);
     }

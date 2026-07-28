@@ -31,7 +31,7 @@ You can use other popup dimensions, but these work well to start. `-h` also acce
 ## Quick start
 1. Press `prefix + s` to open rolomux. All of your sessions start out in a group called `INBOX`.
 2. Move a few sessions around with `⇧J` and `⇧K`.
-3. Press `g` to open Group Management.
+3. Press `g` to raise the cursor to group altitude.
 4. Press `n` to create a new group. Call it `PROJECTS`, then press `Esc` to return to the picker.
 5. Move a session into `PROJECTS` with `⇧J` and `⇧K`.
 6. Try creating a few more groups, reordering the groups themselves, and changing their colors.
@@ -41,7 +41,7 @@ New sessions arrive in INBOX. Over time, you sort, group, and reorder them until
 
 ## How it works
 
-- **Create your groups.** Press `g` to jump into group management mode, where you can create, rename and color code your groups.
+- **Create your groups.** Press `g` to raise the cursor to group altitude, where you can create, rename and color code your groups while your sessions stay visible below.
 - **Sort your sessions.** Move your sessions between groups with `⇧J`/`⇧K`. Once sorted, they stay there, in that order.
   New sessions collect in an inbox until you're ready to sort them.
   Groups and their ordering persist across tmux restarts, and they stick around until you delete them.
@@ -68,19 +68,21 @@ bind C new-session \; command-prompt -I "" "rename-session '%%'" \; command-prom
 | `M-1`-`M-9`, `M-0` | Switch to session 11-20 immediately (Option/Alt; `M-1` = 11th ... `M-0` = 20th) |
 | `j` / `k` | Move the cursor, wrapping between the top and bottom (also `↓` / `↑`) |
 | `l` / `→` | Expand a session's window tree |
-| `←` | Collapse a session's window tree |
+| `h` / `←` | Collapse a session's window tree |
 | `z` | Expand or collapse window trees for all sessions |
 | `⇧J` / `⇧K` | Move the selected session or window up/down (also `⇧↓` / `⇧↑`): a session row reorders within its group or crosses into the neighboring group; a window row reorders within its session or crosses into the neighboring session. Both wrap around at the top/bottom of the list. |
-| `R` | Rename the selected session or window |
+| `r` | Rename the selected session or window |
 | `x` | Kill the selected session or window (press again to confirm) |
-| `g` | Open group-management mode |
+| `g` | Raise the cursor to group altitude |
+| `n` | Create a new session and switch to it |
+| `⇧N` | Create a new group for the selected session |
 | `,` | Open settings |
 | `d` | Toggle dormant (dim) on the selected session, or the selected window if the cursor is on one |
 | `Ctrl-d` | Undormant the selected session and all of its windows |
 | `⇧D` | Undormant every session and window in the picker |
 | `f` | Toggle focus mode (hide dormant sessions and empty groups) |
 | `/` | Enter search mode (type to filter, `↵` switch, `Esc` back) |
-| `?` | Show every shortcut for the current mode (works in command, group, and settings modes; `Esc`/`q`/`?` closes it) |
+| `?` | Show every shortcut for the current altitude or mode (works at session altitude, group altitude, and in settings; `Esc`/`q`/`?` closes it) |
 | `q` / `Esc` | Quit |
 
 `M-` is Meta (Option on macOS).
@@ -93,22 +95,29 @@ Every `⇧J`/`⇧K` press also flashes a brief `▲`/`▼` next to whichever row
 
 ### Groups
 
-Press `g` to open group-management mode, a full-screen view of your current groups.
-Once inside:
+Press `g` to raise the cursor to group altitude: the cursor moves up onto group headers while your sessions stay visible underneath, dimmed to show they're not the current focus. Group structure (create, rename, recolor, reorder, delete) all happen in place, with your sessions still on screen for reference. `g` or `Esc` descends back to exactly the session or window you were on.
 
 | Key | Action |
 | --- | --- |
-| `j` / `k` | Navigate between groups, wrapping between the first and last group (also `↓` / `↑`) |
-| `↵` / `r` | Rename the selected group |
-| `n` | Create a new group and name it |
-| `d` | Delete the selected group (its sessions fall back to the inbox group) |
-| `c` | Cycle the selected group's header color |
+| `j` / `k` | Navigate between group headers, wrapping between the first and last group (also `↓` / `↑`) |
 | `⇧J` / `⇧K` | Reorder the selected group down / up (also `⇧↓` / `⇧↑`) |
-| `Esc` / `q` / `g` | Back to the picker |
+| `r` | Rename the selected group |
+| `n` | Create a new group above the selected one and name it |
+| `⇧N` | Create a new session in the selected group and switch to it |
+| `c` | Cycle the selected group's header color |
+| `x` | Delete the selected group (press again to confirm; its sessions fall back to the inbox group) |
+| `↵` | Descend into the selected group, landing on its first session |
+| `/` | Enter search |
+| `Esc` / `g` | Back to session altitude |
+| `q` | Quit the picker |
 
 As you create groups, they'll be assigned a color from your terminal theme (cyan, green, yellow, magenta, blue, red); new groups rotate through them, `c` flips a group's color, and empty groups show grayed out until you fill them.
 
-The inbox can be renamed and recolored like any other group, but it always stays last and can't be reordered.
+The inbox can be renamed and recolored like any other group, but it always stays last and can't be reordered or deleted.
+
+You don't have to raise to group altitude just to sort a single session: at session altitude, `⇧N` creates a new group around whichever session the cursor is on, without leaving the session list.
+
+Press `n` at session altitude to create a brand new tmux session, or `⇧N` at group altitude to create one directly inside the selected group. Either way you're prompted first for a session name, then optionally for a window name (leave it blank and press `↵` to skip and let tmux name it), and rolomux switches you straight to the new session once it's created.
 
 ### Search
 
@@ -157,7 +166,6 @@ Each row shows a jump number in its gutter; pressing it jumps straight to that r
 - **Remember expanded sessions.** Off by default (every popup starts fully collapsed). When on, expanding or collapsing a session's window tree (`l`/`h`/`z`) persists across popups, so the sessions you're actively jumping between stay expanded.
 - **Clear dormant on attach.** Off by default. When on, attaching to a dormant session automatically clears its dormant flag, so you don't have to remember to press `d` yourself.
 - **Start in focus mode.** Whether the picker starts in focus mode: **Remember** the last state (default), **Always** start in it, or **Never** start in it, regardless of what was last saved.
-- **New group position.** Where a newly created group is inserted: **Top** of the list, or **Bottom** (default), immediately above the inbox, which always stays last.
 - **Session metadata.** Whether the row's trailing timestamp shows time since last activity (**Recency**, default), time since the session was created (**Age**), or is omitted entirely (**Hidden**).
 - **Show shortcuts.** Whether the footer's key-shortcut legend is always visible (**Yes**, default), or hidden entirely (**No**) -- press `?` any time for the full shortcut list regardless of this setting.
 

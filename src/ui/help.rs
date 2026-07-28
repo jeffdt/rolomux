@@ -10,31 +10,38 @@ use ratatui::widgets::Clear;
 
 const COMMAND_SHORTCUTS: &[(&str, &str)] = &[
     ("j/k, ↑/↓", "move cursor"),
-    ("l/→, ←", "expand / collapse session"),
+    ("l/h, →/←", "expand / collapse session"),
     ("Enter", "switch to selected session/window"),
     ("1-9,0 / Alt+1-9,0", "jump to session N (1-20)"),
     ("/", "search"),
-    ("g", "group mode"),
+    ("g", "switch to group mode"),
+    ("n", "new session"),
+    ("⇧N", "new group for session"),
     (",", "settings"),
     ("z", "expand/collapse all"),
     ("f", "toggle focus mode (hide dormant)"),
     ("d", "toggle dormant"),
     ("Ctrl-d", "clear dormant for this session"),
     ("⇧D", "clear dormant for everything"),
-    ("⇧R", "rename session/window"),
-    ("⇧J/⇧K", "move window to adjacent session"),
+    ("r", "rename session/window"),
+    ("⇧J/⇧K", "reorder session/window"),
     ("x", "kill session/window (press twice)"),
     ("q / Esc", "quit"),
 ];
 
-const GROUPS_SHORTCUTS: &[(&str, &str)] = &[
+const ALTITUDE_SHORTCUTS: &[(&str, &str)] = &[
     ("j/k, ↑/↓", "move cursor"),
     ("⇧J/⇧K", "reorder group"),
     ("n", "new group"),
-    ("Enter / r", "rename group"),
+    ("⇧N", "new session in group"),
+    ("r", "rename group"),
     ("c", "cycle color"),
-    ("d", "delete group"),
-    ("Esc / q / g", "back to command mode"),
+    ("x", "delete group (press twice)"),
+    ("Enter", "open group"),
+    ("/", "search"),
+    ("1-9,0 / Alt+1-9,0", "jump to session N (1-20)"),
+    ("Esc / g", "back to session mode"),
+    ("q", "quit"),
 ];
 
 const SETTINGS_SHORTCUTS: &[(&str, &str)] = &[
@@ -49,7 +56,7 @@ const SETTINGS_SHORTCUTS: &[(&str, &str)] = &[
 fn shortcuts_for_mode(mode: Mode) -> (&'static str, &'static [(&'static str, &'static str)]) {
     match mode {
         Mode::Command => ("Command Shortcuts", COMMAND_SHORTCUTS),
-        Mode::Groups => ("Groups Shortcuts", GROUPS_SHORTCUTS),
+        Mode::Groups => ("Group Altitude Shortcuts", ALTITUDE_SHORTCUTS),
         Mode::Settings => ("Settings Shortcuts", SETTINGS_SHORTCUTS),
         Mode::Search => ("Search Shortcuts", &[]),
     }
@@ -119,6 +126,24 @@ pub(super) fn draw_help_overlay(frame: &mut Frame, state: &PickerState, area: Re
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::store::Config;
+    use ratatui::backend::TestBackend;
+    use ratatui::Terminal;
+
+    fn render_help_to_string(state: &PickerState) -> String {
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| draw_help_overlay(f, state, f.area())).unwrap();
+        let buf = terminal.backend().buffer().clone();
+        let mut out = String::new();
+        for y in 0..buf.area.height {
+            for x in 0..buf.area.width {
+                out.push_str(buf[(x, y)].symbol());
+            }
+            out.push('\n');
+        }
+        out
+    }
 
     #[test]
     fn centered_rect_centers_within_a_larger_area() {
@@ -144,9 +169,71 @@ mod tests {
     fn shortcuts_for_mode_covers_command_groups_and_settings() {
         assert_eq!(shortcuts_for_mode(Mode::Command).0, "Command Shortcuts");
         assert!(!shortcuts_for_mode(Mode::Command).1.is_empty());
-        assert_eq!(shortcuts_for_mode(Mode::Groups).0, "Groups Shortcuts");
+        assert_eq!(shortcuts_for_mode(Mode::Groups).0, "Group Altitude Shortcuts");
         assert!(!shortcuts_for_mode(Mode::Groups).1.is_empty());
         assert_eq!(shortcuts_for_mode(Mode::Settings).0, "Settings Shortcuts");
         assert!(!shortcuts_for_mode(Mode::Settings).1.is_empty());
+    }
+
+    #[test]
+    fn command_mode_help_contains_new_group_and_switch_to_group_mode() {
+        let mut state = PickerState::build(vec![], &Config::default());
+        state.mode = Mode::Command;
+        let rendered = render_help_to_string(&state);
+        assert!(
+            rendered.contains("⇧N"),
+            "Command mode help should contain ⇧N key for new group for session"
+        );
+        assert!(
+            rendered.contains("switch to group mode"),
+            "Command mode help should describe g as 'switch to group mode'"
+        );
+    }
+
+    #[test]
+    fn command_mode_help_contains_new_session_key() {
+        let mut state = PickerState::build(vec![], &Config::default());
+        state.mode = Mode::Command;
+        let rendered = render_help_to_string(&state);
+        assert!(rendered.contains("new session"), "Command mode help should describe n as 'new session'");
+    }
+
+    #[test]
+    fn altitude_mode_help_contains_new_session_in_group_key() {
+        let mut state = PickerState::build(vec![], &Config::default());
+        state.mode = Mode::Groups;
+        let rendered = render_help_to_string(&state);
+        assert!(
+            rendered.contains("⇧N") && rendered.contains("new session in group"),
+            "Group altitude help should describe ⇧N as 'new session in group'"
+        );
+    }
+
+    #[test]
+    fn altitude_mode_help_does_not_contain_stale_shift_r() {
+        let mut state = PickerState::build(vec![], &Config::default());
+        state.mode = Mode::Groups;
+        let rendered = render_help_to_string(&state);
+        assert!(
+            !rendered.contains("⇧R"),
+            "Group altitude mode help should not contain stale ⇧R text"
+        );
+    }
+
+    #[test]
+    fn altitude_mode_help_shows_q_as_quit_not_back() {
+        let mut state = PickerState::build(vec![], &Config::default());
+        state.mode = Mode::Groups;
+        let rendered = render_help_to_string(&state);
+        assert!(
+            !rendered.contains("Esc / q / g"),
+            "q no longer shares a 'back to command mode' entry with Esc/g at group altitude"
+        );
+        assert!(
+            rendered.contains("back to session mode"),
+            "Esc/g should still be documented as returning to session mode"
+        );
+        let q_quit_line = rendered.lines().any(|l| l.contains('q') && l.contains("quit"));
+        assert!(q_quit_line, "q should be documented as quitting the picker at group altitude");
     }
 }
