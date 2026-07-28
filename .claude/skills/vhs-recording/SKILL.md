@@ -1,36 +1,38 @@
 ---
-name: vhs-tmux-recording
+name: vhs-recording
 description: >
-  Use whenever the task is to record, re-record, or update a GIF or video
-  demo of a tmux-based tool — a tmux popup, plugin, or any TUI driven from
-  inside tmux — using vhs (charmbracelet/vhs). Also use any time a script or
-  `.tape` file needs to run `tmux` commands to set up or drive a recording,
-  even outside of vhs specifically, because the isolation rules here are
-  what stop a scripted tmux command from accidentally hitting the real,
-  currently-attached tmux server instead of a throwaway one. Trigger this
-  before writing a `.tape` file, before running `tmux new-session` /
-  `tmux -L` / `tmux kill-server` as part of any recording or screenshot
-  task, and before regenerating an existing demo asset (e.g. "update the
-  README gif", "the popup UI changed, can you re-record the demo",
-  "record a quick screencast of prefix+X"). Running tmux automation without
-  following this skill has previously torn down a real, in-use tmux server
-  and every session inside it — treat that as a live risk, not a
-  hypothetical.
+  Use whenever the task is to record, re-record, or update a demo of one of
+  these TUI tools using vhs (charmbracelet/vhs) — most of them a plain
+  terminal recording, some needing real tmux chrome (a popup, a status
+  line, a pane layout). Also use any time a script or `.tape` file needs to
+  run `tmux` commands to set up or drive a recording, even outside of vhs
+  specifically, because the isolation rules here are what stop a scripted
+  tmux command from accidentally hitting the real, currently-attached tmux
+  server instead of a throwaway one. Trigger this before writing a `.tape`
+  file, before adding any recording or static-output asset to a README or
+  demo doc, before running `tmux new-session` / `tmux -L` / `tmux
+  kill-server` as part of any recording or screenshot task, and before
+  regenerating an existing demo asset (e.g. "update the README gif", "the
+  popup UI changed, can you re-record the demo", "record a quick screencast
+  of prefix+X"). Running tmux automation without following this skill has
+  previously torn down a real, in-use tmux server and every session inside
+  it — treat that as a live risk, not a hypothetical, whenever a recording
+  nests tmux.
 ---
 
-# Recording tmux tools with vhs
+# Recording TUI demos with vhs
 
-Records of tmux popups and other tmux-driven TUIs are trickier than a
-normal terminal recording: the thing you're demoing is chrome that only
-exists *inside a running tmux server* (`display-popup`, a status line, a
-pane layout). vhs alone gives you a clean pty to script, but it doesn't
-know anything about tmux — so getting the real chrome on screen means
-scripting a real `tmux` session from inside the recording. That's where
-the risk lives: every `tmux` command without an explicit socket targets
-whichever server is ambient, including the one the user (or you) are
-currently attached to.
+vhs (charmbracelet/vhs) scripts a clean pty and is the default way to
+record a demo of any of these tools. Most need nothing beyond that: launch
+the binary in the scripted pty, drive it, done. A smaller set also need
+real tmux chrome on screen — a popup, a status line, a pane layout —
+because that chrome only exists inside a running tmux server. vhs itself
+knows nothing about tmux, so getting that chrome on screen means scripting
+a real `tmux` session from inside the recording, which is where the risk in
+the next section lives. If the tool being recorded has no tmux chrome to
+show, skip straight to "Workflow" below — the tmux section doesn't apply.
 
-## The one rule that matters
+## If the recording nests tmux: the one rule that matters
 
 **Every `tmux` invocation used for a recording must carry `-L
 <isolated-socket-name>`, with no exceptions, including while debugging a
@@ -42,7 +44,7 @@ inside an actual tmux session (very likely, since that's how most people
 run a terminal), is the real one. A `kill-server` issued that way doesn't
 just clean up the recording's throwaway session, it kills *every* real
 session on the machine, including the one you're working in. This has
-happened before during this kind of work; it is the reason this skill
+happened before during this kind of work; it is the reason this section
 exists.
 
 Two concrete habits that follow from this:
@@ -58,7 +60,30 @@ Two concrete habits that follow from this:
 
 ## Workflow
 
-### 1. Decide what the recording needs to prove
+### 1. Decide whether this needs a GIF at all
+
+Before writing anything, ask whether the feature actually has
+*interaction* to watch: a picker filtering, a selection moving, a landing.
+If it doesn't, a GIF is the wrong tool.
+
+- **Interaction to watch** -> tape it, following the rest of this skill.
+- **Static output, no interaction** -> a fenced output block in the README
+  instead. Cheaper to produce, greppable, copy-pasteable, doesn't need a
+  re-record every time the output format changes, and doesn't cost readers
+  on a bad connection the way a GIF does.
+- **Static output that's thematically adjacent to an interactive feature**
+  -> fold it in as a closing beat of that feature's tape rather than giving
+  it a separate artifact. Worked example: a "prune broken bookmarks"
+  command with no interaction of its own, recorded as the tail end of the
+  tape for "add a bookmark" -> "list bookmarks", so one tape tells a
+  complete, coherent story (bookmarks are cheap to add and cheap to clean
+  up) instead of splitting it across a tape and an orphaned code block.
+
+The rest of this skill assumes the "tape it" branch. If a fenced output
+block is the right call, just run the command for real and paste its
+output — no vhs, no tmux, none of what follows.
+
+### 2. Decide what the recording needs to prove
 
 Write down the one thing a viewer should walk away understanding (e.g.
 "capturing an idea is fast enough that you don't lose your place in what
@@ -70,7 +95,7 @@ mid-task and the interesting thing happens *as an interruption* reads as
 "look how little this costs you" — pick deliberately, don't default to
 blank-prompt-then-go.
 
-### 2. Handle any real side effects the recording will cause
+### 3. Handle any real side effects the recording will cause
 
 If the interaction under test does something real and externally visible
 (creates a GitHub issue, sends a message, writes a file to a shared
@@ -86,9 +111,12 @@ being disposable. Don't reuse a real project's tracker "just this once and
 I'll close it after"; that habit doesn't scale to re-recordings after every
 UI change.
 
-### 3. Write the `.tape` file
+### 4. Write the `.tape` file
 
-Structure:
+Structure (the `Hide`/`Show`-wrapped tmux setup below only applies if this
+recording nests tmux per the section above — a tool with no tmux chrome
+just launches its binary directly inside the top-level `Show` block, no
+nested session at all):
 
 ```
 Output "path/to/output.gif"
@@ -132,7 +160,7 @@ Notes:
   keybind looks like in a user's actual dotfiles, so the recording
   exercises the real chrome rather than a simplified stand-in.
 
-### 4. Watch for terminal-theme conflicts
+### 5. Watch for terminal-theme conflicts
 
 `Set Theme` remaps vhs's 16 base ANSI colors. It has no effect on anything
 that emits truecolor (24-bit RGB) escape codes directly — most themed
@@ -145,27 +173,59 @@ bash — so no prompt tool initializes at all. This also has the side
 benefit of a clean, fast-starting shell with no personal aliases or
 functions that could shadow something the tape depends on.
 
-### 5. Isolate the app's own config too, not just the terminal
+### 6. Isolate the app's own config too, not just the terminal
 
 If the tool being recorded reads its own persistent config (settings file,
-`XDG_CONFIG_HOME`, dotfile), point that at a scratch location the same way
-you isolate tmux — otherwise the recording's behavior depends on whatever
-happens to be in the operator's real config that day, and a setting nobody
-remembers is on (an "auto-exit after this action" toggle, a saved filter,
-a theme) can silently change what the tape produces or cut it short in a
-way that isn't obvious from reading the tape itself. `export
-XDG_CONFIG_HOME=$(mktemp -d)` before launching the app is usually enough
-to get its defaults.
+dotfile, saved state), isolate that too, the same way you isolate tmux —
+otherwise the recording's behavior depends on whatever happens to be in
+the operator's real config that day, and a setting nobody remembers is on
+(an "auto-exit after this action" toggle, a saved filter, a theme) can
+silently change what the tape produces or cut it short in a way that
+isn't obvious from reading the tape itself.
 
-Watch for other tools sharing that same environment variable, though —
-`XDG_CONFIG_HOME` in particular is also where things like `gh` or other
-CLIs the tape shells out to keep their own config, including auth. Blindly
+Find the env var the tool actually resolves its config through before
+picking an isolation strategy — don't assume it's the same one that worked
+for a different app. Two cases show up across these tools:
+
+- **`XDG_CONFIG_HOME`** (apps that read it directly, e.g. boomerang):
+  `export XDG_CONFIG_HOME=$(mktemp -d)` before launching the app is
+  usually enough to get its defaults.
+- **`HOME`** (apps that resolve paths via `dirs::home_dir()` or similar
+  rather than reading `XDG_CONFIG_HOME` directly, e.g. teleport):
+  `XDG_CONFIG_HOME` does nothing for a tool that never reads it — use
+  `export HOME=$(mktemp -d)` instead. Grep the tool's own source for where
+  it resolves its config path (`XDG_CONFIG_HOME`, `dirs::`, `home_dir`)
+  rather than guessing from what worked on a different app.
+
+Watch for other tools sharing whichever variable you redirect. In the
+`XDG_CONFIG_HOME` case, that's also where things like `gh` or other CLIs
+the tape shells out to keep their own config, including auth. Blindly
 redirecting it strips their credentials along with the app's settings, so
 if the tape needs one of those tools to actually work, symlink its real
 config into the scratch directory first (e.g.
 `ln -s ~/.config/gh/*.yml $XDG_CONFIG_HOME/gh/`).
 
-### 6. `clear` the screen before a fullscreen TUI launches
+The `HOME` case has its own two-sided consequence, sharper in both
+directions:
+
+- **Nice side effect:** fake repos or paths seeded under the scratch home
+  render on screen as clean `~/code/...` paths, because the tool's own
+  tilde-collapsing display logic now points at the scratch dir too — no
+  trace of the real machine, for free.
+- **Sharp edge:** redirecting `HOME` also strips git's global config, so
+  git has no committer identity. Any seed script that makes commits under
+  the scratch `HOME` must pass identity inline or the commits fail
+  outright:
+
+  ```sh
+  git -c user.name=demo -c user.email=demo@example.com \
+      -c commit.gpgsign=false -c init.defaultBranch=main ...
+  ```
+
+  This is the failure most likely to bite on a first run, and the error
+  doesn't obviously point at `HOME` as the cause.
+
+### 7. `clear` the screen before a fullscreen TUI launches
 
 If the tool being recorded takes over the whole terminal (an alternate
 screen buffer, same mechanism vim/tmux/less use) and the recording shows
@@ -183,7 +243,7 @@ the sections above, since tmux's own alt-screen swallows the setup and the
 recording never returns to the outer shell to reveal it — it's specifically
 a concern for tools recorded directly in the outer pty.
 
-### 7. Run it and inspect the result
+### 8. Run it and inspect the result
 
 ```sh
 vhs path/to/file.tape
@@ -206,7 +266,7 @@ ffmpeg -i output.gif -vf "fps=4" frame-%03d.png
 
 then read the relevant PNGs directly.
 
-### 8. Verify the isolated session actually tore down
+### 9. Verify the isolated session actually tore down
 
 Don't assume the tape's teardown worked just because vhs exited cleanly.
 If a scripted "exit" step doesn't land as expected — `Ctrl+D` failing to
@@ -217,7 +277,8 @@ recording: `tmux new-session -s <name>` collides with the leftover session
 (`duplicate session: <name>`), the tape's subsequent keystrokes fall
 through to whatever that stale session happens to be running instead of
 the fresh one the tape assumes, and the result is a broken take that looks
-like garbled input rather than an obvious error.
+like garbled input rather than an obvious error. Only applies if this
+recording nested tmux at all.
 
 After every run:
 
@@ -251,7 +312,9 @@ concrete examples rather than starting from a blank tape:
 - `browse-and-yank.tape` and `edit-issue.tape` — the simpler direct
   pattern for a tool that doesn't need tmux chrome on screen at all: no
   nested server, but still `XDG_CONFIG_HOME` isolation (with `gh` auth
-  preserved) and the pre-launch `clear` fullscreen TUIs need.
+  preserved) and the pre-launch `clear` fullscreen TUIs need. This is the
+  pattern to start from for any tool with no tmux chrome — including
+  `HOME`-isolated ones, just swap the env var per section 6 above.
 
 ```sh
 docs/demo/seed-issues.sh
@@ -265,6 +328,9 @@ header comment).
 
 ## Checklist recap
 
+- [ ] Decided whether this needs a GIF at all -- interaction to tape, vs.
+      a fenced static-output block, vs. folding static output into an
+      adjacent tape as a closing beat.
 - [ ] Every `tmux` command carries `-L <isolated-socket>`; `$TMUX` is
       unset before the isolated session is created. (Only applies if the
       recording nests tmux at all — skip for tools recorded directly.)
@@ -274,9 +340,11 @@ header comment).
       actual demo renders.
 - [ ] The pane's shell skips rc files (`zsh -f` / `bash --norc`) if a
       themed prompt would otherwise fight `Set Theme`.
-- [ ] The app's own config is isolated too (e.g. scratch
-      `XDG_CONFIG_HOME`), with any tool it shells out to still able to
-      authenticate.
+- [ ] The app's own config is isolated too, through whichever env var it
+      actually resolves config through (scratch `XDG_CONFIG_HOME` or
+      scratch `HOME`), with any tool it shells out to still able to
+      authenticate (and, for the `HOME` case, with git identity passed
+      inline to any seed-script commits).
 - [ ] A fullscreen (alt-screen) app recorded outside of tmux gets a
       `clear` right before it launches, if the recording returns to the
       outer shell afterward.
@@ -284,4 +352,5 @@ header comment).
       teardown actually happened, not just "vhs exited." (If tmux was
       nested at all.)
 - [ ] Every rendered/re-rendered GIF is opened with `qlmanage -p <path> &`
-      so the user sees it play, unprompted.
+      so the user sees it play, unprompted. (If a GIF was the chosen
+      artifact.)
