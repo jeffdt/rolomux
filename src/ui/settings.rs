@@ -439,4 +439,12 @@ mod tests {
         assert_eq!(line.spans[0].content, "On launch, rolomux opens in Command mode.");
         assert_eq!(line.spans[0].style.fg, None);
     }
+
+    #[test]
+    fn draw_settings_shows_border_palette_row_with_active_count() {
+        let line = border_palette_row_line(SettingsRow::BorderPalette, 6, false, false);
+        let rendered = line.spans.iter().map(|s| s.content.as_ref()).collect::<String>();
+        assert!(rendered.contains("Border palette"));
+        assert!(rendered.contains("6 active"));
+    }
 }
