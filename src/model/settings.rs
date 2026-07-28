@@ -197,7 +197,7 @@ impl PickerState {
     }
 
     /// The flat, ordered list of settings rows currently on screen. Three
-    /// expandable sections (Shortcut color, Border palette, Color palette)
+    /// expandable sections (Shortcut color, Border palette, Group palette)
     /// each splice their child rows in directly below themselves while
     /// expanded, same shape as the original Palette/PaletteColor pattern.
     /// Border color policy has no expandable child list of its own -- like
@@ -307,7 +307,7 @@ impl PickerState {
         self.focus_settings_row(SettingsRow::ShortcutColorOption(idx));
     }
 
-    /// Expand the Color palette checklist with the cursor starting on the
+    /// Expand the Group palette checklist with the cursor starting on the
     /// first *active* swatch in canonical order, the closest checklist
     /// analog to `expand_shortcut_color`'s "land on the current value" for
     /// a picker with no single current value. Falls back to index 0 if
@@ -425,7 +425,7 @@ impl PickerState {
     }
 
     /// `l` on the current settings row: step Default Mode / Color Policy
-    /// forward, or expand a section (Border color, Color palette). A no-op
+    /// forward, or expand a section (Border color, Group palette). A no-op
     /// on an already-expanded section's child row -- there is nothing
     /// further to expand, and selection there happens via `Enter`/`Space`
     /// (`settings_activate`), not `l`.
