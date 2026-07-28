@@ -35,6 +35,13 @@ Bind it in ~/.tmux.conf, e.g.:
 /// `event_loop`), so the bright-to-dim fade redraws without a keypress.
 const SWAP_INDICATOR_TICK: Duration = Duration::from_millis(50);
 
+/// Poll interval used only while an empty create/rename buffer is showing a
+/// blinking placeholder (see `event_loop`), so the on/off toggle redraws
+/// without a keypress. Coarser than `SWAP_INDICATOR_TICK` since the blink
+/// itself is much slower (`model::blink::BLINK_PERIOD`); this just needs to
+/// be well under that to catch the boundary promptly.
+const BLINK_TICK: Duration = Duration::from_millis(100);
+
 fn main() -> io::Result<()> {
     if let Some(arg) = std::env::args().nth(1) {
         match arg.as_str() {
@@ -391,8 +398,16 @@ fn event_loop(
         // bright-to-dim fade (and eventual disappearance) redraws on its
         // own. Once it clears, this reverts to a plain blocking read --
         // zero idle CPU cost outside the ~1s window after a ⇧J/⇧K press.
+        // The same idea covers the blinking create/rename placeholder: only
+        // poll while a buffer that would actually show one is both open and
+        // empty, so idle CPU cost stays zero the rest of the time.
+        let blink_showing = (state.creating() && state.create_buffer() == Some(""))
+            || (state.quick_creating() && state.quick_create_buffer() == Some(""))
+            || (state.group_editing() && state.group_edit_buffer() == Some(""));
         let event = if state.swap_indicator_active() {
             if event::poll(SWAP_INDICATOR_TICK)? { Some(event::read()?) } else { None }
+        } else if blink_showing {
+            if event::poll(BLINK_TICK)? { Some(event::read()?) } else { None }
         } else {
             Some(event::read()?)
         };

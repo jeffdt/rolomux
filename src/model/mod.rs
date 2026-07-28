@@ -38,8 +38,11 @@ mod swap_indicator;
 pub use swap_indicator::SwapDirection;
 use swap_indicator::SwapIndicator;
 
+mod blink;
+
 use crate::store::Config;
 use std::collections::HashSet;
+use std::time::Instant;
 
 pub struct PickerState {
     all: Vec<Session>,
@@ -117,6 +120,9 @@ pub struct PickerState {
     pub inbox_icon: String,
     /// Transient per-open state for the settings overlay (see `SettingsUiState`).
     settings_ui: SettingsUiState,
+    /// Anchors the slow-blink clock for empty create/rename placeholder text.
+    /// See `src/model/blink.rs`.
+    blink_since: Instant,
 }
 
 impl PickerState {
@@ -194,6 +200,7 @@ impl PickerState {
             help_visible: false,
             inbox_icon: config.inbox_icon.clone(),
             settings_ui: SettingsUiState::default(),
+            blink_since: Instant::now(),
         };
         state.apply_clear_dormant_on_attach();
         state.apply_initial_focus(focus, current);

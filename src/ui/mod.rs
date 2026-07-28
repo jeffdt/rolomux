@@ -295,6 +295,11 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
         None
     };
     let create_buf = state.create_buffer().unwrap_or("");
+    let create_placeholder = match state.create_stage() {
+        Some(CreateStage::WindowName) => "window name",
+        _ => "session name",
+    };
+    let blink_visible = state.blink_visible();
 
     for row in rows.iter() {
         match row {
@@ -303,7 +308,7 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
                 let section = group_ids[*si];
                 if last_section != Some(section) {
                     if create_end_target_group.is_some() && create_end_target_group == last_section {
-                        push_create_phantom_row(&mut items, create_buf, current_gutter_color, wide_numbering, raised, false);
+                        push_create_phantom_row(&mut items, create_buf, current_gutter_color, wide_numbering, raised, false, create_placeholder, blink_visible);
                     }
                     let target = section;
                     while next_group < target {
@@ -311,7 +316,7 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
                             note_highlighted_header(&mut selected_line, &items, state, next_group);
                             if create_end_target_group == Some(next_group) {
                                 let color = group_color(&state.groups[next_group], next_group, &state.active_palette);
-                                push_create_phantom_row(&mut items, create_buf, color, wide_numbering, raised, false);
+                                push_create_phantom_row(&mut items, create_buf, color, wide_numbering, raised, false, create_placeholder, blink_visible);
                             }
                         }
                         next_group += 1;
@@ -325,7 +330,15 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
                             &mut items,
                             state.quick_create_buffer().unwrap_or(""),
                             color_from_name(&state.border_color),
+                            blink_visible,
                         );
+                        // The anchor session below keeps the cursor (so its
+                        // own row still renders with selected styling), but
+                        // the selection *bar* moves to this phantom row --
+                        // matching the create-session/create-group prompts,
+                        // where the input row is always the one that's
+                        // highlighted, not a session sitting nearby.
+                        selected_line = Some(items.len() - 1);
                     }
                     push_group_header(&mut items, state, section, list_area.width, color);
                     note_highlighted_header(&mut selected_line, &items, state, section);
@@ -334,7 +347,7 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
                     last_section = Some(section);
                 }
                 let selected = Some(*row) == cursor_row;
-                if selected {
+                if selected && !state.quick_creating() {
                     selected_line = Some(items.len());
                 }
                 let dormant = state.is_dormant(&sess.name);
@@ -354,7 +367,7 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
                     AttachedColorMode::Static => attached_static_color,
                 };
                 if create_above_session.as_deref() == Some(sess.name.as_str()) {
-                    push_create_phantom_row(&mut items, create_buf, current_gutter_color, wide_numbering, raised, selected);
+                    push_create_phantom_row(&mut items, create_buf, current_gutter_color, wide_numbering, raised, selected, create_placeholder, blink_visible);
                 }
                 items.push(recede(session_item(
                     sess,
@@ -369,6 +382,7 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
                     state.session_metric,
                     rename_buf,
                     false,
+                    false,
                     state.session_swap_marker(&sess.name),
                     wide_numbering,
                 ), raised));
@@ -376,7 +390,7 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
             Row::Window(si, wi) => {
                 let sess = ordered[*si];
                 let selected = Some(*row) == cursor_row;
-                if selected {
+                if selected && !state.quick_creating() {
                     selected_line = Some(items.len());
                 }
                 let last = *wi + 1 == sess.windows.len();
@@ -406,7 +420,7 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
     // closing point (mirroring the mid-list check above) never fired inside
     // the loop.
     if create_end_target_group.is_some() && create_end_target_group == last_section {
-        push_create_phantom_row(&mut items, create_buf, current_gutter_color, wide_numbering, raised, false);
+        push_create_phantom_row(&mut items, create_buf, current_gutter_color, wide_numbering, raised, false, create_placeholder, blink_visible);
     }
     // Trailing empty groups (after the last session row, with no residual below).
     while next_group < state.groups.len() {
@@ -414,7 +428,7 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
             note_highlighted_header(&mut selected_line, &items, state, next_group);
             if create_end_target_group == Some(next_group) {
                 let color = group_color(&state.groups[next_group], next_group, &state.active_palette);
-                push_create_phantom_row(&mut items, create_buf, color, wide_numbering, raised, false);
+                push_create_phantom_row(&mut items, create_buf, color, wide_numbering, raised, false, create_placeholder, blink_visible);
             }
         }
         next_group += 1;
@@ -523,7 +537,7 @@ fn draw_search(frame: &mut Frame, state: &PickerState, inner: Rect) {
                             .unwrap_or(attached_static_color),
                         AttachedColorMode::Static => attached_static_color,
                     };
-                    items.push(session_item(sess, state.is_expanded(&sess.name), selected, None, meta, state.is_dormant(&sess.name), attached_color, group_tag, None, state.session_metric, None, false, None, false));
+                    items.push(session_item(sess, state.is_expanded(&sess.name), selected, None, meta, state.is_dormant(&sess.name), attached_color, group_tag, None, state.session_metric, None, false, false, None, false));
                 }
                 Row::Window(si, wi) => {
                     let sess = results[*si];
@@ -642,15 +656,16 @@ fn push_group_header(items: &mut Vec<ListItem<'static>>, state: &PickerState, gi
 /// Push the live `⇧N` quick-create row: the typed buffer in the same
 /// uppercased-bold-plus-caret style as an inline group rename, preceded by a
 /// blank spacer like `push_group_header`, marking where the new group will
-/// land once committed. This row never carries the list's selection bar (the
-/// anchor session below keeps it), so its placeholder can safely use plain
-/// `DIM` -- unlike `header_item`'s group-editing branch, which is always the
-/// highlighted row and needs `Color::Gray` instead (see `group_edit_line`).
-fn push_quick_create_phantom_row(items: &mut Vec<ListItem<'static>>, buf: &str, caret_color: Color) {
+/// land once committed. This row always carries the list's selection bar
+/// while it's showing (the caller moves `selected_line` onto it, so the
+/// anchor session below reads as selected but isn't the highlighted row) --
+/// same as `header_item`'s group-editing branch, so its placeholder needs
+/// `Color::Gray`, not plain `DIM` (see `group_edit_line`).
+fn push_quick_create_phantom_row(items: &mut Vec<ListItem<'static>>, buf: &str, caret_color: Color, blink_visible: bool) {
     if !items.is_empty() {
         items.push(ListItem::new(Line::from("")));
     }
-    items.push(ListItem::new(group_edit_line(buf, None, caret_color, "NAME", Style::default().fg(DIM))));
+    items.push(ListItem::new(group_edit_line(buf, None, caret_color, "GROUP NAME", Style::default().fg(Color::Gray), blink_visible)));
 }
 
 /// Push the live create-session phantom row: the typed buffer in the same
@@ -658,13 +673,16 @@ fn push_quick_create_phantom_row(items: &mut Vec<ListItem<'static>>, buf: &str, 
 /// `rename_buf` branch via a placeholder `Session` whose fields are never
 /// read on that branch, so no real session's number or metadata is
 /// perturbed by pushing this directly into `items`. While `buf` is empty,
-/// shows a dim `"name"` placeholder at the caret instead of leaving it
-/// blank, so the prompt reads as "type a name here" rather than looking
-/// like an unlabeled key hint. `selected` must be true exactly when this
-/// phantom row will inherit the list's selection bar (`SEL_BG`, which is
-/// the same color as `DIM`) -- otherwise the placeholder renders invisible
-/// on top of it, the same contrast trap `dormant_session`/swap-marker
-/// styling already works around elsewhere in this file.
+/// shows a slow-blinking dim `placeholder` (e.g. "session name") instead of
+/// leaving the row blank, so the prompt reads as "type a name here" rather
+/// than looking like an unlabeled key hint; `blink_visible` (from
+/// `PickerState::blink_visible`) is when this frame shows it. `selected`
+/// must be true exactly when this phantom row will inherit the list's
+/// selection bar (`SEL_BG`, which is the same color as `DIM`) -- otherwise
+/// the placeholder renders invisible on top of it, the same contrast trap
+/// `dormant_session`/swap-marker styling already works around elsewhere in
+/// this file.
+#[allow(clippy::too_many_arguments)]
 fn push_create_phantom_row(
     items: &mut Vec<ListItem<'static>>,
     buf: &str,
@@ -672,12 +690,14 @@ fn push_create_phantom_row(
     wide_numbering: bool,
     raised: bool,
     selected: bool,
+    placeholder: &str,
+    blink_visible: bool,
 ) {
     let sess = Session {
         id: String::new(), name: String::new(), activity: 0, created: 0, attached: false, windows: vec![],
     };
     let meta = MetaLayout { col: 0, count_width: 0 };
-    let (rename_buf, dim_buf) = if buf.is_empty() { ("name", true) } else { (buf, false) };
+    let (rename_buf, dim_buf) = if buf.is_empty() { (placeholder, true) } else { (buf, false) };
     items.push(recede(
         session_item(
             &sess,
@@ -692,6 +712,7 @@ fn push_create_phantom_row(
             SessionMetric::Hidden,
             Some(rename_buf),
             dim_buf,
+            blink_visible,
             None,
             wide_numbering,
         ),
@@ -770,20 +791,28 @@ fn group_label_spans(g: &Group, upper: bool, color: Color, icon: &str) -> Vec<Sp
 
 /// An in-flight group name: the typed buffer uppercased and bold, trailed by
 /// a caret in the border color. Shared by an inline rename or create on a
-/// group header and by the `⇧N` quick-create phantom row.
-/// `placeholder`/`placeholder_style` show while `buf` is empty (see call
+/// group header and by the `⇧N` quick-create phantom row. While `buf` is
+/// empty, shows a slow-blinking `placeholder` (`placeholder_style`; see call
 /// sites for why the style differs: one is always the selected row, one
-/// never is).
-fn group_edit_line(buf: &str, icon: Option<&str>, caret_color: Color, placeholder: &str, placeholder_style: Style) -> Line<'static> {
+/// never is) instead of a caret -- the caret only appears once real typed
+/// text exists. `blink_visible` (from `PickerState::blink_visible`) is
+/// whether this frame shows it.
+fn group_edit_line(
+    buf: &str,
+    icon: Option<&str>,
+    caret_color: Color,
+    placeholder: &str,
+    placeholder_style: Style,
+    blink_visible: bool,
+) -> Line<'static> {
     let mut spans = Vec::new();
     if let Some(icon) = icon {
         spans.push(Span::raw(format!("{icon} ")));
     }
     if buf.is_empty() {
-        // Caret leads the placeholder so it reads as "type here", not as a
-        // cursor sitting after real, already-typed text.
-        spans.push(Span::styled("▏", Style::default().fg(caret_color)));
-        spans.push(Span::styled(placeholder.to_string(), placeholder_style));
+        if blink_visible {
+            spans.push(Span::styled(placeholder.to_string(), placeholder_style));
+        }
     } else {
         spans.push(Span::styled(buf.to_uppercase(), Style::default().add_modifier(Modifier::BOLD)));
         spans.push(Span::styled("▏", Style::default().fg(caret_color)));
@@ -800,8 +829,9 @@ fn header_item(state: &PickerState, gi: usize, width: u16, color: Color) -> List
             state.group_edit_buffer().unwrap_or(""),
             g.inbox.then_some(icon),
             color_from_name(&state.border_color),
-            "NAME",
+            "GROUP NAME",
             Style::default().fg(Color::Gray),
+            state.blink_visible(),
         ));
     }
     // The post-`⇧J`/`⇧K` flash rides in the rule, replacing two of its cells
@@ -987,6 +1017,7 @@ fn session_item(
     metric: SessionMetric,
     rename_buf: Option<&str>,
     dim_buf: bool,
+    blink_visible: bool,
     swap_marker: Option<(SwapDirection, bool)>,
     wide_numbering: bool,
 ) -> ListItem<'static> {
@@ -1013,10 +1044,12 @@ fn session_item(
         spans.push(Span::styled(format!("{dot} "), dot_style));
         spans.push(Span::styled(format!("{glyph} "), secondary(selected)));
         if dim_buf {
-            // Caret leads the placeholder so it reads as "type here", not
-            // as a cursor sitting after real, already-typed text.
-            spans.push(Span::raw("▏"));
-            spans.push(Span::styled(buf.to_string(), dormant_session(selected)));
+            // No caret while empty -- the blinking placeholder text itself
+            // signals "type here"; the caret only appears once real typed
+            // text exists (see the `else` branch below).
+            if blink_visible {
+                spans.push(Span::styled(buf.to_string(), dormant_session(selected)));
+            }
         } else {
             spans.push(Span::styled(buf.to_string(), Style::default().add_modifier(Modifier::BOLD)));
             spans.push(Span::raw("▏"));
@@ -2235,16 +2268,24 @@ mod tests {
     }
 
     #[test]
-    fn draw_command_quick_create_placeholder_is_dim_not_selected() {
+    fn draw_command_quick_create_moves_the_selection_bar_off_the_anchor_session() {
         let mut st = grouped_state(); // G1=[a], G2=[b], INBOX=[c]
         st.focus_session("b");
-        st.start_quick_create(); // buffer starts empty; this row never carries the selection bar
+        st.start_quick_create(); // buffer starts empty; selection bar moves onto the phantom row
 
         let buf = render_buf(&st);
         let placeholder_y = row_of(&buf, "NAME");
         let x = find_text_x(&buf, placeholder_y, "NAME").unwrap();
-        assert_ne!(buf[(x, placeholder_y)].style().bg, Some(SEL_BG), "quick-create phantom is never the selected row");
-        assert_eq!(buf[(x, placeholder_y)].style().fg, Some(DIM), "placeholder dims normally off the selection bar");
+        assert_eq!(buf[(x, placeholder_y)].style().bg, Some(SEL_BG), "quick-create phantom row now carries the selection bar");
+        assert_eq!(buf[(x, placeholder_y)].style().fg, Some(Color::Gray), "placeholder must be Gray, not DarkGray-on-DarkGray");
+
+        let anchor_y = row_of(&buf, "▸ b");
+        let anchor_x = find_text_x(&buf, anchor_y, "▸ b").unwrap();
+        assert_ne!(
+            buf[(anchor_x, anchor_y)].style().bg,
+            Some(SEL_BG),
+            "anchor session no longer carries the selection bar while its new group is being named"
+        );
     }
 
     #[test]
@@ -2406,8 +2447,7 @@ mod tests {
         let text = render_to_string(&st);
         assert!(text.contains("Enter next"), "create-stage hint wins over the altitude hint while creating in group mode");
         assert!(!text.contains("Enter open"), "altitude hint suppressed while creating");
-        let phantom_line = text.lines().find(|l| l.contains('▏')).expect("phantom row visible");
-        assert!(phantom_line.contains("name"), "empty session-name buffer shows a 'name' placeholder");
+        assert!(text.contains("session name"), "empty session-name buffer shows a 'session name' placeholder");
     }
 
     #[test]
@@ -2417,15 +2457,13 @@ mod tests {
         st.start_create_here();
         let text = render_to_string(&st);
         assert!(text.contains("Enter next"), "SessionName stage hint shown");
-        let phantom_line = text.lines().find(|l| l.contains('▏')).expect("phantom row visible");
-        assert!(phantom_line.contains("name"), "empty session-name buffer shows a 'name' placeholder");
+        assert!(text.contains("session name"), "empty session-name buffer shows a 'session name' placeholder");
 
         for c in "new".chars() { st.create_push(c); }
         assert_eq!(st.create_commit(), None, "advances to WindowName stage");
         let text2 = render_to_string(&st);
         assert!(text2.contains("Enter skip/create"), "WindowName stage hint shown after advancing");
-        let phantom_line2 = text2.lines().find(|l| l.contains('▏')).expect("phantom row visible");
-        assert!(phantom_line2.contains("name"), "empty window-name buffer shows a 'name' placeholder");
+        assert!(text2.contains("window name"), "empty window-name buffer shows a 'window name' placeholder");
 
         st.create_cancel();
         let text3 = render_to_string(&st);
