@@ -57,6 +57,7 @@ pub struct Config {
     pub new_group_color_policy: ColorPolicy,
     pub static_color: String,
     pub active_palette: Vec<String>,
+    pub border_active_palette: Vec<String>,
     pub attached_color: String,
     pub attached_color_mode: AttachedColorMode,
     pub border_color: String,
@@ -84,6 +85,14 @@ fn default_active_palette() -> Vec<String> {
     HEADER_COLORS.iter().map(|s| s.to_string()).collect()
 }
 
+/// The border-color palette a fresh `Config` starts with, and the fallback
+/// when a loaded config has no (or an empty) `border_active_palette`. Same
+/// value as `default_active_palette` today, but a separate fn so the two
+/// palettes can diverge without confusion later.
+fn default_border_active_palette() -> Vec<String> {
+    HEADER_COLORS.iter().map(|s| s.to_string()).collect()
+}
+
 impl Default for Config {
     fn default() -> Config {
         Config {
@@ -97,6 +106,7 @@ impl Default for Config {
             new_group_color_policy: ColorPolicy::default(),
             static_color: "cyan".to_string(),
             active_palette: default_active_palette(),
+            border_active_palette: default_border_active_palette(),
             attached_color: "green".to_string(),
             attached_color_mode: AttachedColorMode::default(),
             border_color: "green".to_string(),
@@ -141,6 +151,8 @@ struct RawSettings {
     #[serde(default)]
     active_palette: Option<Vec<String>>,
     #[serde(default)]
+    border_active_palette: Option<Vec<String>>,
+    #[serde(default)]
     attached_color: Option<String>,
     #[serde(default)]
     attached_color_mode: Option<String>,
@@ -174,6 +186,7 @@ struct OutSettings {
     new_group_color_policy: String,
     static_color: String,
     active_palette: Vec<String>,
+    border_active_palette: Vec<String>,
     attached_color: String,
     attached_color_mode: String,
     border_color: String,
@@ -312,6 +325,11 @@ impl Config {
             .active_palette
             .filter(|p| !p.is_empty())
             .unwrap_or_else(default_active_palette);
+        let border_active_palette = raw
+            .settings
+            .border_active_palette
+            .filter(|p| !p.is_empty())
+            .unwrap_or_else(default_border_active_palette);
         let session_metric = raw
             .settings
             .session_metric
@@ -345,6 +363,7 @@ impl Config {
             new_group_color_policy,
             static_color,
             active_palette,
+            border_active_palette,
             attached_color,
             attached_color_mode,
             border_color,
@@ -396,6 +415,7 @@ impl Config {
                 new_group_color_policy: self.new_group_color_policy.as_config_str().to_string(),
                 static_color: self.static_color.clone(),
                 active_palette: self.active_palette.clone(),
+                border_active_palette: self.border_active_palette.clone(),
                 attached_color: self.attached_color.clone(),
                 attached_color_mode: self.attached_color_mode.as_config_str().to_string(),
                 border_color: self.border_color.clone(),
@@ -1495,6 +1515,51 @@ inbox = true
         .unwrap();
         let cfg = Config::load_from(&path);
         assert!(cfg.always_show_shortcuts, "stray legacy shortcut_visibility key is ignored; always_show_shortcuts keeps its default");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn default_config_seeds_border_palette_from_header_colors() {
+        let cfg = Config::default();
+        assert_eq!(
+            cfg.border_active_palette,
+            HEADER_COLORS.iter().map(|s| s.to_string()).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn empty_border_active_palette_on_disk_falls_back_to_default() {
+        // Guards the same invariant `empty_active_palette_on_disk_falls_back_to_default`
+        // protects for the group palette: a hand-edited config can never load a
+        // zero-length border palette.
+        let dir = std::env::temp_dir().join(format!("rolomux-emptyborderpal-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.toml");
+        std::fs::write(
+            &path,
+            "config_version = 1\nsort = \"activity\"\n\n[settings]\nborder_active_palette = []\n",
+        )
+        .unwrap();
+        let cfg = Config::load_from(&path);
+        assert_eq!(
+            cfg.border_active_palette,
+            HEADER_COLORS.iter().map(|s| s.to_string()).collect::<Vec<_>>()
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn round_trips_border_active_palette() {
+        let dir = std::env::temp_dir().join(format!("rolomux-borderpal-rt-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.toml");
+        let cfg = Config {
+            border_active_palette: vec!["red".to_string(), "cyan".to_string()],
+            ..Default::default()
+        };
+        cfg.save_to(&path).unwrap();
+        let reloaded = Config::load_from(&path);
+        assert_eq!(reloaded.border_active_palette, vec!["red".to_string(), "cyan".to_string()]);
         std::fs::remove_dir_all(&dir).ok();
     }
 }
