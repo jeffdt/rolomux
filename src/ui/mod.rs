@@ -3891,7 +3891,7 @@ mod tests {
     #[test]
     fn draw_settings_expanded_shortcut_color_shows_radio_glyphs() {
         let mut st = settings_view();
-        st.settings_move_cursor(10); // ShortcutColor
+        st.settings_move_cursor(11); // ShortcutColor
         st.settings_step_right();
         let text = render_to_string(&st);
         assert!(text.contains("●"));
@@ -3917,7 +3917,7 @@ mod tests {
     #[test]
     fn draw_settings_shows_static_color_value_when_policy_is_static() {
         let mut st = settings_view();
-        st.settings_move_cursor(12); // ColorPolicy row
+        st.settings_move_cursor(13); // ColorPolicy row
         st.settings_step_right(); // Rotate -> Random
         st.settings_step_right(); // Random -> Static
         st.static_color = "magenta".to_string();
@@ -3995,23 +3995,23 @@ mod tests {
 
     #[test]
     fn draw_settings_row_eleven_shows_the_alt_glyph_jump_label() {
-        // Shortcut highlight color (row 11) sits below the fold at the
-        // default 80x20 size; needs height >= 24 to render, same as the
-        // other pre-existing tests that check this row.
+        // Border palette (row 11) sits below the fold at the default 80x20
+        // size; needs height >= 24 to render, same as the other pre-existing
+        // tests that check this row.
         let text = render_to_string_sized(&settings_view(), 80, 24);
         let row = text
             .lines()
-            .find(|line| line.contains("Shortcut highlight color"))
-            .expect("Shortcut highlight color row (jump number 11) is rendered");
+            .find(|line| line.contains("Border palette"))
+            .expect("Border palette row (jump number 11) is rendered");
         // Strip margin and frame border to check the actual content.
         let content = row.chars().skip(3).collect::<String>();
-        assert!(content.starts_with("│⌥1"), "row 11 (Shortcut highlight color) shows the Alt+1 jump label: {row:?}");
+        assert!(content.starts_with("│⌥1"), "row 11 (Border palette) shows the Alt+1 jump label: {row:?}");
     }
 
     #[test]
     fn draw_settings_child_color_option_rows_are_unchanged_by_jump_numbering() {
         let mut st = settings_view();
-        st.settings_move_cursor(10); // ShortcutColor
+        st.settings_move_cursor(11); // ShortcutColor
         st.settings_step_right(); // expand
         let text = render_to_string(&st);
         let row = text
@@ -4029,7 +4029,7 @@ mod tests {
     #[test]
     fn draw_settings_gutter_bar_continues_through_expanded_color_options() {
         let mut st = settings_view();
-        st.settings_move_cursor(10); // ShortcutColor
+        st.settings_move_cursor(11); // ShortcutColor
         st.settings_step_right(); // expand
         let text = render_to_string(&st);
         let row = text

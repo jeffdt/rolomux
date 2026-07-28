@@ -20,6 +20,7 @@ pub(super) fn draw_settings(frame: &mut Frame, state: &PickerState, inner: Rect)
     // Computed once: PaletteColor rows below index into this instead of
     // rebuilding the 16-entry palette Vec on every iteration.
     let palette_entries = state.settings_palette_rows();
+    let border_palette_entries = state.settings_border_palette_rows();
     let mut items: Vec<ListItem> = Vec::new();
     let mut selected_line: Option<usize> = None;
     for (i, row) in rows.iter().enumerate() {
@@ -117,6 +118,27 @@ pub(super) fn draw_settings(frame: &mut Frame, state: &PickerState, inner: Rect)
                     spans.push(Span::styled(format!(" {}", state.border_color), secondary(selected)));
                 }
                 Line::from(spans)
+            }
+            SettingsRow::BorderPalette => {
+                border_palette_row_line(
+                    SettingsRow::BorderPalette,
+                    state.border_active_palette.len(),
+                    state.border_palette_expanded(),
+                    selected,
+                )
+            }
+            SettingsRow::BorderPaletteColor(idx) => {
+                let (name, active) = &border_palette_entries[*idx];
+                let checkbox = if *active { "[x]" } else { "[ ]" };
+                Line::from(vec![
+                    gutter_span(),
+                    Span::raw("     "),
+                    Span::styled(checkbox.to_string(), secondary(selected)),
+                    Span::raw(" "),
+                    Span::styled("██", Style::default().fg(color_from_name(name))),
+                    Span::raw(" "),
+                    Span::raw(name.clone()),
+                ])
             }
             SettingsRow::ShortcutColor => {
                 settings_color_line(*row, "Shortcut highlight color", &state.shortcut_color, state.shortcut_color_expanded(), selected)
@@ -265,6 +287,19 @@ fn settings_value_line(row: SettingsRow, label: &str, value: &str, selected: boo
     Line::from(spans)
 }
 
+/// Render the collapsed `BorderPalette` row: expand glyph, bold label, and
+/// an "N active" count. Same shape as the inline `Palette` row in
+/// `draw_settings`, extracted so its text is independently testable.
+fn border_palette_row_line(row: SettingsRow, active_count: usize, expanded: bool, selected: bool) -> Line<'static> {
+    let glyph = if expanded { "▾" } else { "▸" };
+    let mut spans = vec![gutter_span()];
+    spans.extend(settings_number_span(row, selected));
+    spans.push(Span::styled(format!("{glyph} "), secondary(selected)));
+    spans.push(Span::styled("Border palette", Style::default().add_modifier(Modifier::BOLD)));
+    spans.push(Span::styled(format!("  {active_count} active"), secondary(selected)));
+    Line::from(spans)
+}
+
 /// Render a collapsed single-color settings row: a gutter bar, an expand
 /// glyph, the bold label, a swatch, and the color's name. Used by Shortcut
 /// highlight color, the one remaining row with an expandable direct-pick list.
@@ -403,5 +438,13 @@ mod tests {
         assert_eq!(line.spans.len(), 1);
         assert_eq!(line.spans[0].content, "On launch, rolomux opens in Command mode.");
         assert_eq!(line.spans[0].style.fg, None);
+    }
+
+    #[test]
+    fn draw_settings_shows_border_palette_row_with_active_count() {
+        let line = border_palette_row_line(SettingsRow::BorderPalette, 6, false, false);
+        let rendered = line.spans.iter().map(|s| s.content.as_ref()).collect::<String>();
+        assert!(rendered.contains("Border palette"));
+        assert!(rendered.contains("6 active"));
     }
 }
