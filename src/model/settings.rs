@@ -5,8 +5,10 @@
 use super::*;
 
 /// Transient per-open UI state for the settings overlay: the cursor row and
-/// which of the two color sub-lists are currently expanded. Rebuilt on every
-/// open (never persisted), so it starts at its `Default`.
+/// which of the three color sub-lists (`palette_expanded`,
+/// `border_palette_expanded`, `shortcut_color_expanded`) are currently
+/// expanded. Rebuilt on every open (never persisted), so it starts at its
+/// `Default`.
 #[derive(Default)]
 pub(super) struct SettingsUiState {
     cursor: usize,
@@ -194,12 +196,13 @@ impl PickerState {
         self.settings_ui.shortcut_color_expanded
     }
 
-    /// The flat, ordered list of settings rows currently on screen. Two
-    /// expandable sections (Shortcut color, Color palette) each splice their
-    /// child rows in directly below themselves while expanded, same shape as
-    /// the original Palette/PaletteColor pattern. Border color policy has no
-    /// expandable child list of its own -- like New group color, its Static
-    /// value is a single cycled swatch folded into the row itself.
+    /// The flat, ordered list of settings rows currently on screen. Three
+    /// expandable sections (Shortcut color, Border palette, Color palette)
+    /// each splice their child rows in directly below themselves while
+    /// expanded, same shape as the original Palette/PaletteColor pattern.
+    /// Border color policy has no expandable child list of its own -- like
+    /// New group color, its Static value is a single cycled swatch folded
+    /// into the row itself.
     pub fn settings_visible_rows(&self) -> Vec<SettingsRow> {
         let mut rows = Vec::new();
         for row in TOP_LEVEL_ROWS {
@@ -638,9 +641,13 @@ impl PickerState {
                 }
             }
             ColorPolicy::Random => {
-                self.border_color =
-                    super::groups::pick_random_color(&self.border_active_palette, super::groups::random_seed());
-                self.dirty = true;
+                if !self.border_active_palette.is_empty() {
+                    self.border_color = super::groups::pick_random_color(
+                        &self.border_active_palette,
+                        super::groups::random_seed(),
+                    );
+                    self.dirty = true;
+                }
             }
             ColorPolicy::Static => {}
         }
@@ -1515,6 +1522,18 @@ mod tests {
         st.dirty = false;
         st.apply_border_color_policy();
         assert_eq!(st.border_color, "green", "no-op: nothing to advance to");
+        assert!(!st.dirty);
+    }
+
+    #[test]
+    fn apply_border_color_policy_random_is_a_guarded_noop_on_an_empty_border_palette() {
+        let mut st = grouped_state();
+        st.border_color_policy = ColorPolicy::Random;
+        st.border_active_palette = vec![];
+        st.border_color = "green".to_string();
+        st.dirty = false;
+        st.apply_border_color_policy();
+        assert_eq!(st.border_color, "green", "no-op: nothing to pick from");
         assert!(!st.dirty);
     }
 

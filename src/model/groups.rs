@@ -322,11 +322,11 @@ impl PickerState {
     }
 }
 
-/// Deterministic pick for the Random new-group-color policy: `seed modulo
-/// palette.len()`. Empty palette yields an empty string (the caller treats
-/// that the same as an unset/positional color). Pure and directly testable
-/// with fixed seed literals; the one production call site (`group_new`)
-/// sources `seed` from `random_seed` below.
+/// Deterministic pick for the Random color policy: `seed modulo
+/// palette.len()`. Empty palette yields an empty string. Pure and directly
+/// testable with fixed seed literals. Production call sites are `group_new`
+/// (new-group color) and `PickerState::apply_border_color_policy` (border
+/// color); both source `seed` from `random_seed` below.
 pub fn pick_random_color(palette: &[String], seed: u64) -> String {
     if palette.is_empty() {
         return String::new();
