@@ -105,6 +105,7 @@ pub struct PickerState {
     pub new_group_color_policy: ColorPolicy,
     pub static_color: String,
     pub active_palette: Vec<String>,
+    pub border_active_palette: Vec<String>,
     pub attached_color: String,
     pub attached_color_mode: AttachedColorMode,
     pub border_color: String,
@@ -189,6 +190,7 @@ impl PickerState {
             new_group_color_policy: config.new_group_color_policy,
             static_color: config.static_color.clone(),
             active_palette: config.active_palette.clone(),
+            border_active_palette: config.border_active_palette.clone(),
             attached_color: config.attached_color.clone(),
             attached_color_mode: config.attached_color_mode,
             border_color: config.border_color.clone(),
@@ -443,6 +445,7 @@ impl PickerState {
         config.new_group_color_policy = self.new_group_color_policy;
         config.static_color = self.static_color.clone();
         config.active_palette = self.active_palette.clone();
+        config.border_active_palette = self.border_active_palette.clone();
         config.attached_color = self.attached_color.clone();
         config.attached_color_mode = self.attached_color_mode;
         config.border_color = self.border_color.clone();

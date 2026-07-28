@@ -544,15 +544,26 @@ impl PickerState {
     /// A no-op under `Static`. Deliberately not called from `build_with_focus`
     /// / `build_with_expanded` directly, so a mid-session rebuild (e.g. after
     /// a rename) never re-rolls the border color.
+    ///
+    /// Both `Rotate` and `Random` draw only from `border_active_palette`
+    /// (issue #163: previously drew from all 16 `ALL_NAMED_COLORS`, which
+    /// could land on `black` and render an invisible border). The `Static`
+    /// policy's `c` quick-cycle (`settings_cycle_color`) is unaffected and
+    /// still cycles all 16 named colors -- that's a deliberate single pick
+    /// by the user, not the random/rotate source of the bug.
     pub fn apply_border_color_policy(&mut self) {
         match self.border_color_policy {
             ColorPolicy::Rotate => {
-                self.border_color = Self::cycle_named_color(&self.border_color);
-                self.dirty = true;
+                if !self.border_active_palette.is_empty() {
+                    let palette = &self.border_active_palette;
+                    let idx = palette.iter().position(|c| c == &self.border_color).unwrap_or(0);
+                    self.border_color = palette[(idx + 1) % palette.len()].clone();
+                    self.dirty = true;
+                }
             }
             ColorPolicy::Random => {
-                let seed = super::groups::random_seed();
-                self.border_color = ALL_NAMED_COLORS[(seed as usize) % ALL_NAMED_COLORS.len()].to_string();
+                self.border_color =
+                    super::groups::pick_random_color(&self.border_active_palette, super::groups::random_seed());
                 self.dirty = true;
             }
             ColorPolicy::Static => {}
@@ -1292,29 +1303,61 @@ mod tests {
     }
 
     #[test]
-    fn apply_border_color_policy_steps_forward_under_rotate() {
-        let mut st = grouped_state();
+    fn apply_border_color_policy_steps_forward_under_rotate_within_the_border_palette() {
+        let mut st = grouped_state(); // default border_active_palette: cyan, green, yellow, magenta, blue, red
         st.border_color_policy = ColorPolicy::Rotate;
-        st.border_color = "green".to_string();
+        st.border_color = "red".to_string(); // last entry in the default border palette
         st.dirty = false;
         st.apply_border_color_policy();
-        assert_eq!(st.border_color, "yellow", "green -> yellow, next in ALL_NAMED_COLORS");
+        assert_eq!(
+            st.border_color, "cyan",
+            "wraps to the first color in border_active_palette, not ALL_NAMED_COLORS"
+        );
         assert!(st.dirty);
     }
 
     #[test]
-    fn apply_border_color_policy_picks_from_all_named_colors_under_random() {
+    fn apply_border_color_policy_picks_from_the_border_palette_under_random() {
         let mut st = grouped_state();
         st.border_color_policy = ColorPolicy::Random;
         st.border_color = "green".to_string();
         st.dirty = false;
         st.apply_border_color_policy();
         assert!(
-            ALL_NAMED_COLORS.contains(&st.border_color.as_str()),
-            "expected one of the 16 named colors, got {}",
+            st.border_active_palette.contains(&st.border_color),
+            "expected a color from border_active_palette, got {}",
             st.border_color
         );
         assert!(st.dirty);
+    }
+
+    #[test]
+    fn apply_border_color_policy_never_picks_black_by_default() {
+        // Regression guard for issue #163: black must not be reachable via
+        // Rotate or Random with the default border_active_palette.
+        let mut st = grouped_state();
+        st.border_color_policy = ColorPolicy::Rotate;
+        for _ in 0..20 {
+            st.apply_border_color_policy();
+            assert_ne!(st.border_color, "black");
+        }
+        st.border_color_policy = ColorPolicy::Random;
+        for _ in 0..20 {
+            st.apply_border_color_policy();
+            assert_ne!(st.border_color, "black");
+        }
+    }
+
+    #[test]
+    fn apply_border_color_policy_rotate_is_a_guarded_noop_on_an_empty_border_palette() {
+        let mut st = grouped_state();
+        st.border_color_policy = ColorPolicy::Rotate;
+        st.border_active_palette = vec![];
+        st.border_color = "green".to_string();
+        st.dirty = false;
+        st.apply_border_color_policy();
+        assert_eq!(st.border_color, "green", "no-op: nothing to advance to");
+        assert!(!st.dirty);
     }
 
     #[test]
