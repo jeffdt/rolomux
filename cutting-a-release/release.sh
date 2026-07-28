@@ -30,7 +30,7 @@ set -euo pipefail
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 CARGO_TOML="$REPO_ROOT/Cargo.toml"
 
-METADATA="$(cd "$REPO_ROOT" && cargo metadata --no-deps --format-version1)"
+METADATA="$(cd "$REPO_ROOT" && cargo metadata --no-deps --format-version 1)"
 PKG_NAME="$(jq -r '.packages[0].name' <<< "$METADATA")"
 ASSET_BASE="$(jq -r --arg default "$PKG_NAME" '.packages[0].metadata."tui-utils".asset_name // $default' <<< "$METADATA")"
 FORMULA_NAME="$(jq -r --arg default "$PKG_NAME" '.packages[0].metadata."tui-utils".formula_name // $default' <<< "$METADATA")"
