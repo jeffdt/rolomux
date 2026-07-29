@@ -187,7 +187,7 @@ pub(super) fn draw_settings(frame: &mut Frame, state: &PickerState, inner: Rect)
                 let mut spans = vec![gutter_span()];
                 spans.extend(settings_number_span(SettingsRow::Palette, selected));
                 spans.push(Span::styled(format!("{glyph} "), secondary(selected)));
-                spans.push(Span::styled("Color palette", Style::default().add_modifier(Modifier::BOLD)));
+                spans.push(Span::styled("Group palette", Style::default().add_modifier(Modifier::BOLD)));
                 spans.push(Span::styled(format!("  {} active", state.active_palette.len()), secondary(selected)));
                 Line::from(spans)
             }

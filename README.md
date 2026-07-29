@@ -178,7 +178,7 @@ Each row shows a jump number in its gutter; pressing it jumps straight to that r
 - **Shortcut highlight color.** The color used to highlight keys in the shortcut legend.
 - **Active window dot color.** Color of the `●` marking a session's active window: a fixed **Static** color, or the session's own **Group** color.
 - **New group color.** How a newly created group picks its header color: Rotate through the palette in order, pick a Random color each time, or always use one Static color.
-- **Color palette.** Which of the 16 colors from your terminal theme are in the rotation for new group headers.
+- **Group palette.** Which of the 16 colors from your terminal theme are in the rotation for new group headers.
 
 | Key | Action |
 | --- | --- |

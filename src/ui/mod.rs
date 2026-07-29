@@ -3716,7 +3716,7 @@ mod tests {
         assert!(text.contains("Yes"));
         assert!(text.contains("New group color"));
         assert!(text.contains("Rotate"));
-        assert!(text.contains("Color palette"));
+        assert!(text.contains("Group palette"));
         assert!(text.contains("active"));
         assert!(text.contains("Esc"));
     }
