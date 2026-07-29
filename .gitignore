@@ -1,9 +1,12 @@
 /target
-/specs
+
 /plans
+/specs
 /.superpowers
-/.claude/*
-!/.claude/skills
-!/.claude/settings.json
 /examples/mockup.rs
 *.local.md
+
+/.claude/local
+/.claude/settings.local.json
+/.claude/scheduled_tasks.lock
+/.claude/worktrees
