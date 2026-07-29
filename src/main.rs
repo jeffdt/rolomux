@@ -708,6 +708,32 @@ mod tests {
     }
 
     #[test]
+    fn should_poll_for_blink_true_when_caret_blink_on_and_quick_creating() {
+        let mut state = PickerState::build(vec![sess("a")], &Config::default());
+        state.caret_blink = true;
+        state.start_quick_create();
+        state.quick_create_push('x');
+        assert!(should_poll_for_blink(&state), "an in-flight quick-create with a visible caret must poll while caret_blink is on");
+    }
+
+    #[test]
+    fn should_poll_for_blink_true_when_caret_blink_on_and_group_editing() {
+        let mut state = PickerState::build(vec![sess("a")], &Config::default());
+        state.caret_blink = true;
+        state.group_start_rename();
+        state.group_edit_push('x');
+        assert!(should_poll_for_blink(&state), "an in-flight group rename with a visible caret must poll while caret_blink is on");
+    }
+
+    #[test]
+    fn should_poll_for_blink_true_when_caret_blink_on_and_searching() {
+        let mut state = PickerState::build(vec![sess("a")], &Config::default());
+        state.caret_blink = true;
+        state.enter_search();
+        assert!(should_poll_for_blink(&state), "the search prompt's caret must poll while caret_blink is on");
+    }
+
+    #[test]
     fn commit_rename_renames_via_tmux_and_preserves_group_membership() {
         let dir = std::env::temp_dir().join(format!("rolomux-commit-rename-{}", std::process::id()));
         let path = dir.join("config.toml");
