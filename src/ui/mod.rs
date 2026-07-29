@@ -138,11 +138,22 @@ pub fn fmt_age(secs: i64) -> String {
 }
 
 fn activity_age(activity: i64) -> String {
-    let now = SystemTime::now()
+    fmt_age(now_unix().saturating_sub(activity).max(0))
+}
+
+/// Current unix time, as the sole impure edge `activity_age` depends on.
+/// Tests can freeze this via `tests::freeze_clock` so a session's age string
+/// is deterministic instead of racing the real wall clock between when the
+/// test computes its fixture timestamps and when render reads `now_unix()`.
+fn now_unix() -> i64 {
+    #[cfg(test)]
+    if let Some(frozen) = tests::TEST_CLOCK.with(|c| c.get()) {
+        return frozen;
+    }
+    SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
-        .unwrap_or(0);
-    fmt_age(now.saturating_sub(activity).max(0))
+        .unwrap_or(0)
 }
 
 /// Which `Session` timestamp field feeds the metadata age string, per the
@@ -1172,6 +1183,27 @@ mod tests {
     use crate::store::Config;
     use ratatui::backend::TestBackend;
     use ratatui::Terminal;
+    use std::cell::Cell;
+
+    thread_local! {
+        pub(super) static TEST_CLOCK: Cell<Option<i64>> = const { Cell::new(None) };
+    }
+
+    /// Freezes `now_unix()` at `now` for the lifetime of the returned guard,
+    /// so a test's age-string assertions can't race the real wall clock.
+    /// Restores the real clock on drop (including on assertion panic).
+    struct ClockGuard;
+
+    impl Drop for ClockGuard {
+        fn drop(&mut self) {
+            TEST_CLOCK.with(|c| c.set(None));
+        }
+    }
+
+    fn freeze_clock(now: i64) -> ClockGuard {
+        TEST_CLOCK.with(|c| c.set(Some(now)));
+        ClockGuard
+    }
 
     fn render_to_string(state: &PickerState) -> String {
         render_to_string_sized(state, 80, 20)
@@ -3169,7 +3201,8 @@ mod tests {
 
     #[test]
     fn session_row_shows_recency_by_default_and_age_when_switched() {
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
+        let now = 1_700_000_000i64;
+        let _clock = freeze_clock(now);
         let sessions = vec![Session { id: String::new(),
             name: "alpha".into(),
             activity: now - 30, // "30s"

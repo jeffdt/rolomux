@@ -204,7 +204,9 @@ release** (Homebrew users never see `main`, only tagged releases). See the
   implemented and tests pass, launch the freshly built binary in a new tmux
   window so the change is waiting on screen as a real running picker, not
   just green test output. See the `live-preview` skill for the exact `mux
-  spawn` invocation, worktree-path pinning, and config isolation rules.
+  spawn` invocation, worktree-path pinning, and config isolation rules. Skip
+  this for test-only changes (e.g. fixing a flaky test, adding test
+  coverage) that carry no user-facing behavior change to preview.
 - **Mock up visual/rendering changes before writing the spec.** When a design
   discussion touches how something renders (colors, layout, new glyphs/columns),
   don't rely on a text description alone — render an ANSI mockup (never the
