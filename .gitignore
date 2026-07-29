@@ -4,5 +4,6 @@
 /.superpowers
 /.claude/*
 !/.claude/skills
+!/.claude/settings.json
 /examples/mockup.rs
 *.local.md
