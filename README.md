@@ -180,7 +180,7 @@ Each row shows a jump number in its gutter; pressing it jumps straight to that r
 - **New group color.** How a newly created group picks its header color: Rotate through the palette in order, pick a Random color each time, or always use one Static color.
 - **Group palette.** Which of the 16 colors from your terminal theme are in the rotation for new group headers.
 - **Caret style.** The glyph used for the inline text caret when renaming, creating, or searching: a thin **Bar** (default), an **Underline**, or a solid **Block**.
-- **Caret blink.** Off by default (the caret stays solid). When on, the caret blinks using the same clock as the empty-buffer placeholder text.
+- **Caret blink.** Off by default (the caret stays solid). When on, the caret blinks.
 
 | Key | Action |
 | --- | --- |
