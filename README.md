@@ -216,6 +216,25 @@ It favors your existing terminal palette over complete color customization to en
 Any new features must make the tool easier or more fun to use.
 Bloat is an enemy that must be actively kept at bay.
 
+## Development
+
+```sh
+cargo build
+cargo test
+cargo run
+```
+
+This repo also ships two Claude Code skills for working on it visually:
+`mockup`, for comparing ANSI mockups of a design change before
+implementing it, and `live-preview`, for popping the freshly built binary
+open in a real tmux window once a feature is done. Both come from the
+`tui-utils` plugin:
+
+```
+/plugin marketplace add jeffdt/tui-utils
+/plugin install tui-utils@tui-utils
+```
+
 ## Disclaimer
 
 This project was fully vibe coded. Use at your own risk.
