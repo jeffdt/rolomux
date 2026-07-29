@@ -1,5 +1,14 @@
 {
   "enabledPlugins": {
     "tui-utils@tui-utils": true
+  },
+  "extraKnownMarketplaces": {
+    "tui-utils": {
+      "source": {
+        "source": "github",
+        "repo": "jeffdt/tui-utils"
+      },
+      "autoUpdate": true
+    }
   }
 }
