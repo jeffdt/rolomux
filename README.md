@@ -179,13 +179,15 @@ Each row shows a jump number in its gutter; pressing it jumps straight to that r
 - **Active window dot color.** Color of the `●` marking a session's active window: a fixed **Static** color, or the session's own **Group** color.
 - **New group color.** How a newly created group picks its header color: Rotate through the palette in order, pick a Random color each time, or always use one Static color.
 - **Group palette.** Which of the 16 colors from your terminal theme are in the rotation for new group headers.
+- **Caret style.** The glyph used for the inline text caret when renaming, creating, or searching: a thin **Bar** (default), an **Underline**, or a solid **Block**.
+- **Caret blink.** Off by default (the caret stays solid). When on, the caret blinks.
 
 | Key | Action |
 | --- | --- |
 | `j` / `k` | Move between rows, wrapping between the first and last row (also `↓` / `↑`) |
 | `h` / `l` | Cycle a value / expand-collapse a color picker (also `←` / `→`) |
 | `Space` / `Enter` | Toggle or activate the selected row |
-| `1`-`9`, `0`, `M-1`-`M-5` | Jump directly to a row by its gutter number and activate it (`0` = the 10th row, `M-1`-`M-5` = rows 11-15) |
+| `1`-`9`, `0`, `M-1`-`M-7` | Jump directly to a row by its gutter number and activate it (`0` = the 10th row, `M-1`-`M-7` = rows 11-17) |
 | `c` | Cycle the selected color row |
 | `Esc` / `q` / `,` | Back to the picker |
 

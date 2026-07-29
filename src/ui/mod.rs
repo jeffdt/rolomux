@@ -311,6 +311,7 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
         _ => "session name",
     };
     let blink_visible = state.blink_visible();
+    let caret = caret_glyph(state);
 
     for row in rows.iter() {
         match row {
@@ -319,7 +320,7 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
                 let section = group_ids[*si];
                 if last_section != Some(section) {
                     if create_end_target_group.is_some() && create_end_target_group == last_section {
-                        push_create_phantom_row(&mut items, create_buf, current_gutter_color, wide_numbering, raised, false, create_placeholder, blink_visible);
+                        push_create_phantom_row(&mut items, create_buf, current_gutter_color, wide_numbering, raised, false, create_placeholder, blink_visible, caret);
                     }
                     let target = section;
                     while next_group < target {
@@ -327,7 +328,7 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
                             note_highlighted_header(&mut selected_line, &items, state, next_group);
                             if create_end_target_group == Some(next_group) {
                                 let color = group_color(&state.groups[next_group], next_group, &state.active_palette);
-                                push_create_phantom_row(&mut items, create_buf, color, wide_numbering, raised, false, create_placeholder, blink_visible);
+                                push_create_phantom_row(&mut items, create_buf, color, wide_numbering, raised, false, create_placeholder, blink_visible, caret);
                             }
                         }
                         next_group += 1;
@@ -342,6 +343,7 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
                             state.quick_create_buffer().unwrap_or(""),
                             color_from_name(&state.border_color),
                             blink_visible,
+                            caret,
                         );
                         // The anchor session below keeps the cursor (so its
                         // own row still renders with selected styling), but
@@ -378,7 +380,7 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
                     AttachedColorMode::Static => attached_static_color,
                 };
                 if create_above_session.as_deref() == Some(sess.name.as_str()) {
-                    push_create_phantom_row(&mut items, create_buf, current_gutter_color, wide_numbering, raised, selected, create_placeholder, blink_visible);
+                    push_create_phantom_row(&mut items, create_buf, current_gutter_color, wide_numbering, raised, selected, create_placeholder, blink_visible, caret);
                 }
                 items.push(recede(session_item(
                     sess,
@@ -396,6 +398,7 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
                     false,
                     state.session_swap_marker(&sess.name),
                     wide_numbering,
+                    caret,
                 ), raised));
             }
             Row::Window(si, wi) => {
@@ -423,6 +426,7 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
                     dot_color,
                     state.window_swap_marker(&sess.name, sess.windows[*wi].index),
                     wide_numbering,
+                    caret,
                 ), raised));
             }
         }
@@ -431,7 +435,7 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
     // closing point (mirroring the mid-list check above) never fired inside
     // the loop.
     if create_end_target_group.is_some() && create_end_target_group == last_section {
-        push_create_phantom_row(&mut items, create_buf, current_gutter_color, wide_numbering, raised, false, create_placeholder, blink_visible);
+        push_create_phantom_row(&mut items, create_buf, current_gutter_color, wide_numbering, raised, false, create_placeholder, blink_visible, caret);
     }
     // Trailing empty groups (after the last session row, with no residual below).
     while next_group < state.groups.len() {
@@ -439,7 +443,7 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
             note_highlighted_header(&mut selected_line, &items, state, next_group);
             if create_end_target_group == Some(next_group) {
                 let color = group_color(&state.groups[next_group], next_group, &state.active_palette);
-                push_create_phantom_row(&mut items, create_buf, color, wide_numbering, raised, false, create_placeholder, blink_visible);
+                push_create_phantom_row(&mut items, create_buf, color, wide_numbering, raised, false, create_placeholder, blink_visible, caret);
             }
         }
         next_group += 1;
@@ -481,6 +485,21 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
     frame.render_widget(footer, footer_area);
 }
 
+/// The caret glyph to render this frame for an in-flight inline text edit
+/// (session/window rename, group rename/create, quick-create, search),
+/// or `None` when `caret_blink` is on and this frame falls in the blink
+/// clock's hidden half. Independent of the `blink_visible` parameter
+/// threaded through `session_item`/`window_item`/`group_edit_line` below,
+/// which gates the *empty-buffer placeholder* text instead -- this one
+/// gates the *typed* caret.
+fn caret_glyph(state: &PickerState) -> Option<&'static str> {
+    if state.caret_blink && !state.blink_visible() {
+        None
+    } else {
+        Some(state.caret_style.glyph())
+    }
+}
+
 fn draw_search(frame: &mut Frame, state: &PickerState, inner: Rect) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -491,11 +510,15 @@ fn draw_search(frame: &mut Frame, state: &PickerState, inner: Rect) {
         ])
         .split(inner);
 
-    let prompt = Line::from(vec![
+    let caret = caret_glyph(state);
+    let mut prompt_spans = vec![
         Span::styled("search: ", Style::default().fg(DIM)),
         Span::raw(state.query.clone()),
-        Span::styled("▏", Style::default().fg(color_from_name(&state.border_color))),
-    ]);
+    ];
+    if let Some(c) = caret {
+        prompt_spans.push(Span::styled(c, Style::default().fg(color_from_name(&state.border_color))));
+    }
+    let prompt = Line::from(prompt_spans);
     frame.render_widget(Paragraph::new(prompt), chunks[0]);
 
     let results = state.search_results();
@@ -548,7 +571,7 @@ fn draw_search(frame: &mut Frame, state: &PickerState, inner: Rect) {
                             .unwrap_or(attached_static_color),
                         AttachedColorMode::Static => attached_static_color,
                     };
-                    items.push(session_item(sess, state.is_expanded(&sess.name), selected, None, meta, state.is_dormant(&sess.name), attached_color, group_tag, None, state.session_metric, None, false, false, None, false));
+                    items.push(session_item(sess, state.is_expanded(&sess.name), selected, None, meta, state.is_dormant(&sess.name), attached_color, group_tag, None, state.session_metric, None, false, false, None, false, caret));
                 }
                 Row::Window(si, wi) => {
                     let sess = results[*si];
@@ -566,7 +589,7 @@ fn draw_search(frame: &mut Frame, state: &PickerState, inner: Rect) {
                             .unwrap_or(dot_static_color),
                         DotColorMode::Static => dot_static_color,
                     };
-                    items.push(window_item(&sess.windows[*wi], last, selected, None, dormant, window_dormant, None, dot_color, None, false));
+                    items.push(window_item(&sess.windows[*wi], last, selected, None, dormant, window_dormant, None, dot_color, None, false, caret));
                 }
             }
         }
@@ -672,11 +695,11 @@ fn push_group_header(items: &mut Vec<ListItem<'static>>, state: &PickerState, gi
 /// anchor session below reads as selected but isn't the highlighted row) --
 /// same as `header_item`'s group-editing branch, so its placeholder needs
 /// `Color::Gray`, not plain `DIM` (see `group_edit_line`).
-fn push_quick_create_phantom_row(items: &mut Vec<ListItem<'static>>, buf: &str, caret_color: Color, blink_visible: bool) {
+fn push_quick_create_phantom_row(items: &mut Vec<ListItem<'static>>, buf: &str, caret_color: Color, blink_visible: bool, caret: Option<&'static str>) {
     if !items.is_empty() {
         items.push(ListItem::new(Line::from("")));
     }
-    items.push(ListItem::new(group_edit_line(buf, None, caret_color, "GROUP NAME", Style::default().fg(Color::Gray), blink_visible)));
+    items.push(ListItem::new(group_edit_line(buf, None, caret_color, "GROUP NAME", Style::default().fg(Color::Gray), blink_visible, caret)));
 }
 
 /// Push the live create-session phantom row: the typed buffer in the same
@@ -703,6 +726,7 @@ fn push_create_phantom_row(
     selected: bool,
     placeholder: &str,
     blink_visible: bool,
+    caret: Option<&'static str>,
 ) {
     let sess = Session {
         id: String::new(), name: String::new(), activity: 0, created: 0, attached: false, windows: vec![],
@@ -726,6 +750,7 @@ fn push_create_phantom_row(
             blink_visible,
             None,
             wide_numbering,
+            caret,
         ),
         raised,
     ));
@@ -815,6 +840,7 @@ fn group_edit_line(
     placeholder: &str,
     placeholder_style: Style,
     blink_visible: bool,
+    caret: Option<&'static str>,
 ) -> Line<'static> {
     let mut spans = Vec::new();
     if let Some(icon) = icon {
@@ -826,7 +852,9 @@ fn group_edit_line(
         }
     } else {
         spans.push(Span::styled(buf.to_uppercase(), Style::default().add_modifier(Modifier::BOLD)));
-        spans.push(Span::styled("▏", Style::default().fg(caret_color)));
+        if let Some(c) = caret {
+            spans.push(Span::styled(c, Style::default().fg(caret_color)));
+        }
     }
     Line::from(spans)
 }
@@ -843,6 +871,7 @@ fn header_item(state: &PickerState, gi: usize, width: u16, color: Color) -> List
             "GROUP NAME",
             Style::default().fg(Color::Gray),
             state.blink_visible(),
+            caret_glyph(state),
         ));
     }
     // The post-`⇧J`/`⇧K` flash rides in the rule, replacing two of its cells
@@ -1031,6 +1060,7 @@ fn session_item(
     blink_visible: bool,
     swap_marker: Option<(SwapDirection, bool)>,
     wide_numbering: bool,
+    caret: Option<&'static str>,
 ) -> ListItem<'static> {
     let glyph = if expanded { "▾" } else { "▸" };
     let num = match number { Some(n) => jump_label(n), None => "  ".to_string() };
@@ -1063,7 +1093,9 @@ fn session_item(
             }
         } else {
             spans.push(Span::styled(buf.to_string(), Style::default().add_modifier(Modifier::BOLD)));
-            spans.push(Span::raw("▏"));
+            if let Some(c) = caret {
+                spans.push(Span::raw(c));
+            }
         }
         return ListItem::new(Line::from(spans));
     }
@@ -1128,6 +1160,7 @@ fn window_item(
     dot_color: Color,
     swap_marker: Option<(SwapDirection, bool)>,
     wide_numbering: bool,
+    caret: Option<&'static str>,
 ) -> ListItem<'static> {
     // 4 leading spaces (not 2): the connector's tree glyph must land under the
     // parent session's expand glyph (issue #76), which itself shifted right by
@@ -1157,7 +1190,9 @@ fn window_item(
         spans.push(Span::styled(connector.to_string(), secondary(selected)));
         spans.push(Span::styled(format!("{dot} "), Style::default().fg(dot_color)));
         spans.push(Span::styled(buf.to_string(), Style::default().add_modifier(Modifier::BOLD)));
-        spans.push(Span::raw("▏"));
+        if let Some(c) = caret {
+            spans.push(Span::raw(c));
+        }
         return ListItem::new(Line::from(spans));
     }
     let mut spans = Vec::new();
@@ -1178,7 +1213,7 @@ fn window_item(
 mod tests {
     use super::*;
 
-    use crate::model::{Action, Group, KillTarget, PickerState, Session, Window, WindowMove};
+    use crate::model::{Action, CaretStyle, Group, KillTarget, PickerState, Session, Window, WindowMove};
     use crate::model::test_support::grouped_state;
     use crate::store::Config;
     use ratatui::backend::TestBackend;
@@ -2276,6 +2311,51 @@ mod tests {
         let text = render_to_string(&st);
         assert!(text.contains("renamed"), "inline rename buffer visible");
         assert!(!text.contains("alpha"), "old name no longer shown while editing");
+    }
+
+    #[test]
+    fn caret_glyph_returns_the_configured_style_when_blink_is_off() {
+        let mut st = grouped_state();
+        st.caret_style = CaretStyle::Underline;
+        st.caret_blink = false;
+        assert_eq!(caret_glyph(&st), Some("_"));
+    }
+
+    #[test]
+    fn caret_glyph_blinks_with_the_shared_clock_when_blink_is_on() {
+        let mut st = grouped_state();
+        st.caret_style = CaretStyle::Block;
+        st.caret_blink = true;
+        assert_eq!(caret_glyph(&st), Some("█"), "visible immediately after construction");
+        st.backdate_blink(std::time::Duration::from_millis(600));
+        assert_eq!(caret_glyph(&st), None, "hidden during the blink clock's off half");
+    }
+
+    #[test]
+    fn draw_command_renders_underline_caret_for_an_in_flight_session_rename() {
+        let mut st = grouped_state();
+        st.caret_style = CaretStyle::Underline;
+        st.start_rename();
+        for c in "renamed".chars() {
+            st.rename_edit_push(c);
+        }
+        let text = render_to_string(&st);
+        assert!(text.contains("renamed_"), "renamed session shows the underline caret directly after the typed name");
+    }
+
+    #[test]
+    fn draw_command_hides_caret_mid_blink_when_caret_blink_is_on() {
+        let mut st = grouped_state();
+        st.caret_style = CaretStyle::Block;
+        st.caret_blink = true;
+        st.start_rename();
+        for c in "renamed".chars() {
+            st.rename_edit_push(c);
+        }
+        st.backdate_blink(std::time::Duration::from_millis(600));
+        let text = render_to_string(&st);
+        assert!(!text.contains('█'), "caret hidden during the blink clock's off half");
+        assert!(text.contains("renamed"), "the typed name itself is unaffected by the caret blink");
     }
 
     #[test]

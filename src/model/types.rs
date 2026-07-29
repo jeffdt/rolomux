@@ -203,6 +203,56 @@ impl DotColorMode {
     }
 }
 
+/// Which glyph the inline text-editing caret renders as, across every
+/// in-flight text edit in the app (session/window rename, group
+/// rename/create, quick-create, and the search prompt) -- see
+/// `caret_glyph` in `src/ui/mod.rs`, the single place all four call
+/// sites resolve this. A 3-state cycle, same shape as `SessionMetric`:
+/// `h`, `l`, and `Enter`/`Space` on the Caret style settings row all call
+/// `next()`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CaretStyle {
+    #[default]
+    Bar,
+    Underline,
+    Block,
+}
+
+impl CaretStyle {
+    pub fn from_config_str(s: &str) -> CaretStyle {
+        match s {
+            "underline" => CaretStyle::Underline,
+            "block" => CaretStyle::Block,
+            _ => CaretStyle::Bar,
+        }
+    }
+
+    pub fn as_config_str(self) -> &'static str {
+        match self {
+            CaretStyle::Bar => "bar",
+            CaretStyle::Underline => "underline",
+            CaretStyle::Block => "block",
+        }
+    }
+
+    pub fn next(self) -> CaretStyle {
+        match self {
+            CaretStyle::Bar => CaretStyle::Underline,
+            CaretStyle::Underline => CaretStyle::Block,
+            CaretStyle::Block => CaretStyle::Bar,
+        }
+    }
+
+    /// The literal glyph this style renders in place of the caret.
+    pub fn glyph(self) -> &'static str {
+        match self {
+            CaretStyle::Bar => "▏",
+            CaretStyle::Underline => "_",
+            CaretStyle::Block => "█",
+        }
+    }
+}
+
 /// Governs the color used for the session your tmux client is attached to
 /// (`Config::attached_color`, cycled via `c` same as `dot_color`/`border_color`
 /// /`shortcut_color`). `Static` uses that single fixed color; `Match` inherits
@@ -614,6 +664,40 @@ mod tests {
         assert_eq!(AttachedColorMode::from_config_str("match"), AttachedColorMode::Match);
         assert_eq!(AttachedColorMode::from_config_str("static"), AttachedColorMode::Static);
         assert_eq!(AttachedColorMode::from_config_str("garbage"), AttachedColorMode::Static);
+    }
+
+    #[test]
+    fn caret_style_cycles_through_all_three_states() {
+        assert_eq!(CaretStyle::Bar.next(), CaretStyle::Underline);
+        assert_eq!(CaretStyle::Underline.next(), CaretStyle::Block);
+        assert_eq!(CaretStyle::Block.next(), CaretStyle::Bar);
+    }
+
+    #[test]
+    fn caret_style_glyphs() {
+        assert_eq!(CaretStyle::Bar.glyph(), "▏");
+        assert_eq!(CaretStyle::Underline.glyph(), "_");
+        assert_eq!(CaretStyle::Block.glyph(), "█");
+    }
+
+    #[test]
+    fn caret_style_config_str_round_trips() {
+        assert_eq!(CaretStyle::Bar.as_config_str(), "bar");
+        assert_eq!(CaretStyle::Underline.as_config_str(), "underline");
+        assert_eq!(CaretStyle::Block.as_config_str(), "block");
+        assert_eq!(CaretStyle::from_config_str("bar"), CaretStyle::Bar);
+        assert_eq!(CaretStyle::from_config_str("underline"), CaretStyle::Underline);
+        assert_eq!(CaretStyle::from_config_str("block"), CaretStyle::Block);
+    }
+
+    #[test]
+    fn caret_style_from_config_str_defaults_to_bar_for_garbage() {
+        assert_eq!(CaretStyle::from_config_str("garbage"), CaretStyle::Bar);
+    }
+
+    #[test]
+    fn caret_style_default_is_bar() {
+        assert_eq!(CaretStyle::default(), CaretStyle::Bar);
     }
 
 }

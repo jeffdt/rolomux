@@ -1,6 +1,6 @@
 use crate::model::{
-    AttachedColorMode, ColorPolicy, DefaultMode, DotColorMode, Group, HEADER_COLORS, SessionMetric,
-    StartFocusMode, ensure_inbox_last, ensure_single_inbox,
+    AttachedColorMode, CaretStyle, ColorPolicy, DefaultMode, DotColorMode, Group, HEADER_COLORS,
+    SessionMetric, StartFocusMode, ensure_inbox_last, ensure_single_inbox,
 };
 use serde::Deserialize;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -71,6 +71,8 @@ pub struct Config {
     pub dot_color: String,
     pub shortcut_color: String,
     pub always_show_shortcuts: bool,
+    pub caret_style: CaretStyle,
+    pub caret_blink: bool,
     /// Last-known tmux `session_id` (e.g. `"$3"`) for every name currently
     /// tracked in a group's `members`, in `dormant`, or in `expanded`. Used
     /// by `reconcile` to recover tracking across a plain tmux rename
@@ -120,6 +122,8 @@ impl Default for Config {
             dot_color: "green".to_string(),
             shortcut_color: "gray".to_string(),
             always_show_shortcuts: true,
+            caret_style: CaretStyle::default(),
+            caret_blink: false,
             session_ids: HashMap::new(),
         }
     }
@@ -176,6 +180,10 @@ struct RawSettings {
     shortcut_color: Option<String>,
     #[serde(default)]
     always_show_shortcuts: Option<bool>,
+    #[serde(default)]
+    caret_style: Option<String>,
+    #[serde(default)]
+    caret_blink: Option<bool>,
 }
 
 #[derive(serde::Serialize)]
@@ -199,6 +207,8 @@ struct OutSettings {
     dot_color: String,
     shortcut_color: String,
     always_show_shortcuts: bool,
+    caret_style: String,
+    caret_blink: bool,
 }
 
 #[derive(Deserialize, Default)]
@@ -351,6 +361,13 @@ impl Config {
         let dot_color = raw.settings.dot_color.unwrap_or_else(|| "green".to_string());
         let shortcut_color = raw.settings.shortcut_color.unwrap_or_else(|| "gray".to_string());
         let always_show_shortcuts = raw.settings.always_show_shortcuts.unwrap_or(true);
+        let caret_style = raw
+            .settings
+            .caret_style
+            .as_deref()
+            .map(CaretStyle::from_config_str)
+            .unwrap_or_default();
+        let caret_blink = raw.settings.caret_blink.unwrap_or(false);
         let focus_mode = if raw.config_version < 4 { raw.hide_dormant } else { raw.focus_mode };
         Config {
             groups,
@@ -377,6 +394,8 @@ impl Config {
             dot_color,
             shortcut_color,
             always_show_shortcuts,
+            caret_style,
+            caret_blink,
             session_ids: raw.session_ids,
         }
     }
@@ -428,6 +447,8 @@ impl Config {
                 dot_color: self.dot_color.clone(),
                 shortcut_color: self.shortcut_color.clone(),
                 always_show_shortcuts: self.always_show_shortcuts,
+                caret_style: self.caret_style.as_config_str().to_string(),
+                caret_blink: self.caret_blink,
             },
             expanded,
             session_ids,
@@ -1413,6 +1434,36 @@ inbox = true
         let cfg = Config::load_from(&path);
         assert_eq!(cfg.start_focus_mode, StartFocusMode::Remember);
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn default_config_has_caret_style_bar_and_blink_off() {
+        let cfg = Config::default();
+        assert_eq!(cfg.caret_style, CaretStyle::Bar);
+        assert!(!cfg.caret_blink);
+    }
+
+    #[test]
+    fn round_trips_caret_style_and_blink() {
+        let dir = std::env::temp_dir().join(format!("rolomux-caret-style-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.toml");
+        let cfg = Config { caret_style: CaretStyle::Block, caret_blink: true, ..Default::default() };
+        cfg.save_to(&path).unwrap();
+        let reloaded = Config::load_from(&path);
+        assert_eq!(reloaded.caret_style, CaretStyle::Block);
+        assert!(reloaded.caret_blink);
+    }
+
+    #[test]
+    fn legacy_config_without_caret_style_defaults_to_bar_and_blink_off() {
+        let dir = std::env::temp_dir().join(format!("rolomux-caret-style-legacy-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.toml");
+        std::fs::write(&path, "config_version = 5\n[settings]\n").unwrap();
+        let cfg = Config::load_from(&path);
+        assert_eq!(cfg.caret_style, CaretStyle::Bar);
+        assert!(!cfg.caret_blink);
     }
 
     #[test]

@@ -4,6 +4,7 @@
 //! `ui` module and are reached through `use super::*`.
 
 use super::*;
+use crate::model::CaretStyle;
 
 pub(super) const SETTINGS_FOOTER_HINT: &str =
     "j/k move · h/l cycle · Space toggle · 1-9 jump · c color · Esc back";
@@ -204,6 +205,12 @@ pub(super) fn draw_settings(frame: &mut Frame, state: &PickerState, inner: Rect)
                     Span::raw(name.clone()),
                 ])
             }
+            SettingsRow::CaretStyle => {
+                settings_value_line(*row, "Caret style", caret_style_label(state.caret_style), selected)
+            }
+            SettingsRow::CaretBlink => {
+                settings_value_line(*row, "Caret blink", caret_blink_label(state.caret_blink), selected)
+            }
         };
         items.push(ListItem::new(line));
     }
@@ -344,6 +351,18 @@ fn dormant_numbering_label(number_dormant_sessions: bool) -> &'static str {
     if number_dormant_sessions { "Yes" } else { "No" }
 }
 
+fn caret_style_label(s: CaretStyle) -> &'static str {
+    match s {
+        CaretStyle::Bar => "Bar",
+        CaretStyle::Underline => "Underline",
+        CaretStyle::Block => "Block",
+    }
+}
+
+fn caret_blink_label(caret_blink: bool) -> &'static str {
+    if caret_blink { "Yes" } else { "No" }
+}
+
 fn session_metric_label(m: SessionMetric) -> &'static str {
     match m {
         SessionMetric::Recency => "Recency",
@@ -417,6 +436,19 @@ mod tests {
         assert_eq!(start_focus_mode_label(StartFocusMode::Remember), "Remember");
         assert_eq!(start_focus_mode_label(StartFocusMode::Always), "Always");
         assert_eq!(start_focus_mode_label(StartFocusMode::Never), "Never");
+    }
+
+    #[test]
+    fn caret_style_label_covers_all_three_states() {
+        assert_eq!(caret_style_label(CaretStyle::Bar), "Bar");
+        assert_eq!(caret_style_label(CaretStyle::Underline), "Underline");
+        assert_eq!(caret_style_label(CaretStyle::Block), "Block");
+    }
+
+    #[test]
+    fn caret_blink_label_covers_both_states() {
+        assert_eq!(caret_blink_label(true), "Yes");
+        assert_eq!(caret_blink_label(false), "No");
     }
 
     #[test]

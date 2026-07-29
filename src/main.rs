@@ -383,6 +383,25 @@ fn commit_create(
     Some(Action::SwitchSession(pending.session_name.clone()))
 }
 
+/// Whether the event loop should poll-with-timeout (rather than block
+/// indefinitely on the next keypress) so a blinking caret keeps animating.
+/// True while an empty create/rename buffer shows the blinking placeholder,
+/// and -- when `caret_blink` is on -- while any inline text edit that
+/// renders an actual caret glyph is in flight (session/window rename,
+/// search, or a non-empty create/quick-create/group-edit buffer).
+fn should_poll_for_blink(state: &PickerState) -> bool {
+    let caret_blinking = state.caret_blink
+        && (state.creating()
+            || state.quick_creating()
+            || state.group_editing()
+            || state.renaming()
+            || state.mode == Mode::Search);
+    caret_blinking
+        || (state.creating() && state.create_buffer() == Some(""))
+        || (state.quick_creating() && state.quick_create_buffer() == Some(""))
+        || (state.group_editing() && state.group_edit_buffer() == Some(""))
+}
+
 fn event_loop(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     state: &mut PickerState,
@@ -398,12 +417,10 @@ fn event_loop(
         // bright-to-dim fade (and eventual disappearance) redraws on its
         // own. Once it clears, this reverts to a plain blocking read --
         // zero idle CPU cost outside the ~1s window after a ⇧J/⇧K press.
-        // The same idea covers the blinking create/rename placeholder: only
-        // poll while a buffer that would actually show one is both open and
-        // empty, so idle CPU cost stays zero the rest of the time.
-        let blink_showing = (state.creating() && state.create_buffer() == Some(""))
-            || (state.quick_creating() && state.quick_create_buffer() == Some(""))
-            || (state.group_editing() && state.group_edit_buffer() == Some(""));
+        // The same idea covers the blinking create/rename placeholder and,
+        // when `caret_blink` is on, any other in-flight caret: see
+        // `should_poll_for_blink`.
+        let blink_showing = should_poll_for_blink(state);
         let event = if state.swap_indicator_active() {
             if event::poll(SWAP_INDICATOR_TICK)? { Some(event::read()?) } else { None }
         } else if blink_showing {
@@ -660,6 +677,60 @@ mod tests {
 
     fn sess_id(name: &str, id: &str) -> Session {
         Session { id: id.into(), ..sess(name) }
+    }
+
+    #[test]
+    fn should_poll_for_blink_true_when_caret_blink_on_and_renaming_with_text() {
+        let mut state = PickerState::build(vec![sess("a")], &Config::default());
+        state.caret_blink = true;
+        state.start_rename();
+        state.rename_edit_clear();
+        state.rename_edit_push('x');
+        assert!(should_poll_for_blink(&state), "an in-flight rename with a visible caret must poll while caret_blink is on");
+    }
+
+    #[test]
+    fn should_poll_for_blink_false_when_caret_blink_off_while_renaming() {
+        let mut state = PickerState::build(vec![sess("a")], &Config::default());
+        state.caret_blink = false;
+        state.start_rename();
+        state.rename_edit_clear();
+        state.rename_edit_push('x');
+        assert!(!should_poll_for_blink(&state), "no animation to redraw when caret_blink is off");
+    }
+
+    #[test]
+    fn should_poll_for_blink_true_for_empty_create_buffer_regardless_of_caret_blink() {
+        let mut state = PickerState::build(vec![sess("a")], &Config::default());
+        state.caret_blink = false;
+        state.start_create_here();
+        assert!(should_poll_for_blink(&state), "the pre-existing empty-buffer placeholder blink must keep polling unchanged");
+    }
+
+    #[test]
+    fn should_poll_for_blink_true_when_caret_blink_on_and_quick_creating() {
+        let mut state = PickerState::build(vec![sess("a")], &Config::default());
+        state.caret_blink = true;
+        state.start_quick_create();
+        state.quick_create_push('x');
+        assert!(should_poll_for_blink(&state), "an in-flight quick-create with a visible caret must poll while caret_blink is on");
+    }
+
+    #[test]
+    fn should_poll_for_blink_true_when_caret_blink_on_and_group_editing() {
+        let mut state = PickerState::build(vec![sess("a")], &Config::default());
+        state.caret_blink = true;
+        state.group_start_rename();
+        state.group_edit_push('x');
+        assert!(should_poll_for_blink(&state), "an in-flight group rename with a visible caret must poll while caret_blink is on");
+    }
+
+    #[test]
+    fn should_poll_for_blink_true_when_caret_blink_on_and_searching() {
+        let mut state = PickerState::build(vec![sess("a")], &Config::default());
+        state.caret_blink = true;
+        state.enter_search();
+        assert!(should_poll_for_blink(&state), "the search prompt's caret must poll while caret_blink is on");
     }
 
     #[test]
