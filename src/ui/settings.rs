@@ -4,6 +4,7 @@
 //! `ui` module and are reached through `use super::*`.
 
 use super::*;
+use crate::model::CaretStyle;
 
 pub(super) const SETTINGS_FOOTER_HINT: &str =
     "j/k move · h/l cycle · Space toggle · 1-9 jump · c color · Esc back";
@@ -204,6 +205,12 @@ pub(super) fn draw_settings(frame: &mut Frame, state: &PickerState, inner: Rect)
                     Span::raw(name.clone()),
                 ])
             }
+            SettingsRow::CaretStyle => {
+                settings_value_line(*row, "Caret style", caret_style_label(state.caret_style), selected)
+            }
+            SettingsRow::CaretBlink => {
+                settings_value_line(*row, "Caret blink", caret_blink_label(state.caret_blink), selected)
+            }
         };
         items.push(ListItem::new(line));
     }
@@ -342,6 +349,18 @@ fn default_mode_label(m: DefaultMode) -> &'static str {
 
 fn dormant_numbering_label(number_dormant_sessions: bool) -> &'static str {
     if number_dormant_sessions { "Yes" } else { "No" }
+}
+
+fn caret_style_label(s: CaretStyle) -> &'static str {
+    match s {
+        CaretStyle::Bar => "Bar",
+        CaretStyle::Underline => "Underline",
+        CaretStyle::Block => "Block",
+    }
+}
+
+fn caret_blink_label(caret_blink: bool) -> &'static str {
+    if caret_blink { "Yes" } else { "No" }
 }
 
 fn session_metric_label(m: SessionMetric) -> &'static str {
