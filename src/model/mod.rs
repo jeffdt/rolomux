@@ -114,6 +114,8 @@ pub struct PickerState {
     pub dot_color: String,
     pub shortcut_color: String,
     pub always_show_shortcuts: bool,
+    pub caret_style: CaretStyle,
+    pub caret_blink: bool,
     /// Whether the full-shortcut overlay (opened by `?`) is currently
     /// showing. Never persisted -- each fresh popup starts closed, same as
     /// `remember_expanded_sessions` off. See `help_visible`.
@@ -199,6 +201,8 @@ impl PickerState {
             dot_color: config.dot_color.clone(),
             shortcut_color: config.shortcut_color.clone(),
             always_show_shortcuts: config.always_show_shortcuts,
+            caret_style: config.caret_style,
+            caret_blink: config.caret_blink,
             help_visible: false,
             inbox_icon: config.inbox_icon.clone(),
             settings_ui: SettingsUiState::default(),
@@ -458,6 +462,8 @@ impl PickerState {
         config.dot_color = self.dot_color.clone();
         config.shortcut_color = self.shortcut_color.clone();
         config.always_show_shortcuts = self.always_show_shortcuts;
+        config.caret_style = self.caret_style;
+        config.caret_blink = self.caret_blink;
         config.expanded = self.expanded_list();
     }
 
@@ -1203,6 +1209,8 @@ mod tests {
         st.dot_color = "lightblue".to_string();
         st.shortcut_color = "lightcyan".to_string();
         st.always_show_shortcuts = false;
+        st.caret_style = CaretStyle::Underline;
+        st.caret_blink = true;
 
         st.apply_to_config(&mut cfg);
         cfg.save_to(&path).unwrap();
@@ -1224,6 +1232,8 @@ mod tests {
         assert_eq!(reloaded.dot_color, "lightblue");
         assert_eq!(reloaded.shortcut_color, "lightcyan");
         assert!(!reloaded.always_show_shortcuts);
+        assert_eq!(reloaded.caret_style, CaretStyle::Underline);
+        assert!(reloaded.caret_blink);
         assert_eq!(
             reloaded.dormant_windows,
             vec![crate::store::DormantWindow { session: "a".to_string(), index: 1, id: "@2".to_string() }],
