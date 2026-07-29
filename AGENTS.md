@@ -10,6 +10,17 @@ rolomux is a fast terminal UI that replaces tmux's built-in `prefix + s` session
 picker. It is a standalone compiled binary that tmux launches on demand via
 `tmux popup -E`; it is not a tmux plugin and runs no background process.
 
+## Claude Code plugin
+
+Shared skills (`mockup`, `vhs-recording`, `cutting-a-release`, `live-preview`)
+come from the `tui-utils` plugin (github.com/jeffdt/tui-utils), not this
+repo. One-time per machine:
+
+```
+/plugin marketplace add jeffdt/tui-utils
+/plugin install tui-utils@tui-utils
+```
+
 ## Versioning
 
 There is no dated plan to reach `1.0.0`. It's an open milestone reserved for
