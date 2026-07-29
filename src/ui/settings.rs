@@ -439,6 +439,19 @@ mod tests {
     }
 
     #[test]
+    fn caret_style_label_covers_all_three_states() {
+        assert_eq!(caret_style_label(CaretStyle::Bar), "Bar");
+        assert_eq!(caret_style_label(CaretStyle::Underline), "Underline");
+        assert_eq!(caret_style_label(CaretStyle::Block), "Block");
+    }
+
+    #[test]
+    fn caret_blink_label_covers_both_states() {
+        assert_eq!(caret_blink_label(true), "Yes");
+        assert_eq!(caret_blink_label(false), "No");
+    }
+
+    #[test]
     fn description_line_highlights_question_mark_in_key_color() {
         let line = description_line("Core shortcuts are hidden. Press ? for the full shortcut list.", Color::Cyan);
         let spans = line.spans;
