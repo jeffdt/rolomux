@@ -171,13 +171,13 @@ Each row shows a jump number in its gutter; pressing it jumps straight to that r
 
 **Colors**
 
-- **Attached session color.** The color used to highlight the session your tmux client is currently attached to -- both its bolded name and a dot next to its jump number, mirroring the active-window dot: a fixed **Static** color (default), or the session's own **Group** color.
+- **Attached session color.** The color used to highlight the session your tmux client is currently attached to -- both its bolded name and a dot next to its jump number, mirroring the active window dot: a fixed **Static** color (default), or the session's own **Group** color.
 - **Active window color.** Color of the `●` marking a session's active window: a fixed **Static** color, or the session's own **Group** color.
 - **Border color.** How rolomux's own border frame color is chosen: always use one Static color (default), Rotate through the border palette each time the popup opens, or pick a Random one each time.
-- **Border palette.** Which of the 16 colors from your terminal theme are in the rotation for the border.
-- **Shortcut highlight color.** The color used to highlight keys in the shortcut legend.
+- **Border palette.** Which of the 16 colors from your terminal theme are in the rotation for the border. Dims while Border color is Static, since the palette has no effect in that mode.
 - **New group color.** How a newly created group picks its header color: Rotate through the palette in order, pick a Random color each time, or always use one Static color.
-- **Group palette.** Which of the 16 colors from your terminal theme are in the rotation for new group headers.
+- **Group palette.** Which of the 16 colors from your terminal theme are in the rotation for new group headers. Dims while New group color is Static, for the same reason.
+- **Shortcut highlight color.** The color used to highlight keys in the shortcut legend.
 
 **Appearance**
 

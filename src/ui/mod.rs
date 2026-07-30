@@ -4003,7 +4003,7 @@ mod tests {
     #[test]
     fn draw_settings_expanded_shortcut_color_shows_radio_glyphs() {
         let mut st = settings_view();
-        st.settings_move_cursor(11); // ShortcutColor
+        st.settings_move_cursor(13); // ShortcutColor
         st.settings_step_right();
         let text = render_to_string(&st);
         assert!(text.contains("●"));
@@ -4013,7 +4013,7 @@ mod tests {
     #[test]
     fn draw_settings_expanded_palette_shows_swatches_and_checkboxes() {
         let mut st = settings_view();
-        st.settings_move_cursor(13); // Palette
+        st.settings_move_cursor(12); // Palette
         st.settings_step_right(); // expand
         // Taller than the usual 80x20: section headers and the added Show
         // shortcuts/Shortcut color/Active window color/Border color
@@ -4029,7 +4029,7 @@ mod tests {
     #[test]
     fn draw_settings_shows_static_color_value_when_policy_is_static() {
         let mut st = settings_view();
-        st.settings_move_cursor(12); // ColorPolicy row
+        st.settings_move_cursor(11); // ColorPolicy row
         st.settings_step_right(); // Rotate -> Random
         st.settings_step_right(); // Random -> Static
         st.static_color = "magenta".to_string();
@@ -4121,7 +4121,7 @@ mod tests {
     #[test]
     fn draw_settings_child_color_option_rows_are_unchanged_by_jump_numbering() {
         let mut st = settings_view();
-        st.settings_move_cursor(11); // ShortcutColor
+        st.settings_move_cursor(13); // ShortcutColor
         st.settings_step_right(); // expand
         let text = render_to_string(&st);
         let row = text
@@ -4139,7 +4139,7 @@ mod tests {
     #[test]
     fn draw_settings_gutter_bar_continues_through_expanded_color_options() {
         let mut st = settings_view();
-        st.settings_move_cursor(11); // ShortcutColor
+        st.settings_move_cursor(13); // ShortcutColor
         st.settings_step_right(); // expand
         let text = render_to_string(&st);
         let row = text
@@ -4154,7 +4154,7 @@ mod tests {
     #[test]
     fn draw_settings_gutter_bar_continues_through_expanded_palette_rows() {
         let mut st = settings_view();
-        st.settings_move_cursor(13); // Palette
+        st.settings_move_cursor(12); // Palette
         st.settings_step_right(); // expand
         // Taller than the usual 80x20: section headers and the added Show
         // shortcuts/Shortcut color/Active window color/Border color
@@ -4182,6 +4182,92 @@ mod tests {
         // Strip margin and frame border to check the actual content.
         let content = row.chars().skip(3).collect::<String>();
         assert!(content.starts_with("│"), "ColorPolicy row should continue the gutter bar: {row:?}");
+    }
+
+    #[test]
+    fn draw_settings_border_palette_row_is_dimmed_when_border_color_is_static() {
+        let st = settings_view(); // border_color_policy defaults to Static
+        let backend = TestBackend::new(80, 31);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| draw(f, &st)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+        let y = row_of(&buf, "Border palette");
+        for x in card_interior(&buf) {
+            assert!(
+                buf[(x, y)].style().add_modifier.contains(Modifier::DIM),
+                "Border palette row should dim while Border color is Static"
+            );
+        }
+    }
+
+    #[test]
+    fn draw_settings_border_palette_row_is_not_dimmed_once_border_color_leaves_static() {
+        let mut st = settings_view();
+        st.settings_move_cursor(9); // BorderColorPolicy, defaults to Static
+        st.settings_step_right(); // Static -> Rotate
+        let backend = TestBackend::new(80, 31);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| draw(f, &st)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+        let y = row_of(&buf, "Border palette");
+        for x in card_interior(&buf) {
+            assert!(
+                !buf[(x, y)].style().add_modifier.contains(Modifier::DIM),
+                "Border palette row should not dim once Border color leaves Static"
+            );
+        }
+    }
+
+    #[test]
+    fn draw_settings_expanded_border_palette_child_rows_dim_too_when_border_color_is_static() {
+        let mut st = settings_view(); // border_color_policy defaults to Static
+        st.settings_jump(11); // BorderPalette, expands to first active swatch
+        let backend = TestBackend::new(80, 31);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| draw(f, &st)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+        let y = row_of(&buf, "[x]");
+        for x in card_interior(&buf) {
+            assert!(
+                buf[(x, y)].style().add_modifier.contains(Modifier::DIM),
+                "expanded Border palette child row should dim too"
+            );
+        }
+    }
+
+    #[test]
+    fn draw_settings_group_palette_row_is_not_dimmed_when_new_group_color_is_rotate() {
+        let st = settings_view(); // new_group_color_policy defaults to Rotate
+        let backend = TestBackend::new(80, 31);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| draw(f, &st)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+        let y = row_of(&buf, "Group palette");
+        for x in card_interior(&buf) {
+            assert!(
+                !buf[(x, y)].style().add_modifier.contains(Modifier::DIM),
+                "Group palette row should not dim while New group color is Rotate"
+            );
+        }
+    }
+
+    #[test]
+    fn draw_settings_group_palette_row_dims_once_new_group_color_becomes_static() {
+        let mut st = settings_view();
+        st.settings_move_cursor(11); // ColorPolicy
+        st.settings_step_right();
+        st.settings_step_right(); // Rotate -> Random -> Static
+        let backend = TestBackend::new(80, 31);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| draw(f, &st)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+        let y = row_of(&buf, "Group palette");
+        for x in card_interior(&buf) {
+            assert!(
+                buf[(x, y)].style().add_modifier.contains(Modifier::DIM),
+                "Group palette row should dim once New group color is Static"
+            );
+        }
     }
 
     #[test]

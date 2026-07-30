@@ -212,7 +212,16 @@ pub(super) fn draw_settings(frame: &mut Frame, state: &PickerState, inner: Rect)
                 settings_value_line(*row, "Caret blink", caret_blink_label(state.caret_blink), selected)
             }
         };
-        items.push(ListItem::new(line));
+        let dim_unused_palette = match row {
+            SettingsRow::BorderPalette | SettingsRow::BorderPaletteColor(_) => {
+                state.border_color_policy == ColorPolicy::Static
+            }
+            SettingsRow::Palette | SettingsRow::PaletteColor(_) => {
+                state.new_group_color_policy == ColorPolicy::Static
+            }
+            _ => false,
+        };
+        items.push(dim_when(ListItem::new(line), dim_unused_palette));
     }
 
     let list = List::new(items)
@@ -248,6 +257,19 @@ fn description_line(text: &str, key_color: Color) -> Line<'static> {
         spans.push(Span::styled(rest.to_string(), Style::default()));
     }
     Line::from(spans)
+}
+
+/// Dim a palette row (and its expanded swatch children) while the palette
+/// it belongs to has no effect: `BorderPalette` when Border color is Static,
+/// `Palette` when New group color is Static. Same `Modifier::DIM`-under-spans
+/// technique as `ui::recede`, applied here instead of reusing that function
+/// since its doc is specific to group-altitude fade, a different concept.
+fn dim_when(item: ListItem<'static>, dim: bool) -> ListItem<'static> {
+    if dim {
+        item.style(Style::default().add_modifier(Modifier::DIM))
+    } else {
+        item
+    }
 }
 
 /// The dim leading `│` every Settings row renders in its first column,
