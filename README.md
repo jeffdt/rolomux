@@ -156,7 +156,7 @@ Think of this as one more tool in your kit to keep your workbench clear and your
 
 ### Settings
 
-Press `,` to open Settings, a full-screen view of picker-wide preferences, grouped into two sections. A description of the currently selected setting is always shown at the bottom.
+Press `,` to open Settings, a full-screen view of picker-wide preferences, grouped into three colored sections. A description of the currently selected setting is always shown at the bottom.
 Each row shows a jump number in its gutter; pressing it jumps straight to that row and flips it, the same as moving there with `j`/`k` and pressing `Enter` -- handy for a setting you flip on and off often, like **Remember expanded sessions**.
 
 **Behavior**
@@ -167,19 +167,22 @@ Each row shows a jump number in its gutter; pressing it jumps straight to that r
 - **Clear dormant on attach.** Off by default. When on, attaching to a dormant session automatically clears its dormant flag, so you don't have to remember to press `d` yourself.
 - **Start in focus mode.** Whether the picker starts in focus mode: **Remember** the last state (default), **Always** start in it, or **Never** start in it, regardless of what was last saved.
 - **Session metadata.** Whether the row's trailing timestamp shows time since last activity (**Recency**, default), time since the session was created (**Age**), or is omitted entirely (**Hidden**).
-- **Show shortcuts.** Whether the footer's key-shortcut legend is always visible (**Yes**, default), or hidden entirely (**No**) -- press `?` any time for the full shortcut list regardless of this setting.
+- **Show shortcuts.** Whether the footer's key-shortcut legend is always visible (**On**, default), or hidden entirely (**Off**) -- press `?` any time for the full shortcut list regardless of this setting.
+
+**Colors**
+
+- **Attached session color.** The color used to highlight the session your tmux client is currently attached to -- both its bolded name and a dot next to its jump number, mirroring the active window dot: a fixed **Static** color (default), or the session's own **Group** color.
+- **Active window color.** Color of the `●` marking a session's active window: a fixed **Static** color, or the session's own **Group** color.
+- **Border color.** How rolomux's own border frame color is chosen: always use one Static color (default), Rotate through the border palette each time the popup opens, or pick a Random one each time.
+- **Border palette.** Which of the 16 colors from your terminal theme are in the rotation for the border. Dims while Border color is Static, since the palette has no effect in that mode.
+- **New group color.** How a newly created group picks its header color: Rotate through the palette in order, pick a Random color each time, or always use one Static color.
+- **Group palette.** Which of the 16 colors from your terminal theme are in the rotation for new group headers. Dims while New group color is Static, for the same reason.
+- **Shortcut highlight color.** The color used to highlight keys in the shortcut legend.
 
 **Appearance**
 
 - **Inbox icon.** The glyph shown before the inbox group's header. Cycle through a curated set with `h`/`l`.
-- **Attached session color.** The color used to highlight the session your tmux client is currently attached to -- both its bolded name and a dot next to its jump number, mirroring the active-window dot: a fixed **Static** color (default), or the session's own **Group** color.
-- **Border color.** How rolomux's own border frame color is chosen: always use one Static color (default), Rotate through the border palette each time the popup opens, or pick a Random one each time.
-- **Border palette.** Which of the 16 colors from your terminal theme are in the rotation for the border.
-- **Shortcut highlight color.** The color used to highlight keys in the shortcut legend.
-- **Active window dot color.** Color of the `●` marking a session's active window: a fixed **Static** color, or the session's own **Group** color.
-- **New group color.** How a newly created group picks its header color: Rotate through the palette in order, pick a Random color each time, or always use one Static color.
-- **Group palette.** Which of the 16 colors from your terminal theme are in the rotation for new group headers.
-- **Caret style.** The glyph used for the inline text caret when renaming, creating, or searching: a thin **Bar** (default), an **Underline**, or a solid **Block**.
+- **Caret style.** The glyph used for the inline text caret when renaming, creating, or searching: a thin bar (default), an underline, or a solid block.
 - **Caret blink.** Off by default (the caret stays solid). When on, the caret blinks.
 
 | Key | Action |

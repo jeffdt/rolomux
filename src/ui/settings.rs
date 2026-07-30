@@ -4,7 +4,6 @@
 //! `ui` module and are reached through `use super::*`.
 
 use super::*;
-use crate::model::CaretStyle;
 
 pub(super) const SETTINGS_FOOTER_HINT: &str =
     "j/k move · h/l cycle · Space toggle · 1-9 jump · c color · Esc back";
@@ -26,8 +25,9 @@ pub(super) fn draw_settings(frame: &mut Frame, state: &PickerState, inner: Rect)
     let mut selected_line: Option<usize> = None;
     for (i, row) in rows.iter().enumerate() {
         match row {
-            SettingsRow::DefaultMode => push_settings_section_header(&mut items, "BEHAVIOR", list_area.width),
-            SettingsRow::InboxIcon => push_settings_section_header(&mut items, "APPEARANCE", list_area.width),
+            SettingsRow::DefaultMode => push_settings_section_header(&mut items, "BEHAVIOR", Color::Blue, list_area.width),
+            SettingsRow::AttachedColor => push_settings_section_header(&mut items, "COLORS", Color::Magenta, list_area.width),
+            SettingsRow::InboxIcon => push_settings_section_header(&mut items, "APPEARANCE", Color::Green, list_area.width),
             _ => {}
         }
         let selected = i == state.settings_cursor();
@@ -150,7 +150,7 @@ pub(super) fn draw_settings(frame: &mut Frame, state: &PickerState, inner: Rect)
             SettingsRow::DotColorMode => {
                 let mut spans = vec![gutter_span()];
                 spans.extend(settings_number_span(*row, selected));
-                spans.push(Span::styled("Active window dot color", Style::default().add_modifier(Modifier::BOLD)));
+                spans.push(Span::styled("Active window color", Style::default().add_modifier(Modifier::BOLD)));
                 spans.push(Span::styled(
                     format!("  {}", dot_color_mode_label(state.dot_color_mode)),
                     secondary(selected),
@@ -206,13 +206,22 @@ pub(super) fn draw_settings(frame: &mut Frame, state: &PickerState, inner: Rect)
                 ])
             }
             SettingsRow::CaretStyle => {
-                settings_value_line(*row, "Caret style", caret_style_label(state.caret_style), selected)
+                settings_value_line(*row, "Caret style", state.caret_style.glyph(), selected)
             }
             SettingsRow::CaretBlink => {
                 settings_value_line(*row, "Caret blink", caret_blink_label(state.caret_blink), selected)
             }
         };
-        items.push(ListItem::new(line));
+        let dim_unused_palette = match row {
+            SettingsRow::BorderPalette | SettingsRow::BorderPaletteColor(_) => {
+                state.border_color_policy == ColorPolicy::Static
+            }
+            SettingsRow::Palette | SettingsRow::PaletteColor(_) => {
+                state.new_group_color_policy == ColorPolicy::Static
+            }
+            _ => false,
+        };
+        items.push(dim_when(ListItem::new(line), dim_unused_palette));
     }
 
     let list = List::new(items)
@@ -250,6 +259,19 @@ fn description_line(text: &str, key_color: Color) -> Line<'static> {
     Line::from(spans)
 }
 
+/// Dim a palette row (and its expanded swatch children) while the palette
+/// it belongs to has no effect: `BorderPalette` when Border color is Static,
+/// `Palette` when New group color is Static. Same `Modifier::DIM`-under-spans
+/// technique as `ui::recede`, applied here instead of reusing that function
+/// since its doc is specific to group-altitude fade, a different concept.
+fn dim_when(item: ListItem<'static>, dim: bool) -> ListItem<'static> {
+    if dim {
+        item.style(Style::default().add_modifier(Modifier::DIM))
+    } else {
+        item
+    }
+}
+
 /// The dim leading `│` every Settings row renders in its first column,
 /// tying rows visually to their section header. Unlike the main session
 /// list's per-group gutter color, every Settings row uses the same dim
@@ -270,20 +292,20 @@ fn settings_number_span(row: SettingsRow, selected: bool) -> Vec<Span<'static>> 
     }
 }
 
-fn settings_section_header_item(label: &str, width: u16) -> ListItem<'static> {
+fn settings_section_header_item(label: &str, color: Color, width: u16) -> ListItem<'static> {
     let rule_len = (width as usize).saturating_sub(label.chars().count() + 2);
     ListItem::new(Line::from(vec![
-        Span::styled(label.to_string(), Style::default().fg(DIM).add_modifier(Modifier::BOLD)),
+        Span::styled(label.to_string(), Style::default().fg(color).add_modifier(Modifier::BOLD)),
         Span::raw(" "),
         Span::styled("─".repeat(rule_len), Style::default().fg(DIM)),
     ]))
 }
 
-fn push_settings_section_header(items: &mut Vec<ListItem<'static>>, label: &str, width: u16) {
+fn push_settings_section_header(items: &mut Vec<ListItem<'static>>, label: &str, color: Color, width: u16) {
     if !items.is_empty() {
         items.push(ListItem::new(Line::from("")));
     }
-    items.push(settings_section_header_item(label, width));
+    items.push(settings_section_header_item(label, color, width));
 }
 
 fn settings_value_line(row: SettingsRow, label: &str, value: &str, selected: bool) -> Line<'static> {
@@ -348,19 +370,11 @@ fn default_mode_label(m: DefaultMode) -> &'static str {
 }
 
 fn dormant_numbering_label(number_dormant_sessions: bool) -> &'static str {
-    if number_dormant_sessions { "Yes" } else { "No" }
-}
-
-fn caret_style_label(s: CaretStyle) -> &'static str {
-    match s {
-        CaretStyle::Bar => "Bar",
-        CaretStyle::Underline => "Underline",
-        CaretStyle::Block => "Block",
-    }
+    if number_dormant_sessions { "On" } else { "Off" }
 }
 
 fn caret_blink_label(caret_blink: bool) -> &'static str {
-    if caret_blink { "Yes" } else { "No" }
+    if caret_blink { "On" } else { "Off" }
 }
 
 fn session_metric_label(m: SessionMetric) -> &'static str {
@@ -372,11 +386,11 @@ fn session_metric_label(m: SessionMetric) -> &'static str {
 }
 
 fn remember_expanded_label(remember_expanded_sessions: bool) -> &'static str {
-    if remember_expanded_sessions { "Yes" } else { "No" }
+    if remember_expanded_sessions { "On" } else { "Off" }
 }
 
 fn clear_dormant_on_attach_label(clear_dormant_on_attach: bool) -> &'static str {
-    if clear_dormant_on_attach { "Yes" } else { "No" }
+    if clear_dormant_on_attach { "On" } else { "Off" }
 }
 
 fn start_focus_mode_label(m: StartFocusMode) -> &'static str {
@@ -396,7 +410,7 @@ fn color_policy_label(p: ColorPolicy) -> &'static str {
 }
 
 fn always_show_shortcuts_label(always_show_shortcuts: bool) -> &'static str {
-    if always_show_shortcuts { "Yes" } else { "No" }
+    if always_show_shortcuts { "On" } else { "Off" }
 }
 
 fn dot_color_mode_label(m: DotColorMode) -> &'static str {
@@ -420,14 +434,14 @@ mod tests {
     #[test]
     fn push_settings_section_header_adds_blank_line_before_subsequent_headers() {
         let mut items: Vec<ListItem> = vec![ListItem::new(Line::from("existing row"))];
-        push_settings_section_header(&mut items, "APPEARANCE", 40);
+        push_settings_section_header(&mut items, "APPEARANCE", Color::Green, 40);
         assert_eq!(items.len(), 3, "a blank spacer plus the header should be appended after existing rows");
     }
 
     #[test]
     fn push_settings_section_header_skips_blank_line_when_list_is_empty() {
         let mut items: Vec<ListItem> = Vec::new();
-        push_settings_section_header(&mut items, "BEHAVIOR", 40);
+        push_settings_section_header(&mut items, "BEHAVIOR", Color::Blue, 40);
         assert_eq!(items.len(), 1, "no blank spacer should precede the very first header");
     }
 
@@ -439,16 +453,9 @@ mod tests {
     }
 
     #[test]
-    fn caret_style_label_covers_all_three_states() {
-        assert_eq!(caret_style_label(CaretStyle::Bar), "Bar");
-        assert_eq!(caret_style_label(CaretStyle::Underline), "Underline");
-        assert_eq!(caret_style_label(CaretStyle::Block), "Block");
-    }
-
-    #[test]
     fn caret_blink_label_covers_both_states() {
-        assert_eq!(caret_blink_label(true), "Yes");
-        assert_eq!(caret_blink_label(false), "No");
+        assert_eq!(caret_blink_label(true), "On");
+        assert_eq!(caret_blink_label(false), "Off");
     }
 
     #[test]
