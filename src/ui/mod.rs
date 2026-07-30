@@ -3819,14 +3819,14 @@ mod tests {
         // Taller than the usual 80x20 for several stacking reasons: the added
         // Session metadata row pushes later rows down (mirrors the palette
         // tests), so do the added Show shortcuts/Shortcut color/Active window
-        // dot color/Border color policy rows, and the footer grew from 2 to
+        // color/Border color policy rows, and the footer grew from 2 to
         // 3 rows (rule, key-hint, description), consuming one more row of
         // the list area.
         let text = render_to_string_sized(&settings_view(), 80, 29);
         assert!(text.contains("Default mode"));
         assert!(text.contains("Command"));
         assert!(text.contains("Number dormant sessions"));
-        assert!(text.contains("Yes"));
+        assert!(text.contains("On"));
         assert!(text.contains("New group color"));
         assert!(text.contains("Rotate"));
         assert!(text.contains("Group palette"));
@@ -3838,11 +3838,11 @@ mod tests {
     fn draw_settings_shows_remember_expanded_row() {
         let text = render_to_string(&settings_view());
         assert!(text.contains("Remember expanded sessions"));
-        assert!(text.contains("No"), "defaults to No");
+        assert!(text.contains("Off"), "defaults to Off");
     }
 
     #[test]
-    fn draw_settings_remember_expanded_shows_yes_when_toggled_on() {
+    fn draw_settings_remember_expanded_shows_on_when_toggled_on() {
         let mut st = settings_view();
         st.settings_move_cursor(2); // RememberExpanded
         st.settings_step_right();
@@ -3851,21 +3851,21 @@ mod tests {
             .lines()
             .find(|line| line.contains("Remember expanded sessions"))
             .expect("Remember expanded sessions row is rendered");
-        // "Number dormant sessions" also renders "Yes" by default, so the
+        // "Number dormant sessions" also renders "On" by default, so the
         // assertion must target this row specifically rather than the
         // whole screen's text.
-        assert!(row.contains("Yes"), "row should show Yes once toggled on: {row:?}");
+        assert!(row.contains("On"), "row should show On once toggled on: {row:?}");
     }
 
     #[test]
     fn draw_settings_shows_clear_dormant_on_attach_row() {
         let text = render_to_string(&settings_view());
         assert!(text.contains("Clear dormant on attach"));
-        assert!(text.contains("No"), "defaults to No");
+        assert!(text.contains("Off"), "defaults to Off");
     }
 
     #[test]
-    fn draw_settings_clear_dormant_on_attach_shows_yes_when_toggled_on() {
+    fn draw_settings_clear_dormant_on_attach_shows_on_when_toggled_on() {
         let mut st = settings_view();
         st.settings_move_cursor(4); // ClearDormantOnAttach
         st.settings_step_right();
@@ -3874,7 +3874,7 @@ mod tests {
             .lines()
             .find(|line| line.contains("Clear dormant on attach"))
             .expect("Clear dormant on attach row is rendered");
-        assert!(row.contains("Yes"), "row should show Yes once toggled on: {row:?}");
+        assert!(row.contains("On"), "row should show On once toggled on: {row:?}");
     }
 
     #[test]
@@ -3906,14 +3906,13 @@ mod tests {
 
     #[test]
     fn draw_settings_shows_attached_and_border_color_rows() {
-        // Taller than the usual 80x20: Show shortcuts, Inbox icon, and
-        // Border color policy rows push Border color further down the list.
         let text = render_to_string_sized(&settings_view(), 80, 24);
         assert!(text.contains("Attached session color"));
         assert!(text.contains("Border color"));
-        // Both default to green and render collapsed with a swatch + name.
-        // (Shortcut/Active-window-dot color rows sit further down, out of view here.)
-        assert_eq!(text.matches("green").count(), 2, "one swatch label per collapsed color row");
+        // Attached session color, Active window color, and Border color are
+        // now contiguous rows in the COLORS section, all defaulting to
+        // Static green, so all three swatches render together here.
+        assert_eq!(text.matches("green").count(), 3, "one swatch label per collapsed color row");
     }
 
     #[test]
@@ -3982,7 +3981,7 @@ mod tests {
     #[test]
     fn draw_settings_attached_color_row_shows_mode_label_and_hides_swatch_in_match_mode() {
         let mut st = settings_view();
-        st.settings_move_cursor(8); // AttachedColor
+        st.settings_move_cursor(7); // AttachedColor
         let text = render_to_string(&st);
         let row = text
             .lines()
@@ -4014,10 +4013,10 @@ mod tests {
     #[test]
     fn draw_settings_expanded_palette_shows_swatches_and_checkboxes() {
         let mut st = settings_view();
-        st.settings_move_cursor(14); // Palette
+        st.settings_move_cursor(13); // Palette
         st.settings_step_right(); // expand
         // Taller than the usual 80x20: section headers and the added Show
-        // shortcuts/Shortcut color/Active window dot color/Border color
+        // shortcuts/Shortcut color/Active window color/Border color
         // policy/Inbox icon rows now push the palette rows further down
         // than the default viewport reveals.
         let text = render_to_string_sized(&st, 80, 31);
@@ -4030,7 +4029,7 @@ mod tests {
     #[test]
     fn draw_settings_shows_static_color_value_when_policy_is_static() {
         let mut st = settings_view();
-        st.settings_move_cursor(13); // ColorPolicy row
+        st.settings_move_cursor(12); // ColorPolicy row
         st.settings_step_right(); // Rotate -> Random
         st.settings_step_right(); // Random -> Static
         st.static_color = "magenta".to_string();
@@ -4041,17 +4040,15 @@ mod tests {
 
     #[test]
     fn draw_settings_does_not_show_a_color_value_for_rotate_or_random() {
-        // Taller than the default 80x20: the Session metadata, Show
-        // shortcuts, Shortcut color/Active window dot color/Border color
-        // policy, and Inbox icon rows plus the 3-row footer all push "New
-        // group color" further down the list.
+        // Taller than the default 80x20: the COLORS section's own header
+        // plus its rows push "New group color" further down the list.
         let text = render_to_string_sized(&settings_view(), 80, 28); // default policy is Rotate
         // "Rotate" itself is on screen, but no color name should follow it
         // since Rotate has no single fixed color to show. The four swatches
-        // on screen are Attached session color and Border color policy
-        // (both Static by default), the always-present Shortcut color row,
-        // and Active window dot color (Static by default); Rotate/Random
-        // must not add a fifth for the New group color policy row itself.
+        // on screen are Attached session color, Active window color, and
+        // Border color policy (all Static by default), plus the
+        // always-present Shortcut color row; Rotate/Random must not add a
+        // fifth for the New group color policy row itself.
         assert!(text.contains("Rotate"));
         assert_eq!(
             text.matches("██").count(),
@@ -4157,10 +4154,10 @@ mod tests {
     #[test]
     fn draw_settings_gutter_bar_continues_through_expanded_palette_rows() {
         let mut st = settings_view();
-        st.settings_move_cursor(14); // Palette
+        st.settings_move_cursor(13); // Palette
         st.settings_step_right(); // expand
         // Taller than the usual 80x20: section headers and the added Show
-        // shortcuts/Shortcut color/Active window dot color/Border color
+        // shortcuts/Shortcut color/Active window color/Border color
         // policy/Inbox icon rows now push the palette rows further down
         // than the default viewport reveals.
         let text = render_to_string_sized(&st, 80, 30);
@@ -4175,10 +4172,8 @@ mod tests {
 
     #[test]
     fn draw_settings_color_policy_row_continues_the_gutter_bar() {
-        // Taller than the default 80x20: the Session metadata, Show
-        // shortcuts, Shortcut color/Active window dot color/Border color
-        // policy, and Inbox icon rows plus the 3-row footer all push "New
-        // group color" further down the list.
+        // Taller than the default 80x20: the COLORS section's own header
+        // plus its rows push "New group color" further down the list.
         let text = render_to_string_sized(&settings_view(), 80, 28);
         let row = text
             .lines()
@@ -4190,11 +4185,13 @@ mod tests {
     }
 
     #[test]
-    fn draw_settings_shows_behavior_and_appearance_section_headers() {
-        // Taller than the default 80x20: the added Start in focus mode row
-        // pushes APPEARANCE just past the default viewport.
-        let text = render_to_string_sized(&settings_view(), 80, 21);
+    fn draw_settings_shows_all_three_section_headers() {
+        // Taller than the default 80x20: APPEARANCE now renders at content
+        // line 18 (after both BEHAVIOR's 7 rows and the whole COLORS
+        // section), well past the default viewport.
+        let text = render_to_string_sized(&settings_view(), 80, 31);
         assert!(text.contains("BEHAVIOR"), "Behavior section header is rendered");
+        assert!(text.contains("COLORS"), "Colors section header is rendered");
         assert!(text.contains("APPEARANCE"), "Appearance section header is rendered");
     }
 
@@ -4208,42 +4205,56 @@ mod tests {
     }
 
     #[test]
-    fn draw_settings_appearance_header_precedes_attached_color_row() {
-        // Taller than the default 80x20: the Start in focus mode, Show
-        // shortcuts, and Inbox icon rows push Attached session color
-        // further down the list.
-        let text = render_to_string_sized(&settings_view(), 80, 23);
+    fn draw_settings_colors_header_precedes_attached_color_row() {
+        let text = render_to_string_sized(&settings_view(), 80, 22);
         let lines: Vec<&str> = text.lines().collect();
-        let header_idx = lines.iter().position(|l| l.contains("APPEARANCE")).expect("APPEARANCE header rendered");
+        let header_idx = lines.iter().position(|l| l.contains("COLORS")).expect("COLORS header rendered");
         let row_idx = lines.iter().position(|l| l.contains("Attached session color")).expect("Attached session color row rendered");
-        assert!(header_idx < row_idx, "APPEARANCE header should render above the Attached session color row");
+        assert!(header_idx < row_idx, "COLORS header should render above the Attached session color row");
     }
 
     #[test]
-    fn draw_settings_section_headers_are_dim_not_palette_colored() {
+    fn draw_settings_appearance_header_precedes_inbox_icon_row() {
+        let text = render_to_string_sized(&settings_view(), 80, 31);
+        let lines: Vec<&str> = text.lines().collect();
+        let header_idx = lines.iter().position(|l| l.contains("APPEARANCE")).expect("APPEARANCE header rendered");
+        let row_idx = lines.iter().position(|l| l.contains("Inbox icon")).expect("Inbox icon row rendered");
+        assert!(header_idx < row_idx, "APPEARANCE header should render above the Inbox icon row");
+    }
+
+    #[test]
+    fn draw_settings_section_headers_are_colored_by_section() {
         let state = settings_view();
-        let backend = TestBackend::new(80, 20);
+        let backend = TestBackend::new(80, 31);
         let mut terminal = Terminal::new(backend).unwrap();
         terminal.draw(|f| draw(f, &state)).unwrap();
         let buf = terminal.backend().buffer().clone();
-        let mut found_dim_header = false;
+        let mut behavior_color = None;
+        let mut colors_color = None;
+        let mut appearance_color = None;
         for y in 0..buf.area.height {
             let line: String = (0..buf.area.width).map(|x| buf[(x, y)].symbol()).collect();
             if let Some(i) = line.find("BEHAVIOR") {
-                found_dim_header = buf[(i as u16, y)].style().fg == Some(Color::DarkGray);
+                behavior_color = Some(buf[(i as u16, y)].style().fg);
+            }
+            if let Some(i) = line.find("COLORS") {
+                colors_color = Some(buf[(i as u16, y)].style().fg);
+            }
+            if let Some(i) = line.find("APPEARANCE") {
+                appearance_color = Some(buf[(i as u16, y)].style().fg);
             }
         }
-        assert!(found_dim_header, "BEHAVIOR header should render in dim gray, not a palette color");
+        assert_eq!(behavior_color, Some(Some(Color::Blue)), "BEHAVIOR header should render in Blue");
+        assert_eq!(colors_color, Some(Some(Color::Magenta)), "COLORS header should render in Magenta");
+        assert_eq!(appearance_color, Some(Some(Color::Green)), "APPEARANCE header should render in Green");
     }
 
     #[test]
-    fn draw_settings_blank_line_separates_behavior_and_appearance_sections() {
-        // Taller than the default 80x20: the added Start in focus mode row
-        // pushes APPEARANCE just past the default viewport.
-        let text = render_to_string_sized(&settings_view(), 80, 21);
+    fn draw_settings_blank_line_separates_behavior_and_colors_sections() {
+        let text = render_to_string(&settings_view());
         let lines: Vec<&str> = text.lines().collect();
-        let appearance_idx = lines.iter().position(|l| l.contains("APPEARANCE")).expect("APPEARANCE header rendered");
-        let prev_line = lines[appearance_idx - 1];
+        let colors_idx = lines.iter().position(|l| l.contains("COLORS")).expect("COLORS header rendered");
+        let prev_line = lines[colors_idx - 1];
         // Strip the popup's outer margin and left/right border chars, which are
         // present on every line, before checking that the list content itself is blank.
         let content_start = (POPUP_MARGIN + 1) as usize;
@@ -4251,7 +4262,25 @@ mod tests {
         let content: String = prev_line.chars().skip(content_start).take(content_end - content_start).collect();
         assert!(
             content.trim().is_empty(),
-            "a blank line should separate BEHAVIOR's rows from the APPEARANCE header, got: {:?}",
+            "a blank line should separate BEHAVIOR's rows from the COLORS header, got: {:?}",
+            prev_line
+        );
+    }
+
+    #[test]
+    fn draw_settings_blank_line_separates_colors_and_appearance_sections() {
+        // Taller than the default 80x20: APPEARANCE now renders well past
+        // the default viewport (see draw_settings_shows_all_three_section_headers).
+        let text = render_to_string_sized(&settings_view(), 80, 31);
+        let lines: Vec<&str> = text.lines().collect();
+        let appearance_idx = lines.iter().position(|l| l.contains("APPEARANCE")).expect("APPEARANCE header rendered");
+        let prev_line = lines[appearance_idx - 1];
+        let content_start = (POPUP_MARGIN + 1) as usize;
+        let content_end = prev_line.chars().count() - content_start;
+        let content: String = prev_line.chars().skip(content_start).take(content_end - content_start).collect();
+        assert!(
+            content.trim().is_empty(),
+            "a blank line should separate COLORS' rows from the APPEARANCE header, got: {:?}",
             prev_line
         );
     }
