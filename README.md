@@ -111,7 +111,7 @@ Press `g` to raise the cursor to group altitude: the cursor moves up onto group 
 | `Esc` / `g` | Back to session altitude |
 | `q` | Quit the picker |
 
-As you create groups, they'll be assigned a color from your terminal theme (cyan, green, yellow, magenta, blue, red); new groups rotate through them, `c` flips a group's color, and empty groups show grayed out until you fill them.
+As you create groups, they'll be assigned a color from your terminal theme (cyan, green, yellow, magenta, blue, red, white); new groups rotate through them, `c` flips a group's color, and empty groups show grayed out until you fill them.
 
 The inbox can be renamed and recolored like any other group, but it always stays last and can't be reordered or deleted.
 

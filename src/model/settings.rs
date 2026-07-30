@@ -1065,7 +1065,7 @@ mod tests {
 
     #[test]
     fn settings_palette_rows_lists_all_sixteen_in_fixed_canonical_order() {
-        let st = settings_state(); // default active_palette = HEADER_COLORS: cyan,green,yellow,magenta,blue,red
+        let st = settings_state(); // default active_palette = HEADER_COLORS: cyan,green,yellow,magenta,blue,red,white
         let rows = st.settings_palette_rows();
         assert_eq!(rows.len(), 16);
         // Order never changes with active/inactive status: it's always
@@ -1543,9 +1543,9 @@ mod tests {
 
     #[test]
     fn apply_border_color_policy_steps_forward_under_rotate_within_the_border_palette() {
-        let mut st = grouped_state(); // default border_active_palette: cyan, green, yellow, magenta, blue, red
+        let mut st = grouped_state(); // default border_active_palette: cyan, green, yellow, magenta, blue, red, white
         st.border_color_policy = ColorPolicy::Rotate;
-        st.border_color = "red".to_string(); // last entry in the default border palette
+        st.border_color = "white".to_string(); // last entry in the default border palette
         st.dirty = false;
         st.apply_border_color_policy();
         assert_eq!(

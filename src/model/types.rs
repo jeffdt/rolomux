@@ -368,7 +368,8 @@ pub struct Session {
 /// `[settings]` table is present on disk (`store::Config::default`). Also
 /// the historical positional-default order. Named ANSI colors only (never
 /// RGB) so headers inherit the user's terminal theme.
-pub const HEADER_COLORS: [&str; 6] = ["cyan", "green", "yellow", "magenta", "blue", "red"];
+pub const HEADER_COLORS: [&str; 7] =
+    ["cyan", "green", "yellow", "magenta", "blue", "red", "white"];
 
 /// The curated set of glyphs a user can cycle the inbox group's header icon
 /// through (`PickerState::settings_step_left`/`settings_step_right` on the
