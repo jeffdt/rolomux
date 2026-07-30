@@ -16,7 +16,7 @@ const COMMAND_SHORTCUTS: &[(&str, &str)] = &[
     ("/", "search"),
     ("g", "switch to group mode"),
     ("n", "new session"),
-    ("⇧N", "new group for session"),
+    ("⇧N", "new group"),
     (",", "settings"),
     ("z", "expand/collapse all"),
     ("f", "toggle focus mode (hide dormant)"),
@@ -182,7 +182,7 @@ mod tests {
         let rendered = render_help_to_string(&state);
         assert!(
             rendered.contains("⇧N"),
-            "Command mode help should contain ⇧N key for new group for session"
+            "Command mode help should contain ⇧N key for new group"
         );
         assert!(
             rendered.contains("switch to group mode"),

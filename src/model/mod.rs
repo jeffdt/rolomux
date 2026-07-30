@@ -70,8 +70,9 @@ pub struct PickerState {
     altitude_origin: Option<(String, Option<u32>)>,
     /// In-flight session/window rename buffer; `Some` while a rename is in progress.
     rename_edit: Option<String>,
-    /// In-flight `⇧N` quick-create buffer; `Some` while naming a new group
-    /// around the currently-selected session. See `src/model/quick_create.rs`.
+    /// In-flight `⇧N` quick-create buffer; `Some` while naming a new empty
+    /// group placed above the currently-selected session's group. See
+    /// `src/model/quick_create.rs`.
     quick_create_edit: Option<String>,
     /// In-flight two-stage session-create buffer; `Some` while naming a new
     /// session (session-name stage, then optional window-name stage). See

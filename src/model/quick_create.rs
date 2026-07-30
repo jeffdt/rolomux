@@ -1,9 +1,11 @@
-//! `⇧N` quick-create: naming a brand-new group around the currently-selected
-//! session, at session altitude. Holds the in-flight buffer edit
-//! (`self.quick_create_edit`) and, on commit, creates the group and moves
-//! the session into it as sole member. Mirrors `rename.rs`'s buffer-editing
-//! shape; unlike a rename, there is no existing name to seed the buffer
-//! with, so `start_quick_create` always begins it empty.
+//! `⇧N` quick-create: naming a brand-new, empty group at session altitude,
+//! positioned directly above the group the cursor's session currently
+//! belongs to. Holds the in-flight buffer edit (`self.quick_create_edit`)
+//! and, on commit, creates the group without touching any session's
+//! membership -- the cursor's session stays exactly where it was. Mirrors
+//! `rename.rs`'s buffer-editing shape; unlike a rename, there is no
+//! existing name to seed the buffer with, so `start_quick_create` always
+//! begins it empty.
 
 use super::PickerState;
 
@@ -18,9 +20,9 @@ impl PickerState {
         self.quick_create_edit.as_deref()
     }
 
-    /// Begin naming a new group around whatever row the cursor is on
-    /// (a window row acts on its parent session). A no-op if the cursor
-    /// addresses no row.
+    /// Begin naming a new empty group positioned above whatever row the
+    /// cursor is on (a window row acts on its parent session). A no-op if
+    /// the cursor addresses no row.
     pub fn start_quick_create(&mut self) {
         if self.cursor_session_name().is_some() {
             self.quick_create_edit = Some(String::new());
@@ -57,17 +59,15 @@ impl PickerState {
     }
 
     /// Consume the in-flight quick-create buffer and, if it names a real
-    /// group (non-empty after trimming), create a group named from it
-    /// immediately above the selected session's current group, colored per
-    /// the current `new_group_color_policy` (same policy `group_new`
-    /// applies, via the shared `new_group_color` helper), move the session
-    /// into it as sole member (removing it from its old group's explicit
-    /// `members`, if it was listed there -- inbox fallback membership
-    /// requires no explicit removal), and follow the cursor to it. Returns
-    /// `true` iff a group was created. A trimmed-empty buffer is a cancel:
-    /// returns `false`, nothing created, matching `group_commit_rename`'s
-    /// empty-name guard (and, like it, no duplicate-name guard either --
-    /// duplicates are allowed).
+    /// group (non-empty after trimming), create an empty group named from
+    /// it immediately above the cursor's session's current group, colored
+    /// per the current `new_group_color_policy` (same policy `group_new`
+    /// applies, via the shared `new_group_color` helper). No session's
+    /// membership changes -- the cursor's session stays exactly where it
+    /// was, in its original group. Returns `true` iff a group was created.
+    /// A trimmed-empty buffer is a cancel: returns `false`, nothing
+    /// created, matching `group_commit_rename`'s empty-name guard (and,
+    /// like it, no duplicate-name guard either -- duplicates are allowed).
     pub fn commit_quick_create(&mut self) -> bool {
         let buf = match self.quick_create_edit.take() { Some(b) => b, None => return false };
         let name = buf.trim().to_string();
@@ -78,10 +78,7 @@ impl PickerState {
         let Some(old_gi) = self.group_index_of(&session_name) else { return false };
         let color = self.new_group_color();
         let index = self.insert_group_above(old_gi);
-        let new_old_gi = if index <= old_gi { old_gi + 1 } else { old_gi };
-        self.groups[new_old_gi].members.retain(|m| m != &session_name);
         self.groups[index].name = name;
-        self.groups[index].members = vec![session_name.clone()];
         self.groups[index].color = color;
         super::ensure_inbox_last(&mut self.groups);
         self.focus_session(&session_name);
@@ -140,11 +137,11 @@ mod tests {
         let cfg = Config::default();
         let mut st = PickerState::build(Vec::new(), &cfg);
         st.start_quick_create();
-        assert!(!st.quick_creating(), "no row under the cursor, nothing to name a group around");
+        assert!(!st.quick_creating(), "no row under the cursor, nothing to name a group above");
     }
 
     #[test]
-    fn commit_moves_session_into_new_group_above_its_old_group() {
+    fn commit_creates_empty_group_above_the_cursor_sessions_group() {
         // grouped_state: G1=[a], G2=[b], INBOX=[c] (synthesized last)
         let mut st = grouped_state();
         st.focus_session("b"); // explicit member of G2
@@ -155,16 +152,16 @@ mod tests {
         assert_eq!(
             st.groups.iter().map(|g| g.name.as_str()).collect::<Vec<_>>(),
             vec!["G1", "NEW", "G2", "INBOX"],
-            "NEW lands directly above G2, b's old group"
+            "NEW lands directly above G2, b's group"
         );
-        assert_eq!(st.groups[1].members, vec!["b".to_string()]);
-        assert_eq!(st.groups[2].members, Vec::<String>::new(), "b removed from its old group G2");
+        assert_eq!(st.groups[1].members, Vec::<String>::new(), "NEW starts empty, nothing moved into it");
+        assert_eq!(st.groups[2].members, vec!["b".to_string()], "b stays put in its original group");
         assert!(st.dirty);
-        assert_eq!(st.cursor_session_name().as_deref(), Some("b"), "cursor follows the session");
+        assert_eq!(st.cursor_session_name().as_deref(), Some("b"), "cursor stays on the untouched session");
     }
 
     #[test]
-    fn commit_leaves_sibling_members_of_the_old_group_untouched() {
+    fn commit_leaves_all_members_of_the_old_group_untouched() {
         // state_with_two_groups: G1=[a, b], G2=[c]; d, e fall back to the inbox.
         let mut st = state_with_two_groups();
         st.focus_session("a"); // explicit member of G1, alongside sibling "b"
@@ -175,13 +172,13 @@ mod tests {
         assert_eq!(
             st.groups.iter().map(|g| g.name.as_str()).collect::<Vec<_>>(),
             vec!["NEW", "G1", "G2", "INBOX"],
-            "NEW lands directly above G1, a's old group"
+            "NEW lands directly above G1, a's group"
         );
-        assert_eq!(st.groups[0].members, vec!["a".to_string()], "a moved into the new group alone");
+        assert_eq!(st.groups[0].members, Vec::<String>::new(), "NEW starts empty");
         assert_eq!(
             st.groups[1].members,
-            vec!["b".to_string()],
-            "sibling member b stays behind in G1, neither dropped nor duplicated"
+            vec!["a".to_string(), "b".to_string()],
+            "both a and its sibling b stay in G1, neither dropped nor moved"
         );
     }
 
@@ -198,8 +195,8 @@ mod tests {
         assert!(st.commit_quick_create());
 
         assert_eq!(st.groups[1].name, "NEW", "acted on b, the window's parent session");
-        assert_eq!(st.groups[1].members, vec!["b".to_string()]);
-        assert_eq!(st.groups[2].members, Vec::<String>::new(), "b removed from its old group G2");
+        assert_eq!(st.groups[1].members, Vec::<String>::new(), "NEW starts empty");
+        assert_eq!(st.groups[2].members, vec!["b".to_string()], "b stays in its original group");
     }
 
     #[test]
@@ -252,6 +249,10 @@ mod tests {
 
         assert_eq!(st.groups[inbox_idx_before].name, "NEW", "new group sits where the inbox used to be");
         assert!(st.groups[inbox_idx_before + 1].inbox, "inbox shifted one slot down, still last");
-        assert_eq!(st.groups[inbox_idx_before].members, vec!["c".to_string()]);
+        assert_eq!(st.groups[inbox_idx_before].members, Vec::<String>::new(), "NEW starts empty");
+        assert_eq!(
+            st.group_index_of("c"), Some(inbox_idx_before + 1),
+            "c stays a fallback member of the (shifted) inbox"
+        );
     }
 }
