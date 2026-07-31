@@ -244,6 +244,9 @@ open in a real tmux window once a feature is done. Both come from the
 
 This project was fully vibe coded. Use at your own risk.
 
+rolomux is designed and tested for one tmux client attached to one session at a time.
+Running multiple terminals attached to different sessions simultaneously may or may not work; it isn't a tested or supported scenario.
+
 ## License
 
 MIT
