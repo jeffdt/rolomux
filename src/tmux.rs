@@ -147,8 +147,9 @@ impl Tmux for RealTmux {
     }
 
     fn switch_session(&self, name: &str) -> io::Result<()> {
+        let target = session_target(name);
         self.command()
-            .args(["switch-client", "-t", name])
+            .args(["switch-client", "-t", &target])
             .status()
             .map(|_| ())
     }
@@ -162,8 +163,9 @@ impl Tmux for RealTmux {
     }
 
     fn rename_session(&self, old: &str, new: &str) -> io::Result<()> {
+        let target = session_target(old);
         self.command()
-            .args(["rename-session", "-t", old, new])
+            .args(["rename-session", "-t", &target, new])
             .status()
             .map(|_| ())
     }
@@ -203,8 +205,9 @@ impl Tmux for RealTmux {
     }
 
     fn new_placeholder_window(&self, session: &str) -> io::Result<()> {
+        let target = session_target(session);
         self.command()
-            .args(["new-window", "-d", "-t", session, "-n", "(empty)"])
+            .args(["new-window", "-d", "-t", &target, "-n", "(empty)"])
             .status()
             .map(|_| ())
     }
@@ -224,8 +227,9 @@ impl Tmux for RealTmux {
     }
 
     fn kill_session(&self, name: &str) -> io::Result<()> {
+        let target = session_target(name);
         self.command()
-            .args(["kill-session", "-t", name])
+            .args(["kill-session", "-t", &target])
             .status()
             .map(|_| ())
     }
@@ -319,6 +323,19 @@ pub fn tmux_socket(tmux_env: Option<&str>) -> Option<String> {
     } else {
         Some(sock.to_string())
     }
+}
+
+/// Builds a `-t` target that names a session and nothing else. Without the
+/// trailing colon, a bare session name is ambiguous with tmux's
+/// `window.pane` target syntax whenever the name itself contains a `.` or
+/// `:` (e.g. `jeffdt.com`): with no colon anywhere in the string, tmux
+/// parses it as a `window.pane` spec in the *current* session rather than a
+/// session name, and the switch/kill/rename silently targets the wrong
+/// thing or errors out (issue #185, confirmed against a live tmux 3.7b).
+/// The trailing colon forces session-only parsing. Window-scoped targets
+/// (`{session}:{index}`) are already unambiguous and don't need this.
+pub fn session_target(name: &str) -> String {
+    format!("{name}:")
 }
 
 /// Parses `show-options ... detach-on-destroy` output (e.g.
@@ -528,6 +545,12 @@ impl Tmux for FakeTmux {
 mod tests {
     use super::*;
     use crate::model::Action;
+
+    #[test]
+    fn session_target_appends_trailing_colon_so_a_dotted_name_cant_be_read_as_windowpane() {
+        assert_eq!(session_target("jeffdt.com"), "jeffdt.com:");
+        assert_eq!(session_target("work"), "work:");
+    }
 
     #[test]
     fn parses_two_sessions_grouping_windows_in_order() {
