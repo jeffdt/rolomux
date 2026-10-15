@@ -57,6 +57,16 @@ impl PickerState {
         })
     }
 
+    /// The session name already committed by advancing past the
+    /// session-name stage, trimmed exactly as it will be created. `None`
+    /// while the session name is still being typed (or no prompt is open).
+    pub fn create_committed_session(&self) -> Option<&str> {
+        self.create_prompt
+            .as_ref()
+            .filter(|p| p.stage == CreateStage::WindowName)
+            .map(|p| p.session_buffer.trim())
+    }
+
     /// `n` at session altitude: begin naming a session placed immediately
     /// above the row under the cursor (a window row acts on its parent
     /// session), joining that session's group. With no row at all (an empty
@@ -232,6 +242,19 @@ mod tests {
         assert_eq!(st.create_stage(), Some(CreateStage::WindowName));
         assert_eq!(st.create_buffer(), Some(""));
         assert!(st.creating(), "prompt stays open across the stage advance");
+    }
+
+    #[test]
+    fn committed_session_name_is_exposed_only_in_window_stage() {
+        let mut st = grouped_state();
+        st.focus_session("a");
+        st.start_create_here();
+        for c in " newsess ".chars() { st.create_push(c); }
+        assert_eq!(st.create_committed_session(), None, "nothing committed while still naming the session");
+        st.create_commit();
+        assert_eq!(st.create_committed_session(), Some("newsess"), "trimmed, matching what gets created");
+        st.create_back();
+        assert_eq!(st.create_committed_session(), None, "stepping back un-commits the session name");
     }
 
     #[test]
