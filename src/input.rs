@@ -113,6 +113,8 @@ pub enum SettingsInput {
     Jump(usize),
     Activate,
     CycleColor,
+    ResetRow,
+    ResetAll,
     OpenHelp,
     Exit,
     None,
@@ -131,6 +133,8 @@ pub fn map_settings_key(key: KeyEvent) -> SettingsInput {
         KeyCode::Char('h') | KeyCode::Left => SettingsInput::Left,
         KeyCode::Enter | KeyCode::Char(' ') => SettingsInput::Activate,
         KeyCode::Char('c') => SettingsInput::CycleColor,
+        KeyCode::Char('r') => SettingsInput::ResetRow,
+        KeyCode::Char('R') => SettingsInput::ResetAll,
         KeyCode::Char('?') => SettingsInput::OpenHelp,
         KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char(',') => SettingsInput::Exit,
         KeyCode::Char(c @ '1'..='9') if alt => SettingsInput::Jump(10 + (c as usize - '0' as usize)),
@@ -401,6 +405,8 @@ mod tests {
         assert_eq!(map_settings_key(key(KeyCode::Enter)), SettingsInput::Activate);
         assert_eq!(map_settings_key(key(KeyCode::Char(' '))), SettingsInput::Activate);
         assert_eq!(map_settings_key(key(KeyCode::Char('c'))), SettingsInput::CycleColor);
+        assert_eq!(map_settings_key(key(KeyCode::Char('r'))), SettingsInput::ResetRow);
+        assert_eq!(map_settings_key(KeyEvent::new(KeyCode::Char('R'), KeyModifiers::SHIFT)), SettingsInput::ResetAll);
         assert_eq!(map_settings_key(key(KeyCode::Esc)), SettingsInput::Exit);
         assert_eq!(map_settings_key(key(KeyCode::Char('q'))), SettingsInput::Exit);
         assert_eq!(map_settings_key(key(KeyCode::Char(','))), SettingsInput::Exit);

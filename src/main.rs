@@ -641,6 +641,13 @@ fn event_loop(
                     }
                 }
                 Mode::Settings => match map_settings_key(key) {
+                    // An armed reset-all swallows any other key as its cancel,
+                    // so a stray keypress can't also act on the row.
+                    input if state.settings_reset_all_armed() && input != SettingsInput::ResetAll => {
+                        state.cancel_settings_reset_all();
+                    }
+                    SettingsInput::ResetRow => state.settings_reset_row(),
+                    SettingsInput::ResetAll => state.settings_reset_all(),
                     SettingsInput::Up => state.settings_move_cursor(-1),
                     SettingsInput::Down => state.settings_move_cursor(1),
                     SettingsInput::Left => state.settings_step_left(),

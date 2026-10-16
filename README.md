@@ -156,7 +156,7 @@ Think of this as one more tool in your kit to keep your workbench clear and your
 
 ### Settings
 
-Press `,` to open Settings, a full-screen view of picker-wide preferences, grouped into three colored sections. A description of the currently selected setting is always shown at the bottom.
+Press `,` to open Settings, a full-screen view of picker-wide preferences, grouped into three colored sections. A description of the currently selected setting is always shown at the bottom. Any setting you've changed from its default is marked with a yellow `•`, and `r` puts it back.
 Each row shows a jump number in its gutter; pressing it jumps straight to that row and flips it, the same as moving there with `j`/`k` and pressing `Enter` -- handy for a setting you flip on and off often, like **Remember expanded sessions**.
 
 **Behavior**
@@ -192,6 +192,8 @@ Each row shows a jump number in its gutter; pressing it jumps straight to that r
 | `Space` / `Enter` | Toggle or activate the selected row |
 | `1`-`9`, `0`, `M-1`-`M-7` | Jump directly to a row by its gutter number and activate it (`0` = the 10th row, `M-1`-`M-7` = rows 11-17) |
 | `c` | Cycle the selected color row |
+| `r` | Reset the selected row to its default |
+| `R` | Reset every setting to its default (press twice to confirm; groups and sessions are untouched) |
 | `Esc` / `q` / `,` | Back to the picker |
 
 ## Configuration

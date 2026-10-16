@@ -15,6 +15,7 @@ pub(super) struct SettingsUiState {
     palette_expanded: bool,
     border_palette_expanded: bool,
     shortcut_color_expanded: bool,
+    reset_all_armed: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -172,6 +173,48 @@ impl SettingsRow {
                 "The inline text caret stays solid."
             }
             .to_string(),
+        }
+    }
+
+    /// Whether this row's setting differs from its `Config::default()` value.
+    /// A child row reports its parent's state. A mode-plus-color row only
+    /// compares its color while the mode is Static: under Rotate/Random the
+    /// color is reassigned every launch, and under Group/Match it's hidden,
+    /// so neither is a choice the user made.
+    pub fn is_changed(&self, state: &PickerState) -> bool {
+        let d = Config::default();
+        match self {
+            SettingsRow::DefaultMode => state.default_mode != d.default_mode,
+            SettingsRow::DormantNumbering => state.number_dormant_sessions != d.number_dormant_sessions,
+            SettingsRow::RememberExpanded => state.remember_expanded_sessions != d.remember_expanded_sessions,
+            SettingsRow::SessionMetric => state.session_metric != d.session_metric,
+            SettingsRow::ClearDormantOnAttach => state.clear_dormant_on_attach != d.clear_dormant_on_attach,
+            SettingsRow::StartFocusMode => state.start_focus_mode != d.start_focus_mode,
+            SettingsRow::ShortcutVisibility => state.always_show_shortcuts != d.always_show_shortcuts,
+            SettingsRow::InboxIcon => state.inbox_icon != d.inbox_icon,
+            SettingsRow::AttachedColor => {
+                state.attached_color_mode != d.attached_color_mode
+                    || (state.attached_color_mode == AttachedColorMode::Static && state.attached_color != d.attached_color)
+            }
+            SettingsRow::BorderColorPolicy => {
+                state.border_color_policy != d.border_color_policy
+                    || (state.border_color_policy == ColorPolicy::Static && state.border_color != d.border_color)
+            }
+            SettingsRow::BorderPalette | SettingsRow::BorderPaletteColor(_) => {
+                state.border_active_palette != d.border_active_palette
+            }
+            SettingsRow::ShortcutColor | SettingsRow::ShortcutColorOption(_) => state.shortcut_color != d.shortcut_color,
+            SettingsRow::DotColorMode => {
+                state.dot_color_mode != d.dot_color_mode
+                    || (state.dot_color_mode == DotColorMode::Static && state.dot_color != d.dot_color)
+            }
+            SettingsRow::ColorPolicy => {
+                state.new_group_color_policy != d.new_group_color_policy
+                    || (state.new_group_color_policy == ColorPolicy::Static && state.static_color != d.static_color)
+            }
+            SettingsRow::Palette | SettingsRow::PaletteColor(_) => state.active_palette != d.active_palette,
+            SettingsRow::CaretStyle => state.caret_style != d.caret_style,
+            SettingsRow::CaretBlink => state.caret_blink != d.caret_blink,
         }
     }
 
@@ -646,6 +689,88 @@ impl PickerState {
                 self.dirty = true;
             }
             _ => {}
+        }
+    }
+
+    /// `r`: restore the current row's setting (both values, for a
+    /// mode-plus-color row) to its `Config::default()`. On a child row it
+    /// resets the parent's whole palette or color. Applies and persists
+    /// immediately with no confirm, since one row is easy to put back.
+    pub fn settings_reset_row(&mut self) {
+        let row = self.current_settings_row();
+        self.reset_settings_row_to(row, &Config::default());
+        self.dirty = true;
+    }
+
+    /// `R`: the first press arms a confirm, the second restores every
+    /// setting to its default. Groups, dormant flags, focus mode and expand
+    /// state are not settings and are left alone. Any other key cancels
+    /// via `cancel_settings_reset_all` (see the Settings dispatch in `main.rs`).
+    pub fn settings_reset_all(&mut self) {
+        if !self.settings_ui.reset_all_armed {
+            self.settings_ui.reset_all_armed = true;
+            return;
+        }
+        self.settings_ui.reset_all_armed = false;
+        let d = Config::default();
+        for row in TOP_LEVEL_ROWS {
+            self.reset_settings_row_to(row, &d);
+        }
+        self.dirty = true;
+    }
+
+    /// Whether `R` is armed and waiting for its confirming second press.
+    pub fn settings_reset_all_armed(&self) -> bool {
+        self.settings_ui.reset_all_armed
+    }
+
+    /// Drop an armed `R` confirm with no side effect.
+    pub fn cancel_settings_reset_all(&mut self) {
+        self.settings_ui.reset_all_armed = false;
+    }
+
+    /// The footer warning to show while `R` is armed, or `None`.
+    pub fn settings_reset_all_warning(&self) -> Option<&'static str> {
+        self.settings_ui
+            .reset_all_armed
+            .then_some("R again to reset all settings to defaults \u{b7} any other key cancels")
+    }
+
+    fn reset_settings_row_to(&mut self, row: SettingsRow, d: &Config) {
+        match row {
+            SettingsRow::DefaultMode => self.default_mode = d.default_mode,
+            SettingsRow::DormantNumbering => self.number_dormant_sessions = d.number_dormant_sessions,
+            SettingsRow::RememberExpanded => self.remember_expanded_sessions = d.remember_expanded_sessions,
+            SettingsRow::SessionMetric => self.session_metric = d.session_metric,
+            SettingsRow::ClearDormantOnAttach => self.clear_dormant_on_attach = d.clear_dormant_on_attach,
+            SettingsRow::StartFocusMode => self.start_focus_mode = d.start_focus_mode,
+            SettingsRow::ShortcutVisibility => self.always_show_shortcuts = d.always_show_shortcuts,
+            SettingsRow::InboxIcon => self.inbox_icon = d.inbox_icon.clone(),
+            SettingsRow::AttachedColor => {
+                self.attached_color_mode = d.attached_color_mode;
+                self.attached_color = d.attached_color.clone();
+            }
+            SettingsRow::BorderColorPolicy => {
+                self.border_color_policy = d.border_color_policy;
+                self.border_color = d.border_color.clone();
+            }
+            SettingsRow::BorderPalette | SettingsRow::BorderPaletteColor(_) => {
+                self.border_active_palette = d.border_active_palette.clone();
+            }
+            SettingsRow::ShortcutColor | SettingsRow::ShortcutColorOption(_) => {
+                self.shortcut_color = d.shortcut_color.clone();
+            }
+            SettingsRow::DotColorMode => {
+                self.dot_color_mode = d.dot_color_mode;
+                self.dot_color = d.dot_color.clone();
+            }
+            SettingsRow::ColorPolicy => {
+                self.new_group_color_policy = d.new_group_color_policy;
+                self.static_color = d.static_color.clone();
+            }
+            SettingsRow::Palette | SettingsRow::PaletteColor(_) => self.active_palette = d.active_palette.clone(),
+            SettingsRow::CaretStyle => self.caret_style = d.caret_style,
+            SettingsRow::CaretBlink => self.caret_blink = d.caret_blink,
         }
     }
 
@@ -1698,5 +1823,141 @@ mod tests {
         st.settings_move_cursor(12); // Palette
         st.settings_activate();
         assert!(!st.palette_expanded(), "plain Enter on Palette is still a no-op");
+    }
+
+    #[test]
+    fn every_top_level_row_is_unchanged_on_a_default_config() {
+        let st = settings_state();
+        for row in TOP_LEVEL_ROWS {
+            assert!(!row.is_changed(&st), "{row:?} should read as default on a fresh config");
+        }
+    }
+
+    #[test]
+    fn a_toggled_row_reads_as_changed_and_its_neighbors_do_not() {
+        let mut st = settings_state();
+        st.settings_move_cursor(1); // DormantNumbering
+        st.settings_activate();
+        assert!(SettingsRow::DormantNumbering.is_changed(&st));
+        assert!(!SettingsRow::DefaultMode.is_changed(&st));
+        assert!(!SettingsRow::RememberExpanded.is_changed(&st));
+    }
+
+    #[test]
+    fn a_static_color_row_reads_as_changed_when_only_its_color_differs() {
+        let mut st = settings_state();
+        assert_eq!(st.border_color_policy, ColorPolicy::Static);
+        st.border_color = "red".to_string();
+        assert!(SettingsRow::BorderColorPolicy.is_changed(&st));
+    }
+
+    #[test]
+    fn a_rotating_border_color_ignores_the_per_launch_color_it_landed_on() {
+        // Rotate/Random reassign border_color on every launch, so only the
+        // policy counts as a change, never the color it happened to land on.
+        let mut st = settings_state();
+        st.border_color_policy = ColorPolicy::Rotate;
+        st.border_color = Config::default().border_color;
+        assert!(SettingsRow::BorderColorPolicy.is_changed(&st), "policy differs from default");
+        st.border_color_policy = ColorPolicy::Static;
+        assert!(!SettingsRow::BorderColorPolicy.is_changed(&st));
+        st.attached_color_mode = AttachedColorMode::Match;
+        st.attached_color = "red".to_string();
+        let changed_with_red = SettingsRow::AttachedColor.is_changed(&st);
+        st.attached_color = Config::default().attached_color;
+        assert_eq!(
+            SettingsRow::AttachedColor.is_changed(&st),
+            changed_with_red,
+            "a hidden static color doesn't affect a non-Static row"
+        );
+    }
+
+    #[test]
+    fn palette_child_rows_report_their_parent_palettes_state() {
+        let mut st = settings_state();
+        st.active_palette.retain(|c| c != "cyan");
+        assert!(SettingsRow::Palette.is_changed(&st));
+        assert!(SettingsRow::PaletteColor(0).is_changed(&st));
+        assert!(!SettingsRow::BorderPalette.is_changed(&st));
+    }
+
+    #[test]
+    fn reset_row_restores_a_two_value_row_to_both_defaults() {
+        let mut st = settings_state();
+        st.new_group_color_policy = ColorPolicy::Static;
+        st.static_color = "white".to_string();
+        st.settings_jump(12); // ColorPolicy (jump also cycles it; reset should undo everything)
+        st.dirty = false;
+        st.settings_reset_row();
+        let d = Config::default();
+        assert_eq!(st.new_group_color_policy, d.new_group_color_policy);
+        assert_eq!(st.static_color, d.static_color);
+        assert!(!SettingsRow::ColorPolicy.is_changed(&st));
+        assert!(st.dirty, "a reset persists immediately");
+    }
+
+    #[test]
+    fn reset_row_leaves_other_settings_alone() {
+        let mut st = settings_state();
+        st.caret_blink = true;
+        st.number_dormant_sessions = false;
+        st.settings_move_cursor(1); // DormantNumbering
+        st.settings_reset_row();
+        assert!(st.number_dormant_sessions);
+        assert!(st.caret_blink, "an unrelated changed setting is untouched");
+    }
+
+    #[test]
+    fn reset_row_on_a_palette_swatch_resets_the_whole_palette() {
+        let mut st = settings_state();
+        st.active_palette = vec!["white".to_string()];
+        st.settings_jump(13); // Palette, expands onto the first active swatch
+        assert!(matches!(st.current_settings_row(), SettingsRow::PaletteColor(_)));
+        st.settings_reset_row();
+        assert_eq!(st.active_palette, Config::default().active_palette);
+        assert!(matches!(st.current_settings_row(), SettingsRow::PaletteColor(_)), "cursor stays put");
+    }
+
+    #[test]
+    fn reset_all_needs_a_second_press_to_apply() {
+        let mut st = settings_state();
+        st.caret_blink = true;
+        st.settings_reset_all();
+        assert!(st.settings_reset_all_armed());
+        assert!(st.caret_blink, "first press only arms");
+        st.settings_reset_all();
+        assert!(!st.settings_reset_all_armed());
+        assert!(!st.caret_blink);
+        assert!(st.dirty);
+    }
+
+    #[test]
+    fn reset_all_restores_every_setting_but_not_session_state() {
+        let mut st = settings_state();
+        st.default_mode = DefaultMode::Search;
+        st.inbox_icon = "★".to_string();
+        st.border_active_palette = vec!["red".to_string()];
+        st.shortcut_color = "red".to_string();
+        st.attached_color_mode = AttachedColorMode::Match;
+        st.dot_color = "blue".to_string();
+        st.groups.push(Group { name: "WORK".into(), members: vec!["a".into()], color: String::new(), inbox: false });
+        let groups_before = st.groups.clone();
+        st.settings_reset_all();
+        st.settings_reset_all();
+        for row in TOP_LEVEL_ROWS {
+            assert!(!row.is_changed(&st), "{row:?} should be back at its default");
+        }
+        assert_eq!(st.groups, groups_before, "groups are not settings");
+    }
+
+    #[test]
+    fn cancelling_reset_all_disarms_without_changing_anything() {
+        let mut st = settings_state();
+        st.caret_blink = true;
+        st.settings_reset_all();
+        st.cancel_settings_reset_all();
+        assert!(!st.settings_reset_all_armed());
+        st.settings_reset_all();
+        assert!(st.caret_blink, "a fresh press after cancelling arms again rather than applying");
     }
 }
