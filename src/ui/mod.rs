@@ -306,6 +306,7 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
         None
     };
     let create_buf = state.create_buffer().unwrap_or("");
+    let create_prefix = state.create_committed_session();
     let create_placeholder = match state.create_stage() {
         Some(CreateStage::WindowName) => "window name",
         _ => "session name",
@@ -320,7 +321,7 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
                 let section = group_ids[*si];
                 if last_section != Some(section) {
                     if create_end_target_group.is_some() && create_end_target_group == last_section {
-                        push_create_phantom_row(&mut items, create_buf, current_gutter_color, wide_numbering, raised, false, create_placeholder, blink_visible, caret);
+                        push_create_phantom_row(&mut items, create_prefix, create_buf, current_gutter_color, wide_numbering, raised, false, create_placeholder, blink_visible, caret);
                     }
                     let target = section;
                     while next_group < target {
@@ -328,7 +329,7 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
                             note_highlighted_header(&mut selected_line, &items, state, next_group);
                             if create_end_target_group == Some(next_group) {
                                 let color = group_color(&state.groups[next_group], next_group, &state.active_palette);
-                                push_create_phantom_row(&mut items, create_buf, color, wide_numbering, raised, false, create_placeholder, blink_visible, caret);
+                                push_create_phantom_row(&mut items, create_prefix, create_buf, color, wide_numbering, raised, false, create_placeholder, blink_visible, caret);
                             }
                         }
                         next_group += 1;
@@ -380,7 +381,7 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
                     AttachedColorMode::Static => attached_static_color,
                 };
                 if create_above_session.as_deref() == Some(sess.name.as_str()) {
-                    push_create_phantom_row(&mut items, create_buf, current_gutter_color, wide_numbering, raised, selected, create_placeholder, blink_visible, caret);
+                    push_create_phantom_row(&mut items, create_prefix, create_buf, current_gutter_color, wide_numbering, raised, selected, create_placeholder, blink_visible, caret);
                 }
                 items.push(recede(session_item(
                     sess,
@@ -394,6 +395,7 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
                     Some(current_gutter_color),
                     state.session_metric,
                     rename_buf,
+                    None,
                     false,
                     false,
                     state.session_swap_marker(&sess.name),
@@ -435,7 +437,7 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
     // closing point (mirroring the mid-list check above) never fired inside
     // the loop.
     if create_end_target_group.is_some() && create_end_target_group == last_section {
-        push_create_phantom_row(&mut items, create_buf, current_gutter_color, wide_numbering, raised, false, create_placeholder, blink_visible, caret);
+        push_create_phantom_row(&mut items, create_prefix, create_buf, current_gutter_color, wide_numbering, raised, false, create_placeholder, blink_visible, caret);
     }
     // Trailing empty groups (after the last session row, with no residual below).
     while next_group < state.groups.len() {
@@ -443,7 +445,7 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
             note_highlighted_header(&mut selected_line, &items, state, next_group);
             if create_end_target_group == Some(next_group) {
                 let color = group_color(&state.groups[next_group], next_group, &state.active_palette);
-                push_create_phantom_row(&mut items, create_buf, color, wide_numbering, raised, false, create_placeholder, blink_visible, caret);
+                push_create_phantom_row(&mut items, create_prefix, create_buf, color, wide_numbering, raised, false, create_placeholder, blink_visible, caret);
             }
         }
         next_group += 1;
@@ -571,7 +573,7 @@ fn draw_search(frame: &mut Frame, state: &PickerState, inner: Rect) {
                             .unwrap_or(attached_static_color),
                         AttachedColorMode::Static => attached_static_color,
                     };
-                    items.push(session_item(sess, state.is_expanded(&sess.name), selected, None, meta, state.is_dormant(&sess.name), attached_color, group_tag, None, state.session_metric, None, false, false, None, false, caret));
+                    items.push(session_item(sess, state.is_expanded(&sess.name), selected, None, meta, state.is_dormant(&sess.name), attached_color, group_tag, None, state.session_metric, None, None, false, false, None, false, caret));
                 }
                 Row::Window(si, wi) => {
                     let sess = results[*si];
@@ -719,6 +721,7 @@ fn push_quick_create_phantom_row(items: &mut Vec<ListItem<'static>>, buf: &str, 
 #[allow(clippy::too_many_arguments)]
 fn push_create_phantom_row(
     items: &mut Vec<ListItem<'static>>,
+    committed_session: Option<&str>,
     buf: &str,
     gutter_color: Color,
     wide_numbering: bool,
@@ -746,6 +749,7 @@ fn push_create_phantom_row(
             Some(gutter_color),
             SessionMetric::Hidden,
             Some(rename_buf),
+            committed_session,
             dim_buf,
             blink_visible,
             None,
@@ -1056,6 +1060,7 @@ fn session_item(
     gutter: Option<Color>,
     metric: SessionMetric,
     rename_buf: Option<&str>,
+    rename_prefix: Option<&str>,
     dim_buf: bool,
     blink_visible: bool,
     swap_marker: Option<(SwapDirection, bool)>,
@@ -1084,6 +1089,13 @@ fn session_item(
         }
         spans.push(Span::styled(format!("{dot} "), dot_style));
         spans.push(Span::styled(format!("{glyph} "), secondary(selected)));
+        if let Some(prefix) = rename_prefix {
+            // A committed earlier stage (the create prompt's session name)
+            // stays on screen, outside the blink, so the window name reads
+            // as belonging to it.
+            spans.push(Span::styled(prefix.to_string(), Style::default().add_modifier(Modifier::BOLD)));
+            spans.push(Span::styled(" > ", secondary(selected)));
+        }
         if dim_buf {
             // No caret while empty -- the blinking placeholder text itself
             // signals "type here"; the caret only appears once real typed
@@ -2430,6 +2442,31 @@ mod tests {
         let text_after_cancel = render_to_string(&st);
         assert!(!text_after_cancel.contains('▏'), "phantom row gone after cancel");
         assert!(text_after_cancel.contains("bravo"), "bravo row still renders normally after cancel");
+    }
+
+    #[test]
+    fn draw_command_create_phantom_row_keeps_session_name_in_window_stage() {
+        let sessions = vec![
+            Session { id: String::new(), name: "alpha".into(), activity: 1, created: 1, attached: false, windows: vec![] },
+        ];
+        let cfg = Config { groups: vec![Group { name: "G1".into(), members: vec!["alpha".into()], ..Default::default() }], ..Default::default() };
+        let mut st = PickerState::build(sessions, &cfg);
+        st.focus_session("alpha");
+        st.start_create_here();
+        for c in "team-split".chars() { st.create_push(c); }
+        st.create_commit();
+
+        let text = render_to_string(&st);
+        assert!(text.contains("team-split > window name"), "committed session name prefixes the window placeholder:\n{text}");
+
+        for c in "logs".chars() { st.create_push(c); }
+        let text = render_to_string(&st);
+        assert!(text.contains("team-split > logs▏"), "committed session name prefixes the typed window name:\n{text}");
+
+        st.create_back();
+        let text = render_to_string(&st);
+        assert!(text.contains("team-split▏"), "back in the session stage the name is editable again:\n{text}");
+        assert!(!text.contains("team-split >"), "no prefix once stepped back:\n{text}");
     }
 
     #[test]
