@@ -6,7 +6,7 @@
 use super::*;
 
 pub(super) const SETTINGS_FOOTER_HINT: &str =
-    "j/k move · h/l cycle · Space toggle · 1-9 jump · c color · Esc back";
+    "j/k move · h/l cycle · Space toggle · c color · r/R reset · Esc back";
 
 pub(super) fn draw_settings(frame: &mut Frame, state: &PickerState, inner: Rect) {
     let chunks = Layout::default()
@@ -34,183 +34,159 @@ pub(super) fn draw_settings(frame: &mut Frame, state: &PickerState, inner: Rect)
         if selected {
             selected_line = Some(items.len());
         }
+        let width = list_area.width;
+        let changed = row.is_changed(state);
+        let value = |text: &str| vec![Span::raw(text.to_string())];
         let line = match row {
-            SettingsRow::DefaultMode => {
-                settings_value_line(*row, "Default mode", default_mode_label(state.default_mode), selected)
-            }
-            SettingsRow::DormantNumbering => {
-                settings_value_line(
-                    *row,
-                    "Number dormant sessions",
-                    dormant_numbering_label(state.number_dormant_sessions),
-                    selected,
-                )
-            }
-            SettingsRow::RememberExpanded => {
-                settings_value_line(
-                    *row,
-                    "Remember expanded sessions",
-                    remember_expanded_label(state.remember_expanded_sessions),
-                    selected,
-                )
-            }
-            SettingsRow::SessionMetric => {
-                settings_value_line(*row, "Session metadata", session_metric_label(state.session_metric), selected)
-            }
-            SettingsRow::ClearDormantOnAttach => {
-                settings_value_line(
-                    *row,
-                    "Clear dormant on attach",
-                    clear_dormant_on_attach_label(state.clear_dormant_on_attach),
-                    selected,
-                )
-            }
-            SettingsRow::StartFocusMode => {
-                settings_value_line(
-                    *row,
-                    "Start in focus mode",
-                    start_focus_mode_label(state.start_focus_mode),
-                    selected,
-                )
-            }
-            SettingsRow::ShortcutVisibility => {
-                settings_value_line(
-                    *row,
-                    "Show shortcuts",
-                    always_show_shortcuts_label(state.always_show_shortcuts),
-                    selected,
-                )
-            }
+            SettingsRow::DefaultMode => settings_row_line(
+                *row,
+                "Default mode",
+                value(default_mode_label(state.default_mode)),
+                changed,
+                selected,
+                width,
+            ),
+            SettingsRow::DormantNumbering => settings_row_line(
+                *row,
+                "Number dormant sessions",
+                value(dormant_numbering_label(state.number_dormant_sessions)),
+                changed,
+                selected,
+                width,
+            ),
+            SettingsRow::RememberExpanded => settings_row_line(
+                *row,
+                "Remember expanded sessions",
+                value(remember_expanded_label(state.remember_expanded_sessions)),
+                changed,
+                selected,
+                width,
+            ),
+            SettingsRow::SessionMetric => settings_row_line(
+                *row,
+                "Session metadata",
+                value(session_metric_label(state.session_metric)),
+                changed,
+                selected,
+                width,
+            ),
+            SettingsRow::ClearDormantOnAttach => settings_row_line(
+                *row,
+                "Clear dormant on attach",
+                value(clear_dormant_on_attach_label(state.clear_dormant_on_attach)),
+                changed,
+                selected,
+                width,
+            ),
+            SettingsRow::StartFocusMode => settings_row_line(
+                *row,
+                "Start in focus mode",
+                value(start_focus_mode_label(state.start_focus_mode)),
+                changed,
+                selected,
+                width,
+            ),
+            SettingsRow::ShortcutVisibility => settings_row_line(
+                *row,
+                "Show shortcuts",
+                value(always_show_shortcuts_label(state.always_show_shortcuts)),
+                changed,
+                selected,
+                width,
+            ),
             SettingsRow::InboxIcon => {
-                settings_value_line(*row, "Inbox icon", &state.inbox_icon, selected)
+                settings_row_line(*row, "Inbox icon", value(&state.inbox_icon), changed, selected, width)
             }
-            SettingsRow::AttachedColor => {
-                let mut spans = vec![gutter_span()];
-                spans.extend(settings_number_span(*row, selected));
-                spans.push(Span::styled("Attached session color", Style::default().add_modifier(Modifier::BOLD)));
-                spans.push(Span::styled(
-                    format!("  {}", attached_color_mode_label(state.attached_color_mode)),
-                    secondary(selected),
-                ));
-                if state.attached_color_mode == AttachedColorMode::Static {
-                    spans.push(Span::raw("  "));
-                    spans.push(Span::styled(
-                        "██",
-                        Style::default().fg(color_from_name(&state.attached_color)),
-                    ));
-                    spans.push(Span::styled(format!(" {}", state.attached_color), secondary(selected)));
-                }
-                Line::from(spans)
-            }
-            SettingsRow::BorderColorPolicy => {
-                let mut spans = vec![gutter_span()];
-                spans.extend(settings_number_span(*row, selected));
-                spans.push(Span::styled("Border color", Style::default().add_modifier(Modifier::BOLD)));
-                spans.push(Span::styled(
-                    format!("  {}", color_policy_label(state.border_color_policy)),
-                    secondary(selected),
-                ));
-                if state.border_color_policy == ColorPolicy::Static {
-                    spans.push(Span::raw("  "));
-                    spans.push(Span::styled(
-                        "██",
-                        Style::default().fg(color_from_name(&state.border_color)),
-                    ));
-                    spans.push(Span::styled(format!(" {}", state.border_color), secondary(selected)));
-                }
-                Line::from(spans)
-            }
-            SettingsRow::BorderPalette => {
-                border_palette_row_line(
-                    SettingsRow::BorderPalette,
-                    state.border_active_palette.len(),
-                    state.border_palette_expanded(),
-                    selected,
-                )
-            }
+            SettingsRow::AttachedColor => settings_row_line(
+                *row,
+                "Attached session color",
+                mode_with_static_swatch(
+                    attached_color_mode_label(state.attached_color_mode),
+                    (state.attached_color_mode == AttachedColorMode::Static).then_some(state.attached_color.as_str()),
+                ),
+                changed,
+                selected,
+                width,
+            ),
+            SettingsRow::BorderColorPolicy => settings_row_line(
+                *row,
+                "Border color",
+                mode_with_static_swatch(
+                    color_policy_label(state.border_color_policy),
+                    (state.border_color_policy == ColorPolicy::Static).then_some(state.border_color.as_str()),
+                ),
+                changed,
+                selected,
+                width,
+            ),
+            SettingsRow::BorderPalette => settings_row_line(
+                *row,
+                &expandable_label("Border palette", state.border_palette_expanded()),
+                value(&active_count_label(state.border_active_palette.len())),
+                changed,
+                selected,
+                width,
+            ),
             SettingsRow::BorderPaletteColor(idx) => {
                 let (name, active) = &border_palette_entries[*idx];
-                let checkbox = if *active { "[x]" } else { "[ ]" };
-                Line::from(vec![
-                    gutter_span(),
-                    Span::raw("     "),
-                    Span::styled(checkbox.to_string(), secondary(selected)),
-                    Span::raw(" "),
-                    Span::styled("██", Style::default().fg(color_from_name(name))),
-                    Span::raw(" "),
-                    Span::raw(name.clone()),
-                ])
+                settings_checkbox_line(name, *active, selected)
             }
-            SettingsRow::ShortcutColor => {
-                settings_color_line(*row, "Shortcut highlight color", &state.shortcut_color, state.shortcut_color_expanded(), selected)
-            }
+            SettingsRow::ShortcutColor => settings_row_line(
+                *row,
+                &expandable_label("Shortcut highlight color", state.shortcut_color_expanded()),
+                swatch_value(&state.shortcut_color),
+                changed,
+                selected,
+                width,
+            ),
             SettingsRow::ShortcutColorOption(idx) => {
                 settings_color_option_line(ALL_NAMED_COLORS[*idx], &state.shortcut_color, selected)
             }
-            SettingsRow::DotColorMode => {
-                let mut spans = vec![gutter_span()];
-                spans.extend(settings_number_span(*row, selected));
-                spans.push(Span::styled("Active window color", Style::default().add_modifier(Modifier::BOLD)));
-                spans.push(Span::styled(
-                    format!("  {}", dot_color_mode_label(state.dot_color_mode)),
-                    secondary(selected),
-                ));
-                if state.dot_color_mode == DotColorMode::Static {
-                    spans.push(Span::raw("  "));
-                    spans.push(Span::styled(
-                        "██",
-                        Style::default().fg(color_from_name(&state.dot_color)),
-                    ));
-                    spans.push(Span::styled(format!(" {}", state.dot_color), secondary(selected)));
-                }
-                Line::from(spans)
-            }
-            SettingsRow::ColorPolicy => {
-                let mut spans = vec![gutter_span()];
-                spans.extend(settings_number_span(*row, selected));
-                spans.push(Span::styled("New group color", Style::default().add_modifier(Modifier::BOLD)));
-                spans.push(Span::styled(
-                    format!("  {}", color_policy_label(state.new_group_color_policy)),
-                    secondary(selected),
-                ));
-                if state.new_group_color_policy == ColorPolicy::Static {
-                    spans.push(Span::raw("  "));
-                    spans.push(Span::styled(
-                        "██",
-                        Style::default().fg(color_from_name(&state.static_color)),
-                    ));
-                    spans.push(Span::styled(format!(" {}", state.static_color), secondary(selected)));
-                }
-                Line::from(spans)
-            }
-            SettingsRow::Palette => {
-                let glyph = if state.palette_expanded() { "▾" } else { "▸" };
-                let mut spans = vec![gutter_span()];
-                spans.extend(settings_number_span(SettingsRow::Palette, selected));
-                spans.push(Span::styled(format!("{glyph} "), secondary(selected)));
-                spans.push(Span::styled("Group palette", Style::default().add_modifier(Modifier::BOLD)));
-                spans.push(Span::styled(format!("  {} active", state.active_palette.len()), secondary(selected)));
-                Line::from(spans)
-            }
+            SettingsRow::DotColorMode => settings_row_line(
+                *row,
+                "Active window color",
+                mode_with_static_swatch(
+                    dot_color_mode_label(state.dot_color_mode),
+                    (state.dot_color_mode == DotColorMode::Static).then_some(state.dot_color.as_str()),
+                ),
+                changed,
+                selected,
+                width,
+            ),
+            SettingsRow::ColorPolicy => settings_row_line(
+                *row,
+                "New group color",
+                mode_with_static_swatch(
+                    color_policy_label(state.new_group_color_policy),
+                    (state.new_group_color_policy == ColorPolicy::Static).then_some(state.static_color.as_str()),
+                ),
+                changed,
+                selected,
+                width,
+            ),
+            SettingsRow::Palette => settings_row_line(
+                *row,
+                &expandable_label("Group palette", state.palette_expanded()),
+                value(&active_count_label(state.active_palette.len())),
+                changed,
+                selected,
+                width,
+            ),
             SettingsRow::PaletteColor(idx) => {
                 let (name, active) = &palette_entries[*idx];
-                let checkbox = if *active { "[x]" } else { "[ ]" };
-                Line::from(vec![
-                    gutter_span(),
-                    Span::raw("     "),
-                    Span::styled(checkbox.to_string(), secondary(selected)),
-                    Span::raw(" "),
-                    Span::styled("██", Style::default().fg(color_from_name(name))),
-                    Span::raw(" "),
-                    Span::raw(name.clone()),
-                ])
+                settings_checkbox_line(name, *active, selected)
             }
             SettingsRow::CaretStyle => {
-                settings_value_line(*row, "Caret style", state.caret_style.glyph(), selected)
+                settings_row_line(*row, "Caret style", value(state.caret_style.glyph()), changed, selected, width)
             }
-            SettingsRow::CaretBlink => {
-                settings_value_line(*row, "Caret blink", caret_blink_label(state.caret_blink), selected)
-            }
+            SettingsRow::CaretBlink => settings_row_line(
+                *row,
+                "Caret blink",
+                value(caret_blink_label(state.caret_blink)),
+                changed,
+                selected,
+                width,
+            ),
         };
         let dim_unused_palette = match row {
             SettingsRow::BorderPalette | SettingsRow::BorderPaletteColor(_) => {
@@ -235,7 +211,12 @@ pub(super) fn draw_settings(frame: &mut Frame, state: &PickerState, inner: Rect)
     let footer = Paragraph::new(vec![
         Line::from(Span::styled(rule, Style::default().fg(DIM))),
         description_line(&current_description, color_from_name(&state.shortcut_color)),
-        shortcut_hint_line(state, SETTINGS_FOOTER_HINT),
+        match state.settings_reset_all_warning() {
+            Some(warning) => {
+                Line::from(Span::styled(warning, Style::default().fg(WARNING).add_modifier(Modifier::BOLD)))
+            }
+            None => shortcut_hint_line(state, SETTINGS_FOOTER_HINT),
+        },
     ]);
     frame.render_widget(footer, footer_area);
 }
@@ -308,40 +289,83 @@ fn push_settings_section_header(items: &mut Vec<ListItem<'static>>, label: &str,
     items.push(settings_section_header_item(label, color, width));
 }
 
-fn settings_value_line(row: SettingsRow, label: &str, value: &str, selected: bool) -> Line<'static> {
+/// Marks a value that differs from its default, in front of the value and
+/// in the same accent color the value itself takes on.
+const CHANGED_MARKER: &str = "\u{2022} ";
+const CHANGED_COLOR: Color = Color::Yellow;
+
+/// Render a top-level Settings row: gutter, jump number and bold label on
+/// the left, the value flush against the right edge (one cell of padding).
+/// A value that differs from its default is drawn in `CHANGED_COLOR` behind
+/// a `CHANGED_MARKER`; spans that already carry a color (swatches) keep it.
+fn settings_row_line(
+    row: SettingsRow,
+    label: &str,
+    value: Vec<Span<'static>>,
+    changed: bool,
+    selected: bool,
+    width: u16,
+) -> Line<'static> {
     let mut spans = vec![gutter_span()];
     spans.extend(settings_number_span(row, selected));
     spans.push(Span::styled(label.to_string(), Style::default().add_modifier(Modifier::BOLD)));
-    spans.push(Span::styled(format!("  {value}"), secondary(selected)));
+    let value_style = if changed { Style::default().fg(CHANGED_COLOR) } else { secondary(selected) };
+    let mut right: Vec<Span<'static>> = Vec::new();
+    if changed {
+        right.push(Span::styled(CHANGED_MARKER, Style::default().fg(CHANGED_COLOR)));
+    }
+    right.extend(value.into_iter().map(|span| {
+        if span.style.fg.is_some() { span } else { span.style(value_style) }
+    }));
+    let used: usize = spans.iter().chain(right.iter()).map(Span::width).sum();
+    let gap = (width as usize).saturating_sub(used + 1).max(2);
+    spans.push(Span::raw(" ".repeat(gap)));
+    spans.extend(right);
     Line::from(spans)
 }
 
-/// Render the collapsed `BorderPalette` row: expand glyph, bold label, and
-/// an "N active" count. Same shape as the inline `Palette` row in
-/// `draw_settings`, extracted so its text is independently testable.
-fn border_palette_row_line(row: SettingsRow, active_count: usize, expanded: bool, selected: bool) -> Line<'static> {
-    let glyph = if expanded { "▾" } else { "▸" };
-    let mut spans = vec![gutter_span()];
-    spans.extend(settings_number_span(row, selected));
-    spans.push(Span::styled(format!("{glyph} "), secondary(selected)));
-    spans.push(Span::styled("Border palette", Style::default().add_modifier(Modifier::BOLD)));
-    spans.push(Span::styled(format!("  {active_count} active"), secondary(selected)));
-    Line::from(spans)
+/// A label prefixed with its expand/collapse glyph, for a row that owns a
+/// child list (the two palettes and Shortcut highlight color).
+fn expandable_label(label: &str, expanded: bool) -> String {
+    let glyph = if expanded { "\u{25be}" } else { "\u{25b8}" };
+    format!("{glyph} {label}")
 }
 
-/// Render a collapsed single-color settings row: a gutter bar, an expand
-/// glyph, the bold label, a swatch, and the color's name. Used by Shortcut
-/// highlight color, the one remaining row with an expandable direct-pick list.
-fn settings_color_line(row: SettingsRow, label: &str, color_name: &str, expanded: bool, selected: bool) -> Line<'static> {
-    let glyph = if expanded { "▾" } else { "▸" };
-    let mut spans = vec![gutter_span()];
-    spans.extend(settings_number_span(row, selected));
-    spans.push(Span::styled(format!("{glyph} "), secondary(selected)));
-    spans.push(Span::styled(label.to_string(), Style::default().add_modifier(Modifier::BOLD)));
-    spans.push(Span::raw("  "));
-    spans.push(Span::styled("██", Style::default().fg(color_from_name(color_name))));
-    spans.push(Span::styled(format!(" {color_name}"), secondary(selected)));
-    Line::from(spans)
+fn active_count_label(count: usize) -> String {
+    format!("{count} active")
+}
+
+/// A color swatch followed by the color's name.
+fn swatch_value(color_name: &str) -> Vec<Span<'static>> {
+    vec![
+        Span::styled("\u{2588}\u{2588}", Style::default().fg(color_from_name(color_name))),
+        Span::raw(format!(" {color_name}")),
+    ]
+}
+
+/// A mode label, followed by its swatch while the mode is Static.
+fn mode_with_static_swatch(mode_label: &str, static_color: Option<&str>) -> Vec<Span<'static>> {
+    let mut spans = vec![Span::raw(mode_label.to_string())];
+    if let Some(color) = static_color {
+        spans.push(Span::raw("  "));
+        spans.extend(swatch_value(color));
+    }
+    spans
+}
+
+/// Render one child row of an expanded palette checklist: a `[x]`/`[ ]`
+/// checkbox, a swatch, and the name.
+fn settings_checkbox_line(name: &str, active: bool, selected: bool) -> Line<'static> {
+    let checkbox = if active { "[x]" } else { "[ ]" };
+    Line::from(vec![
+        gutter_span(),
+        Span::raw("     "),
+        Span::styled(checkbox.to_string(), secondary(selected)),
+        Span::raw(" "),
+        Span::styled("\u{2588}\u{2588}", Style::default().fg(color_from_name(name))),
+        Span::raw(" "),
+        Span::raw(name.to_string()),
+    ])
 }
 
 /// Render one child row of an expanded single-color picker: a gutter bar, a
@@ -479,11 +503,76 @@ mod tests {
         assert_eq!(line.spans[0].style.fg, None);
     }
 
+    fn rendered(line: &Line) -> String {
+        line.spans.iter().map(|s| s.content.as_ref()).collect()
+    }
+
+    #[test]
+    fn settings_footer_hint_and_reset_warning_fit_the_card() {
+        let mut st = crate::model::PickerState::build(vec![], &crate::store::Config::default());
+        st.settings_reset_all();
+        let warning = st.settings_reset_all_warning().unwrap();
+        for text in [SETTINGS_FOOTER_HINT, warning] {
+            assert!(text.chars().count() <= 78, "{text:?} must fit the 78-col footer at real 84-col popup width");
+        }
+    }
+
+    #[test]
+    fn settings_row_line_pushes_the_value_flush_right_with_one_cell_of_padding() {
+        let line = settings_row_line(SettingsRow::DefaultMode, "Default mode", vec![Span::raw("Command")], false, false, 40);
+        let text = rendered(&line);
+        assert_eq!(line.width(), 39, "fills the row except the trailing padding cell");
+        let left = "\u{2502}1  Default mode";
+        let gap = 39 - left.chars().count() - "Command".len();
+        assert_eq!(text, format!("{left}{}Command", " ".repeat(gap)));
+    }
+
+    #[test]
+    fn settings_row_line_marks_a_changed_value_in_the_accent_color() {
+        let line = settings_row_line(SettingsRow::CaretBlink, "Caret blink", vec![Span::raw("On")], true, false, 40);
+        let marker = line.spans.iter().find(|s| s.content == CHANGED_MARKER).expect("changed marker present");
+        assert_eq!(marker.style.fg, Some(CHANGED_COLOR));
+        let value = line.spans.last().unwrap();
+        assert_eq!(value.content, "On");
+        assert_eq!(value.style.fg, Some(CHANGED_COLOR));
+        assert_eq!(line.width(), 39, "the marker is absorbed into the gap, not pushed past the edge");
+    }
+
+    #[test]
+    fn settings_row_line_leaves_an_unchanged_value_unmarked_and_dim() {
+        let line = settings_row_line(SettingsRow::CaretBlink, "Caret blink", vec![Span::raw("Off")], false, false, 40);
+        assert!(!rendered(&line).contains(CHANGED_MARKER.trim()));
+        assert_eq!(line.spans.last().unwrap().style.fg, Some(DIM));
+    }
+
+    #[test]
+    fn a_changed_swatch_keeps_its_own_color() {
+        let line = settings_row_line(
+            SettingsRow::BorderColorPolicy,
+            "Border color",
+            mode_with_static_swatch("Static", Some("red")),
+            true,
+            false,
+            60,
+        );
+        let swatch = line.spans.iter().find(|s| s.content == "\u{2588}\u{2588}").unwrap();
+        assert_eq!(swatch.style.fg, Some(Color::Red));
+        assert_eq!(line.spans.last().unwrap().content, " red");
+        assert_eq!(line.spans.last().unwrap().style.fg, Some(CHANGED_COLOR));
+    }
+
     #[test]
     fn draw_settings_shows_border_palette_row_with_active_count() {
-        let line = border_palette_row_line(SettingsRow::BorderPalette, 6, false, false);
-        let rendered = line.spans.iter().map(|s| s.content.as_ref()).collect::<String>();
-        assert!(rendered.contains("Border palette"));
-        assert!(rendered.contains("6 active"));
+        let line = settings_row_line(
+            SettingsRow::BorderPalette,
+            &expandable_label("Border palette", false),
+            vec![Span::raw(active_count_label(6))],
+            false,
+            false,
+            60,
+        );
+        let text = rendered(&line);
+        assert!(text.contains("\u{25b8} Border palette"));
+        assert!(text.ends_with("6 active"));
     }
 }

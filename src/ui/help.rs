@@ -50,6 +50,8 @@ const SETTINGS_SHORTCUTS: &[(&str, &str)] = &[
     ("Enter / Space", "activate row"),
     ("1-9,0 / Alt+1-9,0", "jump to row N (1-20)"),
     ("c", "cycle color swatch"),
+    ("r", "reset row to default"),
+    ("R", "reset all settings (press twice)"),
     ("Esc / q / ,", "back to command mode"),
 ];
 
