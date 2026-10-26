@@ -81,6 +81,7 @@ bind C new-session \; command-prompt -I "" "rename-session '%%'" \; command-prom
 | `Ctrl-d` | Undormant the selected session and all of its windows |
 | `⇧D` | Undormant every session and window in the picker |
 | `f` | Toggle focus mode (hide dormant sessions and empty groups) |
+| `⇧F` | Peek: temporarily show what focus mode hides, without saving it |
 | `/` | Enter search mode (type to filter, `↵` switch, `Esc` back) |
 | `?` | Show every shortcut for the current altitude or mode (works at session altitude, group altitude, and in settings; `Esc`/`q`/`?` closes it) |
 | `q` / `Esc` | Quit |
@@ -149,6 +150,7 @@ You will see a small reminder like `8 sessions hidden` while focus mode is activ
 
 Dormant sessions and focus mode persist across popups until turned off.
 Press `f` again to exit focus mode and everything will be restored exactly as it was.
+To grab a hidden session just this once, press `⇧F` to peek: everything shows, but the next popup opens in focus mode again.
 Press `d` again on a dormant session to mark it active again.
 `Ctrl-d` wakes up the selected session and every one of its windows in one press, and `⇧D` is the nuclear option: it clears every dormant flag in the picker at once, instantly and with no confirmation.
 

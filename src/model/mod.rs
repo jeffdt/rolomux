@@ -51,6 +51,8 @@ pub struct PickerState {
     dormant: HashSet<String>,
     dormant_windows: HashSet<(String, u32)>,
     focus_mode: bool,
+    /// Session-only suspension of focus mode; never persisted.
+    peeking: bool,
     pub start_focus_mode: StartFocusMode,
     pub cursor: usize,
     pub dirty: bool,
@@ -168,6 +170,7 @@ impl PickerState {
                 StartFocusMode::Always => true,
                 StartFocusMode::Never => false,
             },
+            peeking: false,
             cursor: 0,
             dirty: false,
             mode: config.default_mode.as_mode(),
@@ -324,7 +327,7 @@ impl PickerState {
                 }
             }
         }
-        if self.focus_mode {
+        if self.focus_mode() {
             out.retain(|s| !self.dormant.contains(&s.name) || s.attached);
         }
         out
@@ -443,7 +446,7 @@ impl PickerState {
                 crate::store::DormantWindow { session: session.clone(), index: *index, id }
             })
             .collect();
-        config.focus_mode = self.focus_mode();
+        config.focus_mode = self.focus_mode;
         config.start_focus_mode = self.start_focus_mode;
         config.default_mode = self.default_mode;
         config.number_dormant_sessions = self.number_dormant_sessions;

@@ -15,6 +15,7 @@ mod settings;
 const ACCENT: Color = Color::Cyan;
 const DIM: Color = Color::DarkGray;
 const WARNING: Color = Color::Red;
+const PEEK: Color = Color::Yellow;
 const SEL_BG: Color = Color::DarkGray;
 /// Default column where a session's metadata begins, used when every visible
 /// name is short. It is also the floor for the shared metadata column.
@@ -479,7 +480,7 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
         None => shortcut_hint_line(state, &command_footer_hint(state)),
     };
     let footer = Paragraph::new(vec![
-        Line::from(Span::styled(footer_rule(footer_area.width, state), Style::default().fg(DIM))),
+        footer_rule_line(footer_area.width, state),
         hint_line,
     ]);
     frame.render_widget(footer, footer_area);
@@ -601,7 +602,7 @@ fn draw_search(frame: &mut Frame, state: &PickerState, inner: Rect) {
     frame.render_stateful_widget(list, chunks[1], &mut list_state);
 
     let footer = Paragraph::new(vec![
-        Line::from(Span::styled(footer_rule(chunks[2].width, state), Style::default().fg(DIM))),
+        footer_rule_line(chunks[2].width, state),
         shortcut_hint_line(state, &search_footer_hint(state)),
     ]);
     frame.render_widget(footer, chunks[2]);
@@ -904,15 +905,22 @@ fn hidden_status(sessions: usize, windows: usize) -> String {
     format!("{sessions} {session_label}, {windows} {window_label} hidden")
 }
 
+/// The footer divider, tinted `PEEK` while peeking so the temporary
+/// suspension of focus mode is hard to miss.
+fn footer_rule_line(width: u16, state: &PickerState) -> Line<'static> {
+    let color = if state.peeking() { PEEK } else { DIM };
+    Line::from(Span::styled(footer_rule(width, state), Style::default().fg(color)))
+}
+
 fn footer_rule(width: u16, state: &PickerState) -> String {
     let width = width as usize;
-    if !state.focus_mode() {
+    let label = if state.peeking() {
+        "─ peeking · ⇧F to hide ".to_string()
+    } else if state.focus_mode() {
+        format!("─ {} ", hidden_status(state.hidden_dormant_count(), state.hidden_dormant_window_count()))
+    } else {
         return "─".repeat(width);
-    }
-    let label = format!(
-        "─ {} ",
-        hidden_status(state.hidden_dormant_count(), state.hidden_dormant_window_count())
-    );
+    };
     let label_width = label.chars().count();
     if label_width >= width {
         return label.chars().take(width).collect();
@@ -1498,6 +1506,27 @@ mod tests {
     fn footer_hint_gains_x_kill_and_still_fits_84_columns() {
         assert!(FOOTER_HINT.contains("x kill"));
         assert!(FOOTER_HINT.chars().count() <= 78, "FOOTER_HINT must fit the 78-col footer at real 84-col popup width");
+    }
+
+    #[test]
+    fn peeking_footer_rule_renders_in_peek_color() {
+        let sessions = vec![
+            Session { id: String::new(), name: "alpha".into(), activity: 1, created: 1, attached: false, windows: vec![] },
+            Session { id: String::new(), name: "beta".into(), activity: 1, created: 2, attached: false, windows: vec![] },
+        ];
+        let cfg = Config { groups: vec![], dormant: vec!["beta".into()], focus_mode: true, ..Default::default() };
+        let mut state = PickerState::build(sessions, &cfg);
+        let rule_color = |state: &PickerState| {
+            let backend = TestBackend::new(80, 20);
+            let mut terminal = Terminal::new(backend).unwrap();
+            terminal.draw(|f| draw(f, state)).unwrap();
+            let buf = terminal.backend().buffer().clone();
+            (0..buf.area.height).find_map(|y| find_text_x(&buf, y, "hidden").or_else(|| find_text_x(&buf, y, "peeking")).map(|x| buf[(x, y)].style().fg))
+        };
+        assert_eq!(rule_color(&state), Some(Some(DIM)));
+        state.toggle_peek();
+        assert!(render_to_string(&state).contains("peeking"));
+        assert_eq!(rule_color(&state), Some(Some(PEEK)));
     }
 
     #[test]

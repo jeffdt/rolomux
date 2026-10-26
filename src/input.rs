@@ -22,6 +22,7 @@ pub enum Input {
     UndormantSession,
     UndormantAll,
     ToggleFocusMode,
+    TogglePeek,
     OpenHelp,
     Rename,
     QuickCreate,
@@ -190,6 +191,7 @@ pub fn map_key(key: KeyEvent) -> Input {
         KeyCode::Char('K') | KeyCode::Up if shift => Input::MoveUp,
         KeyCode::Char('J') | KeyCode::Down if shift => Input::MoveDown,
         KeyCode::Char('D') if shift => Input::UndormantAll,
+        KeyCode::Char('F') if shift => Input::TogglePeek,
         KeyCode::Char('N') if shift => Input::QuickCreate,
         KeyCode::Char('x') => Input::Kill,
         KeyCode::Char('j') | KeyCode::Down => Input::Down,
@@ -297,6 +299,7 @@ mod tests {
         assert_eq!(map_key(key(KeyCode::Enter)), Input::Select);
         assert_eq!(map_key(key(KeyCode::Char('g'))), Input::EnterGroups);
         assert_eq!(map_key(key(KeyCode::Char('p'))), Input::None);
+        assert_eq!(map_key(shift(KeyCode::Char('F'))), Input::TogglePeek);
         assert_eq!(map_key(key(KeyCode::Char('q'))), Input::Quit);
         assert_eq!(map_key(key(KeyCode::Esc)), Input::Quit);
         assert_eq!(map_key(shift(KeyCode::Char('K'))), Input::MoveUp);
