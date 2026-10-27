@@ -20,6 +20,7 @@ const COMMAND_SHORTCUTS: &[(&str, &str)] = &[
     (",", "settings"),
     ("z", "expand/collapse all"),
     ("f", "toggle focus mode (hide dormant)"),
+    ("⇧F", "peek past focus mode (not saved)"),
     ("d", "toggle dormant"),
     ("Ctrl-d", "clear dormant for this session"),
     ("⇧D", "clear dormant for everything"),

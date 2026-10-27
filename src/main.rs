@@ -513,6 +513,7 @@ fn event_loop(
                             Input::UndormantSession => state.undormant_session(),
                             Input::UndormantAll => state.undormant_all(),
                             Input::ToggleFocusMode => state.toggle_focus_mode(),
+                            Input::TogglePeek => state.toggle_peek(),
                             Input::OpenHelp => state.open_help(),
                             Input::Rename => state.start_rename(),
                             Input::QuickCreate => state.start_quick_create(),

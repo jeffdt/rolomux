@@ -35,17 +35,23 @@ impl PickerState {
     /// (an attached-dormant session still applies this filter to its
     /// windows once shown).
     pub fn window_visible(&self, session: &str, index: u32, active: bool) -> bool {
-        !self.focus_mode || !self.is_window_dormant(session, index) || active
+        !self.focus_mode() || !self.is_window_dormant(session, index) || active
     }
 
+    /// Whether focus filtering is in effect right now: the persisted
+    /// preference, unless a peek has temporarily suspended it.
     pub fn focus_mode(&self) -> bool {
-        self.focus_mode
+        self.focus_mode && !self.peeking
+    }
+
+    pub fn peeking(&self) -> bool {
+        self.peeking
     }
 
     /// Count of dormant sessions actually hidden by focus mode -- excludes
     /// the attached session, which stays visible even while dormant.
     pub fn hidden_dormant_count(&self) -> usize {
-        if !self.focus_mode {
+        if !self.focus_mode() {
             return 0;
         }
         self.all.iter().filter(|s| self.is_dormant(&s.name) && !s.attached).count()
@@ -58,7 +64,7 @@ impl PickerState {
     /// more sessions are expanded; equals the true total once every
     /// session is expanded. Feeds the footer's hidden-count wording.
     pub fn hidden_dormant_window_count(&self) -> usize {
-        if !self.focus_mode {
+        if !self.focus_mode() {
             return 0;
         }
         self.all
@@ -74,7 +80,7 @@ impl PickerState {
     }
 
     pub(super) fn session_visible(&self, name: &str) -> bool {
-        !self.focus_mode || !self.is_dormant(name) || self.is_attached(name)
+        !self.focus_mode() || !self.is_dormant(name) || self.is_attached(name)
     }
 
     /// Toggle whether focus mode (hiding dormant sessions, and any group left
@@ -82,10 +88,29 @@ impl PickerState {
     /// it survives closing and reopening the popup, same as the dormant set
     /// itself.
     pub fn toggle_focus_mode(&mut self) {
+        self.refilter(|st| {
+            st.focus_mode = !st.focus_mode;
+            st.peeking = false;
+            st.dirty = true;
+        });
+    }
+
+    /// Temporarily show what focus mode hides, without touching the saved
+    /// `focus_mode` preference (issue #191), so switching to a hidden
+    /// session doesn't leave focus mode off on the next popup. No-op unless
+    /// focus mode is on.
+    pub fn toggle_peek(&mut self) {
+        if self.focus_mode {
+            self.refilter(|st| st.peeking = !st.peeking);
+        }
+    }
+
+    /// Apply a change to the visible set, keeping both cursors on the
+    /// session they were on when it survives the change.
+    fn refilter(&mut self, change: impl FnOnce(&mut Self)) {
         let command_focus = self.cursor_session_name();
         let search_focus = self.search_cursor_name();
-        self.focus_mode = !self.focus_mode;
-        self.dirty = true;
+        change(self);
         if let Some(name) = command_focus.as_deref().filter(|name| self.session_visible(name)) {
             self.focus_session(name);
         } else {
@@ -730,5 +755,44 @@ mod tests {
         let visible: Vec<&str> = state.ordered().iter().map(|s| s.name.as_str()).collect();
         assert_eq!(visible, vec!["beta"]);
         assert_eq!(state.cursor_session_name().as_deref(), Some("beta"));
+    }
+
+    #[test]
+    fn peek_shows_hidden_sessions_without_changing_saved_focus_mode() {
+        let sessions = vec![s("alpha", 1, 1), s("beta", 1, 2)];
+        let mut cfg = Config { groups: vec![], dormant: vec!["beta".into()], focus_mode: true, ..Default::default() };
+        let mut state = PickerState::build(sessions, &cfg);
+        assert_eq!(state.ordered().len(), 1);
+
+        state.toggle_peek();
+        assert!(state.peeking());
+        assert!(!state.focus_mode());
+        assert_eq!(state.ordered().len(), 2);
+        assert_eq!(state.hidden_dormant_count(), 0);
+
+        state.apply_to_config(&mut cfg);
+        assert!(cfg.focus_mode, "peek never touches the persisted focus preference");
+
+        state.toggle_peek();
+        assert_eq!(state.ordered().len(), 1);
+    }
+
+    #[test]
+    fn peek_is_a_noop_outside_focus_mode() {
+        let cfg = Config { groups: vec![], dormant: vec!["beta".into()], ..Default::default() };
+        let mut state = PickerState::build(vec![s("alpha", 1, 1), s("beta", 1, 2)], &cfg);
+        state.toggle_peek();
+        assert!(!state.peeking());
+    }
+
+    #[test]
+    fn toggling_focus_mode_ends_a_peek() {
+        let cfg = Config { groups: vec![], dormant: vec!["beta".into()], focus_mode: true, ..Default::default() };
+        let mut state = PickerState::build(vec![s("alpha", 1, 1), s("beta", 1, 2)], &cfg);
+        state.toggle_peek();
+        state.toggle_focus_mode();
+        assert!(!state.peeking());
+        state.toggle_focus_mode();
+        assert!(state.focus_mode(), "re-entering focus mode filters again rather than resuming the peek");
     }
 }
