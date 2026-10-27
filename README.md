@@ -6,9 +6,9 @@
 ![Platform](https://img.shields.io/badge/platform-macOS%20(Apple%20Silicon)-lightgrey)
 ![Vibe coded](https://img.shields.io/badge/vibe%20coded-100%25-ff69b4)
 
-A slick tmux session picker that sorts your sessions into color-coded groups to bring you terminal zen.
+A slick tmux session picker that sorts your sessions into color-coded groups for a tidier terminal.
 
-Your terminal is a workshop. As a woodworker, I've learned that a tidy workshop is easier to work and think in. Every tool needs a home, and should be put away when you're not using it. Rolomux helps you keep your terminal tidy, giving you a home for every tmux session, keeping your active projects front and center on your workbench, and helping you put things back on the shelf when you aren't using them.
+Your terminal is your workshop. In a well-kept workshop, every tool has a home and goes back there when the job is done. Rolomux gives every tmux session the same treatment: active projects on the workbench, everything else on the shelf.
 
 ![rolomux session picker: sorting a session into place, expanding its windows, and jumping directly into one](docs/images/organize.gif)
 
