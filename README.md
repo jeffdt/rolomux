@@ -161,12 +161,21 @@ Think of this as one more tool in your kit to keep your workbench clear and your
 #### Cycling without the picker
 
 `rolomux --next` and `rolomux --prev` switch straight to the next or previous non-dormant session in picker order, wrapping around at the ends, without opening the popup.
-Bind them in `~/.tmux.conf` to hop between sessions that might need you (here as the shifted versions of tmux's `n`/`p` window keys):
+Bind them in `~/.tmux.conf` to hop between sessions that might need you. For a single hop per prefix press, the plain form is enough:
 
 ```tmux
-bind -r N run-shell -b "rolomux --next"
-bind -r P run-shell -b "rolomux --prev"
+bind N run-shell -b "rolomux --next"
+bind P run-shell -b "rolomux --prev"
 ```
+
+To keep tapping after one prefix press (`-r`), add `--target-only`. rolomux then writes the target to the `@rolomux_target` option and the binding does the switch itself; a switch made by rolomux directly would drop tmux out of the prefix table and end the repeat. This needs tmux 3.2+:
+
+```tmux
+bind -r C-n set -gu @rolomux_target \; run-shell "rolomux --next --target-only" \; run-shell -C 'switch-client -t "#{@rolomux_target}"'
+bind -r C-p set -gu @rolomux_target \; run-shell "rolomux --prev --target-only" \; run-shell -C 'switch-client -t "#{@rolomux_target}"'
+```
+
+If the repeat window closes before your next tap, raise tmux's `repeat-time` (500ms by default), e.g. `set -g repeat-time 800`.
 
 ### Settings
 
