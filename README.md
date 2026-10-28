@@ -96,6 +96,8 @@ Every `⇧J`/`⇧K` press also flashes a brief `▲`/`▼` next to whichever row
 
 ### Groups
 
+![rolomux group altitude: creating a group, coloring it, moving a session into it, and reordering it to the top](docs/images/groups.gif)
+
 Press `g` to raise the cursor to group altitude: the cursor moves up onto group headers while your sessions stay visible underneath, dimmed to show they're not the current focus. Group structure (create, rename, recolor, reorder, delete) all happen in place, with your sessions still on screen for reference. `g` or `Esc` descends back to exactly the session or window you were on.
 
 | Key | Action |
@@ -157,6 +159,8 @@ Press `d` again on a dormant session to mark it active again.
 Think of this as one more tool in your kit to keep your workbench clear and your focus intact.
 
 ### Settings
+
+![rolomux settings: behavior, color, and appearance preferences, with a changed setting marked](docs/images/settings.png)
 
 Press `,` to open Settings, a full-screen view of picker-wide preferences, grouped into three colored sections. A description of the currently selected setting is always shown at the bottom. Any setting you've changed from its default is marked with a yellow `•`, and `r` puts it back.
 Each row shows a jump number in its gutter; pressing it jumps straight to that row and flips it, the same as moving there with `j`/`k` and pressing `Enter` -- handy for a setting you flip on and off often, like **Remember expanded sessions**.
