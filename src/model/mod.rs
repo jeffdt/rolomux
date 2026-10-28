@@ -581,6 +581,26 @@ impl PickerState {
             .map(|s| Action::SwitchSession(s.name.clone()))
     }
 
+    /// Switch action for the next (`delta` 1) or previous (`delta` -1)
+    /// non-dormant session after the current one in visible order, wrapping
+    /// at the ends. Backs the UI-less `--next`/`--prev` flags. Dormant
+    /// sessions are always skipped, even with focus mode off, since the point
+    /// is landing on sessions with live work. `current` falls back to the
+    /// `attached` flag, same as initial focus. `None` when no other candidate
+    /// exists.
+    pub fn cycle_action(&self, current: Option<&str>, delta: i32) -> Option<Action> {
+        let ordered = self.ordered();
+        let current = current.or_else(|| ordered.iter().find(|s| s.attached).map(|s| s.name.as_str()));
+        let len = ordered.len() as i32;
+        let start = current
+            .and_then(|name| ordered.iter().position(|s| s.name == name))
+            .map_or(if delta > 0 { -1 } else { len }, |i| i as i32);
+        (1..=len)
+            .map(|step| ordered[(start + delta * step).rem_euclid(len) as usize])
+            .find(|s| Some(s.name.as_str()) != current && !self.is_dormant(&s.name))
+            .map(|s| Action::SwitchSession(s.name.clone()))
+    }
+
     /// Expand every session, or collapse all if everything is already expanded.
     /// Keeps the cursor on the same session.
     pub fn toggle_all(&mut self) {
@@ -676,6 +696,55 @@ mod tests {
     use super::test_support::*;
     use super::*;
     use crate::store::Config;
+
+    fn cycle_target(st: &PickerState, current: Option<&str>, delta: i32) -> Option<String> {
+        match st.cycle_action(current, delta)? {
+            Action::SwitchSession(name) => Some(name),
+            other => panic!("unexpected {other:?}"),
+        }
+    }
+
+    #[test]
+    fn cycle_moves_through_visible_order_with_wraparound() {
+        let st = grouped_state(); // order: a, b, c
+        assert_eq!(cycle_target(&st, Some("a"), 1).as_deref(), Some("b"));
+        assert_eq!(cycle_target(&st, Some("c"), 1).as_deref(), Some("a"));
+        assert_eq!(cycle_target(&st, Some("a"), -1).as_deref(), Some("c"));
+        assert_eq!(cycle_target(&st, Some("b"), -1).as_deref(), Some("a"));
+    }
+
+    #[test]
+    fn cycle_skips_dormant_even_without_focus_mode() {
+        let mut st = grouped_state();
+        st.dormant.insert("b".into());
+        assert_eq!(cycle_target(&st, Some("a"), 1).as_deref(), Some("c"));
+        assert_eq!(cycle_target(&st, Some("c"), -1).as_deref(), Some("a"));
+    }
+
+    #[test]
+    fn cycle_from_dormant_current_still_advances() {
+        let mut st = grouped_state();
+        st.dormant.insert("b".into());
+        assert_eq!(cycle_target(&st, Some("b"), 1).as_deref(), Some("c"));
+    }
+
+    #[test]
+    fn cycle_returns_none_when_nothing_else_is_active() {
+        let mut st = grouped_state();
+        st.dormant.insert("b".into());
+        st.dormant.insert("c".into());
+        assert_eq!(cycle_target(&st, Some("a"), 1), None);
+    }
+
+    #[test]
+    fn cycle_falls_back_to_attached_then_ends() {
+        let mut st = grouped_state();
+        st.all.iter_mut().find(|s| s.name == "b").unwrap().attached = true;
+        assert_eq!(cycle_target(&st, None, 1).as_deref(), Some("c"));
+        st.all.iter_mut().for_each(|s| s.attached = false);
+        assert_eq!(cycle_target(&st, None, 1).as_deref(), Some("a"));
+        assert_eq!(cycle_target(&st, None, -1).as_deref(), Some("c"));
+    }
 
     #[test]
     fn expand_session_marks_dirty_only_when_remembering() {

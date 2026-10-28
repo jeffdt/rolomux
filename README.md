@@ -158,6 +158,16 @@ Press `d` again on a dormant session to mark it active again.
 
 Think of this as one more tool in your kit to keep your workbench clear and your focus intact.
 
+#### Cycling without the picker
+
+`rolomux --next` and `rolomux --prev` switch straight to the next or previous non-dormant session in picker order, wrapping around at the ends, without opening the popup.
+Bind them in `~/.tmux.conf` to hop between sessions that might need you (here as the shifted versions of tmux's `n`/`p` window keys):
+
+```tmux
+bind -r N run-shell -b "rolomux --next"
+bind -r P run-shell -b "rolomux --prev"
+```
+
 ### Settings
 
 ![rolomux settings: behavior, color, and appearance preferences, with a changed setting marked](docs/images/settings.png)

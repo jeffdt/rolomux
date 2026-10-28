@@ -25,6 +25,8 @@ rolomux - a fast tmux session picker
 
 Usage:
   rolomux            Launch the picker (intended via `tmux popup -E`)
+  rolomux --next     Switch to the next visible non-dormant session, no UI
+  rolomux --prev     Switch to the previous visible non-dormant session, no UI
   rolomux --version  Print version and exit
   rolomux --help     Print this help and exit
 
@@ -43,8 +45,11 @@ const SWAP_INDICATOR_TICK: Duration = Duration::from_millis(50);
 const BLINK_TICK: Duration = Duration::from_millis(100);
 
 fn main() -> io::Result<()> {
+    let mut cycle: Option<i32> = None;
     if let Some(arg) = std::env::args().nth(1) {
         match arg.as_str() {
+            "--next" => cycle = Some(1),
+            "--prev" => cycle = Some(-1),
             "-V" | "--version" => {
                 println!("rolomux {}", env!("CARGO_PKG_VERSION"));
                 return Ok(());
@@ -86,7 +91,10 @@ fn main() -> io::Result<()> {
         return Ok(()); // nothing to pick
     }
 
-    let action = run_ui(&mut state, &tmux, &mut config, &path)?;
+    let action = match cycle {
+        Some(delta) => state.cycle_action(gathered.current.as_deref(), delta),
+        None => run_ui(&mut state, &tmux, &mut config, &path)?,
+    };
 
     if state.dirty {
         state.apply_to_config(&mut config);
