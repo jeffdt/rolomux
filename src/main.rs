@@ -110,7 +110,10 @@ fn main() -> io::Result<()> {
         (_, action, _) => action,
     };
     if let Some(action) = action {
-        let _ = if target_only { publish_target(&tmux, &action) } else { apply_action(&tmux, &action) };
+        let _ = match (target_only, &action) {
+            (true, Action::SwitchSession(name)) => publish_target(&tmux, name),
+            _ => apply_action(&tmux, &action),
+        };
     }
     Ok(())
 }

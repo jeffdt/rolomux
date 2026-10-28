@@ -371,20 +371,12 @@ pub fn apply_action(t: &dyn Tmux, action: &Action) -> io::Result<()> {
     }
 }
 
-/// tmux option `--target-only` writes the resolved switch target into, for a
-/// key binding to read back with `run-shell -C`.
-pub const TARGET_OPTION: &str = "@rolomux_target";
-
-/// Publish `action`'s target to `TARGET_OPTION` instead of switching. A
+/// Publish `name` to the `@rolomux_target` option instead of switching. A
 /// `switch-client` run by an external process resets the client's key table,
 /// which breaks `bind -r` repeat; letting the binding do the switch itself
 /// keeps it inside the binding's repeat state.
-pub fn publish_target(t: &dyn Tmux, action: &Action) -> io::Result<()> {
-    let target = match action {
-        Action::SwitchSession(name) => session_target(name),
-        Action::SwitchWindow(name, index) => format!("{name}:{index}"),
-    };
-    t.set_global_option(TARGET_OPTION, &target)
+pub fn publish_target(t: &dyn Tmux, name: &str) -> io::Result<()> {
+    t.set_global_option("@rolomux_target", &session_target(name))
 }
 
 /// Resolve the session the popup was launched from by matching the session-id
@@ -738,7 +730,7 @@ scratch\u{1f}50\u{1f}5\u{1f}0\u{1f}0\u{1f}shell\u{1f}1\u{1f}$8\u{1f}@2
     #[test]
     fn publish_target_sets_option_instead_of_switching() {
         let t = FakeTmux::default();
-        publish_target(&t, &Action::SwitchSession("jeffdt.com".into())).unwrap();
+        publish_target(&t, "jeffdt.com").unwrap();
         assert_eq!(*t.calls.borrow(), vec!["set-option:@rolomux_target:jeffdt.com:"]);
     }
 
