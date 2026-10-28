@@ -60,6 +60,7 @@ pub trait Tmux {
     /// relocate a window whose index (or session) may have shifted as a
     /// side effect of a swap/move it wasn't even involved in.
     fn locate_window(&self, window_id: &str) -> Option<(String, u32)>;
+    fn set_global_option(&self, name: &str, value: &str) -> io::Result<()>;
 }
 
 pub struct RealTmux {
@@ -273,6 +274,13 @@ impl Tmux for RealTmux {
         parse_attached_window(&String::from_utf8_lossy(&out.stdout))
     }
 
+    fn set_global_option(&self, name: &str, value: &str) -> io::Result<()> {
+        self.command()
+            .args(["set-option", "-g", name, value])
+            .status()
+            .map(|_| ())
+    }
+
     fn locate_window(&self, window_id: &str) -> Option<(String, u32)> {
         let filter = format!("#{{==:#{{window_id}},{window_id}}}");
         let out = self
@@ -361,6 +369,22 @@ pub fn apply_action(t: &dyn Tmux, action: &Action) -> io::Result<()> {
             t.select_window(name, *index)
         }
     }
+}
+
+/// tmux option `--target-only` writes the resolved switch target into, for a
+/// key binding to read back with `run-shell -C`.
+pub const TARGET_OPTION: &str = "@rolomux_target";
+
+/// Publish `action`'s target to `TARGET_OPTION` instead of switching. A
+/// `switch-client` run by an external process resets the client's key table,
+/// which breaks `bind -r` repeat; letting the binding do the switch itself
+/// keeps it inside the binding's repeat state.
+pub fn publish_target(t: &dyn Tmux, action: &Action) -> io::Result<()> {
+    let target = match action {
+        Action::SwitchSession(name) => session_target(name),
+        Action::SwitchWindow(name, index) => format!("{name}:{index}"),
+    };
+    t.set_global_option(TARGET_OPTION, &target)
 }
 
 /// Resolve the session the popup was launched from by matching the session-id
@@ -539,6 +563,10 @@ impl Tmux for FakeTmux {
     fn locate_window(&self, window_id: &str) -> Option<(String, u32)> {
         self.located_windows.borrow().get(window_id).cloned()
     }
+    fn set_global_option(&self, name: &str, value: &str) -> std::io::Result<()> {
+        self.calls.borrow_mut().push(format!("set-option:{name}:{value}"));
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -705,6 +733,13 @@ scratch\u{1f}50\u{1f}5\u{1f}0\u{1f}0\u{1f}shell\u{1f}1\u{1f}$8\u{1f}@2
         let t = FakeTmux::default();
         apply_action(&t, &Action::SwitchWindow("work".into(), 2)).unwrap();
         assert_eq!(*t.calls.borrow(), vec!["switch:work", "select:work:2"]);
+    }
+
+    #[test]
+    fn publish_target_sets_option_instead_of_switching() {
+        let t = FakeTmux::default();
+        publish_target(&t, &Action::SwitchSession("jeffdt.com".into())).unwrap();
+        assert_eq!(*t.calls.borrow(), vec!["set-option:@rolomux_target:jeffdt.com:"]);
     }
 
     #[test]

@@ -16,7 +16,7 @@ use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
 use std::io::{self, stdout};
 use std::time::Duration;
-use tmux::{apply_action, RealTmux, Tmux};
+use tmux::{apply_action, publish_target, RealTmux, Tmux};
 use input::{is_help_dismiss_key, map_altitude_key, map_key, map_search_key, map_settings_key, AltitudeInput, Input, SearchInput, SettingsInput};
 use ui::draw;
 
@@ -27,6 +27,9 @@ Usage:
   rolomux            Launch the picker (intended via `tmux popup -E`)
   rolomux --next     Switch to the next visible non-dormant session, no UI
   rolomux --prev     Switch to the previous visible non-dormant session, no UI
+  rolomux --next --target-only, --prev --target-only
+                     Write the target to the @rolomux_target tmux option
+                     instead of switching (for repeatable `bind -r` keys)
   rolomux --version  Print version and exit
   rolomux --help     Print this help and exit
 
@@ -46,6 +49,7 @@ const BLINK_TICK: Duration = Duration::from_millis(100);
 
 fn main() -> io::Result<()> {
     let mut cycle: Option<i32> = None;
+    let target_only = std::env::args().nth(2).as_deref() == Some("--target-only");
     if let Some(arg) = std::env::args().nth(1) {
         match arg.as_str() {
             "--next" => cycle = Some(1),
@@ -101,8 +105,12 @@ fn main() -> io::Result<()> {
         let _ = config.save_to(&path);
     }
 
+    let action = match (target_only, action, gathered.current) {
+        (true, None, Some(current)) => Some(Action::SwitchSession(current)),
+        (_, action, _) => action,
+    };
     if let Some(action) = action {
-        let _ = apply_action(&tmux, &action);
+        let _ = if target_only { publish_target(&tmux, &action) } else { apply_action(&tmux, &action) };
     }
     Ok(())
 }
