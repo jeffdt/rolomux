@@ -719,12 +719,6 @@ mod tests {
         st.dormant.insert("b".into());
         assert_eq!(cycle_target(&st, Some("a"), 1).as_deref(), Some("c"));
         assert_eq!(cycle_target(&st, Some("c"), -1).as_deref(), Some("a"));
-    }
-
-    #[test]
-    fn cycle_from_dormant_current_still_advances() {
-        let mut st = grouped_state();
-        st.dormant.insert("b".into());
         assert_eq!(cycle_target(&st, Some("b"), 1).as_deref(), Some("c"));
     }
 
