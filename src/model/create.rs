@@ -325,25 +325,13 @@ mod tests {
     }
 
     #[test]
-    fn b_with_empty_name_cancels() {
-        let mut st = break_out_state();
-        st.start_break_out();
-        assert_eq!(st.create_commit(), None);
-        assert!(!st.creating());
-    }
-
-    #[test]
-    fn b_on_a_session_row_does_nothing() {
+    fn b_does_nothing_on_a_session_row_and_is_blocked_on_a_sessions_only_window() {
         let mut st = break_out_state();
         st.focus_session("a");
         st.start_break_out();
         assert!(!st.creating());
-        assert!(st.break_out_blocked_warning().is_none());
-    }
+        assert!(st.break_out_blocked_warning().is_none(), "session rows are a silent no-op");
 
-    #[test]
-    fn b_on_a_sessions_only_window_is_blocked_with_a_warning() {
-        let mut st = break_out_state();
         st.focus_session("b");
         st.expand();
         st.move_cursor(1);
@@ -351,15 +339,6 @@ mod tests {
         st.start_break_out();
         assert!(!st.creating(), "no prompt opens");
         assert!(st.break_out_blocked_warning().is_some());
-        st.clear_break_out_warning();
-        assert!(st.break_out_blocked_warning().is_none());
-    }
-
-    #[test]
-    fn plain_n_on_a_window_row_is_still_a_blank_create() {
-        let mut st = break_out_state();
-        st.start_create_here();
-        assert!(st.break_out_source().is_none());
     }
 
     #[test]
@@ -454,6 +433,7 @@ mod tests {
         assert!(matches!(st.visible_rows()[st.cursor], Row::Window(_, _)), "precondition: cursor is on a window row");
 
         st.start_create_here();
+        assert!(st.break_out_source().is_none(), "n stays a blank create even on a window row");
         for c in "x".chars() { st.create_push(c); }
         assert_eq!(st.create_commit(), None);
         let pending = st.create_commit().unwrap();

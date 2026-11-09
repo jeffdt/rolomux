@@ -1253,7 +1253,7 @@ mod tests {
     use super::*;
 
     use crate::model::{Action, CaretStyle, Group, KillTarget, PickerState, Session, Window, WindowMove};
-    use crate::model::test_support::grouped_state;
+    use crate::model::test_support::{grouped_state, session_with_windows, win, win_active};
     use crate::store::Config;
     use ratatui::backend::TestBackend;
     use ratatui::Terminal;
@@ -2494,10 +2494,7 @@ mod tests {
 
     #[test]
     fn draw_break_out_previews_the_window_under_an_expanded_phantom_and_names_it_in_the_footer() {
-        let w = |index: u32, name: &str| Window { id: String::new(), index, name: name.into(), active: index == 0 };
-        let sessions = vec![
-            Session { id: String::new(), name: "alpha".into(), activity: 1, created: 1, attached: false, windows: vec![w(0, "editor"), w(1, "logs"), w(2, "tests")] },
-        ];
+        let sessions = vec![session_with_windows("alpha", 1, vec![win_active(0, "editor"), win(1, "logs"), win(2, "tests")])];
         let cfg = Config { groups: vec![Group { name: "G1".into(), members: vec!["alpha".into()], ..Default::default() }], ..Default::default() };
         let mut st = PickerState::build(sessions, &cfg);
         st.expand_session("alpha");

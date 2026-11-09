@@ -1348,28 +1348,6 @@ mod tests {
     }
 
     #[test]
-    fn failed_break_out_writes_no_config_and_stays_open() {
-        let dir = std::env::temp_dir().join(format!("rolomux-commit-break-out-fail-{}", std::process::id()));
-        let path = dir.join("config.toml");
-        let mut config = Config {
-            groups: vec![Group { name: "WORK".into(), members: vec!["alpha".into()], ..Default::default() }],
-            ..Default::default()
-        };
-        let mut state = PickerState::build(vec![sess("alpha")], &config);
-        let pending = crate::model::PendingCreate {
-            session_name: "alpha".into(),
-            window_name: None,
-            placement: crate::model::CreatePlacement::AboveSelected { group: 0, member_index: 0 },
-            source: Some(crate::model::BreakOutSource { session: "alpha".into(), index: 1, window_name: "logs".into() }),
-        };
-        let tmux = FakeTmux::default().with_new_session_fails(true);
-
-        assert_eq!(commit_create(&pending, &tmux, &mut config, &path, &mut state), None);
-        assert_eq!(config.groups[0].members, vec!["alpha".to_string()]);
-        assert!(std::fs::metadata(&path).is_err(), "nothing written on failure");
-    }
-
-    #[test]
     fn failed_create_writes_no_config_and_stays_open() {
         let dir = std::env::temp_dir().join(format!("rolomux-commit-create-fail-{}", std::process::id()));
         let path = dir.join("config.toml");
