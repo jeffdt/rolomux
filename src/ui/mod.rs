@@ -314,6 +314,10 @@ fn draw_picker(frame: &mut Frame, state: &PickerState, inner: Rect) {
     };
     let blink_visible = state.blink_visible();
     let caret = caret_glyph(state);
+    let break_out = state.break_out_source();
+    let break_out_window = break_out.map(|src| Window {
+        id: String::new(), index: src.index, name: src.window_name.clone(), active: false,
+    });
 
     for row in rows.iter() {
         match row {
@@ -322,7 +326,7 @@ fn draw_picker(frame: &mut Frame, state: &PickerState, inner: Rect) {
                 let section = group_ids[*si];
                 if last_section != Some(section) {
                     if create_end_target_group.is_some() && create_end_target_group == last_section {
-                        push_create_phantom_row(&mut items, create_prefix, create_buf, current_gutter_color, wide_numbering, raised, false, create_placeholder, blink_visible, caret);
+                        push_create_phantom_row(&mut items, create_prefix, create_buf, current_gutter_color, wide_numbering, raised, false, create_placeholder, blink_visible, caret, None);
                     }
                     let target = section;
                     while next_group < target {
@@ -330,7 +334,7 @@ fn draw_picker(frame: &mut Frame, state: &PickerState, inner: Rect) {
                             note_highlighted_header(&mut selected_line, &items, state, next_group);
                             if create_end_target_group == Some(next_group) {
                                 let color = group_color(&state.groups[next_group], next_group, &state.active_palette);
-                                push_create_phantom_row(&mut items, create_prefix, create_buf, color, wide_numbering, raised, false, create_placeholder, blink_visible, caret);
+                                push_create_phantom_row(&mut items, create_prefix, create_buf, color, wide_numbering, raised, false, create_placeholder, blink_visible, caret, None);
                             }
                         }
                         next_group += 1;
@@ -382,7 +386,7 @@ fn draw_picker(frame: &mut Frame, state: &PickerState, inner: Rect) {
                     AttachedColorMode::Static => attached_static_color,
                 };
                 if create_above_session.as_deref() == Some(sess.name.as_str()) {
-                    push_create_phantom_row(&mut items, create_prefix, create_buf, current_gutter_color, wide_numbering, raised, selected, create_placeholder, blink_visible, caret);
+                    push_create_phantom_row(&mut items, create_prefix, create_buf, current_gutter_color, wide_numbering, raised, selected, create_placeholder, blink_visible, caret, break_out_window.as_ref());
                 }
                 items.push(recede(session_item(
                     sess,
@@ -413,7 +417,8 @@ fn draw_picker(frame: &mut Frame, state: &PickerState, inner: Rect) {
                 let last = *wi + 1 == sess.windows.len();
                 let rename_buf = if selected && state.renaming() { state.rename_edit_buffer() } else { None };
                 let window_dormant = state.is_window_dormant(&sess.name, sess.windows[*wi].index);
-                let dormant = state.is_dormant(&sess.name) || window_dormant;
+                let leaving = break_out.is_some_and(|src| src.session == sess.name && src.index == sess.windows[*wi].index);
+                let dormant = state.is_dormant(&sess.name) || window_dormant || leaving;
                 let dot_color = match state.dot_color_mode {
                     DotColorMode::Group => current_gutter_color,
                     DotColorMode::Static => dot_static_color,
@@ -438,7 +443,7 @@ fn draw_picker(frame: &mut Frame, state: &PickerState, inner: Rect) {
     // closing point (mirroring the mid-list check above) never fired inside
     // the loop.
     if create_end_target_group.is_some() && create_end_target_group == last_section {
-        push_create_phantom_row(&mut items, create_prefix, create_buf, current_gutter_color, wide_numbering, raised, false, create_placeholder, blink_visible, caret);
+        push_create_phantom_row(&mut items, create_prefix, create_buf, current_gutter_color, wide_numbering, raised, false, create_placeholder, blink_visible, caret, None);
     }
     // Trailing empty groups (after the last session row, with no residual below).
     while next_group < state.groups.len() {
@@ -446,7 +451,7 @@ fn draw_picker(frame: &mut Frame, state: &PickerState, inner: Rect) {
             note_highlighted_header(&mut selected_line, &items, state, next_group);
             if create_end_target_group == Some(next_group) {
                 let color = group_color(&state.groups[next_group], next_group, &state.active_palette);
-                push_create_phantom_row(&mut items, create_prefix, create_buf, color, wide_numbering, raised, false, create_placeholder, blink_visible, caret);
+                push_create_phantom_row(&mut items, create_prefix, create_buf, color, wide_numbering, raised, false, create_placeholder, blink_visible, caret, None);
             }
         }
         next_group += 1;
@@ -473,6 +478,7 @@ fn draw_picker(frame: &mut Frame, state: &PickerState, inner: Rect) {
         state
             .pending_kill_warning()
             .or_else(|| state.pending_window_move_warning().map(str::to_string))
+            .or_else(|| state.break_out_blocked_warning().map(str::to_string))
     };
     let hint_line = match warning {
         Some(warning) => Line::from(Span::styled(
@@ -731,6 +737,7 @@ fn push_create_phantom_row(
     placeholder: &str,
     blink_visible: bool,
     caret: Option<&'static str>,
+    break_out: Option<&Window>,
 ) {
     let sess = Session {
         id: String::new(), name: String::new(), activity: 0, created: 0, attached: false, windows: vec![],
@@ -740,7 +747,7 @@ fn push_create_phantom_row(
     items.push(recede(
         session_item(
             &sess,
-            false,
+            break_out.is_some(),
             selected,
             None,
             meta,
@@ -759,6 +766,15 @@ fn push_create_phantom_row(
         ),
         raised,
     ));
+    // A break-out previews its outcome: the phantom renders expanded with
+    // the window it will receive already nested under it.
+    if let Some(win) = break_out {
+        let win = Window { active: false, ..win.clone() };
+        items.push(recede(
+            window_item(&win, true, false, Some(gutter_color), false, false, None, gutter_color, None, wide_numbering, None),
+            raised,
+        ));
+    }
 }
 
 fn push_create_group_hint(items: &mut Vec<ListItem<'static>>) {
@@ -933,6 +949,9 @@ fn footer_rule(width: u16, state: &PickerState) -> String {
 }
 
 fn command_footer_hint(state: &PickerState) -> String {
+    if let Some(src) = state.break_out_source() {
+        return format!("Enter move '{}' here \u{b7} Esc cancel", src.window_name);
+    }
     if state.creating() {
         return match state.create_stage() {
             Some(CreateStage::WindowName) => CREATE_WINDOW_FOOTER_HINT.to_string(),
@@ -2471,6 +2490,37 @@ mod tests {
         let text_after_cancel = render_to_string(&st);
         assert!(!text_after_cancel.contains('▏'), "phantom row gone after cancel");
         assert!(text_after_cancel.contains("bravo"), "bravo row still renders normally after cancel");
+    }
+
+    #[test]
+    fn draw_break_out_previews_the_window_under_an_expanded_phantom_and_names_it_in_the_footer() {
+        let w = |index: u32, name: &str| Window { id: String::new(), index, name: name.into(), active: index == 0 };
+        let sessions = vec![
+            Session { id: String::new(), name: "alpha".into(), activity: 1, created: 1, attached: false, windows: vec![w(0, "editor"), w(1, "logs"), w(2, "tests")] },
+        ];
+        let cfg = Config { groups: vec![Group { name: "G1".into(), members: vec!["alpha".into()], ..Default::default() }], ..Default::default() };
+        let mut st = PickerState::build(sessions, &cfg);
+        st.expand_session("alpha");
+        st.focus_window("alpha", 1);
+        st.start_break_out();
+
+        let text = render_to_string(&st);
+        let lines: Vec<&str> = text.lines().collect();
+        let phantom = lines.iter().position(|l| l.contains("session name")).expect("phantom row visible");
+        assert!(lines[phantom].contains('▾'), "phantom renders expanded:\n{text}");
+        assert!(lines[phantom + 1].contains("logs"), "the moving window is nested under the phantom:\n{text}");
+        assert!(lines[phantom + 2].contains("alpha"), "source session sits directly below:\n{text}");
+        assert!(text.contains("Enter move 'logs' here"), "footer names the action:\n{text}");
+    }
+
+    #[test]
+    fn draw_break_out_blocked_warning_replaces_the_footer() {
+        let mut st = grouped_state();
+        st.focus_session("a");
+        st.expand();
+        st.move_cursor(1);
+        st.start_break_out();
+        assert!(render_to_string(&st).contains("Only window in its session"));
     }
 
     #[test]

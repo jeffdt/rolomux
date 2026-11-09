@@ -27,6 +27,7 @@ pub enum Input {
     Rename,
     QuickCreate,
     NewSession,
+    BreakOut,
     Kill,
     Quit,
     None,
@@ -201,6 +202,7 @@ pub fn map_key(key: KeyEvent) -> Input {
         KeyCode::Char('j') | KeyCode::Down => Input::Down,
         KeyCode::Char('k') | KeyCode::Up => Input::Up,
         KeyCode::Char('n') => Input::NewSession,
+        KeyCode::Char('b') => Input::BreakOut,
         KeyCode::Char('r') => Input::Rename,
         KeyCode::Char('l') | KeyCode::Right => Input::Expand,
         KeyCode::Char('h') | KeyCode::Left => Input::Collapse,
@@ -340,6 +342,11 @@ mod tests {
     #[test]
     fn shift_n_quick_creates_a_group() {
         assert_eq!(map_key(shift(KeyCode::Char('N'))), Input::QuickCreate);
+    }
+
+    #[test]
+    fn b_breaks_the_selected_window_out() {
+        assert_eq!(map_key(key(KeyCode::Char('b'))), Input::BreakOut);
     }
 
     #[test]

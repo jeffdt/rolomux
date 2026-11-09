@@ -402,7 +402,10 @@ fn commit_create(
     path: &std::path::Path,
     state: &mut PickerState,
 ) -> Option<Action> {
-    tmux.new_session(&pending.session_name, pending.window_name.as_deref()).ok()?;
+    match &pending.source {
+        Some(src) => tmux.break_out_window(&src.session, src.index, &pending.session_name).ok()?,
+        None => tmux.new_session(&pending.session_name, pending.window_name.as_deref()).ok()?,
+    }
     state.apply_create(pending);
     if state.dirty {
         state.apply_to_config(config);
@@ -523,6 +526,7 @@ fn event_loop(
                         if !matches!(input, Input::MoveUp | Input::MoveDown) {
                             state.clear_pending_window_move();
                         }
+                        state.clear_break_out_warning();
                         if !matches!(input, Input::Kill) {
                             state.clear_pending_kill();
                         }
@@ -546,6 +550,7 @@ fn event_loop(
                             Input::Rename => state.start_rename(),
                             Input::QuickCreate => state.start_quick_create(),
                             Input::NewSession => state.start_create_here(),
+                            Input::BreakOut => state.start_break_out(),
                             Input::Kill => handle_kill(state, tmux, config, path),
                             Input::Select => return Ok(state.selected_action()),
                             Input::Switch(n) => {
@@ -1302,6 +1307,7 @@ mod tests {
             session_name: "newsess".into(),
             window_name: Some("editor".into()),
             placement: crate::model::CreatePlacement::AboveSelected { group: 0, member_index: 0 },
+            source: None,
         };
 
         let tmux = FakeTmux::default();
@@ -1314,6 +1320,53 @@ mod tests {
         assert!(std::fs::metadata(&path).is_ok(), "config should be written to disk on success");
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn commit_break_out_moves_the_window_instead_of_creating_a_blank_session() {
+        let dir = std::env::temp_dir().join(format!("rolomux-commit-break-out-{}", std::process::id()));
+        let path = dir.join("config.toml");
+        let mut config = Config {
+            groups: vec![Group { name: "WORK".into(), members: vec!["alpha".into()], ..Default::default() }],
+            ..Default::default()
+        };
+        let mut state = PickerState::build(vec![sess("alpha")], &config);
+        let pending = crate::model::PendingCreate {
+            session_name: "split".into(),
+            window_name: None,
+            placement: crate::model::CreatePlacement::AboveSelected { group: 0, member_index: 0 },
+            source: Some(crate::model::BreakOutSource { session: "alpha".into(), index: 2, window_name: "logs".into() }),
+        };
+        let tmux = FakeTmux::default();
+
+        let action = commit_create(&pending, &tmux, &mut config, &path, &mut state);
+
+        assert_eq!(*tmux.calls.borrow(), vec!["break-out:alpha:2:split".to_string()]);
+        assert_eq!(action, Some(crate::model::Action::SwitchSession("split".to_string())));
+        assert_eq!(config.groups[0].members, vec!["split".to_string(), "alpha".to_string()]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn failed_break_out_writes_no_config_and_stays_open() {
+        let dir = std::env::temp_dir().join(format!("rolomux-commit-break-out-fail-{}", std::process::id()));
+        let path = dir.join("config.toml");
+        let mut config = Config {
+            groups: vec![Group { name: "WORK".into(), members: vec!["alpha".into()], ..Default::default() }],
+            ..Default::default()
+        };
+        let mut state = PickerState::build(vec![sess("alpha")], &config);
+        let pending = crate::model::PendingCreate {
+            session_name: "alpha".into(),
+            window_name: None,
+            placement: crate::model::CreatePlacement::AboveSelected { group: 0, member_index: 0 },
+            source: Some(crate::model::BreakOutSource { session: "alpha".into(), index: 1, window_name: "logs".into() }),
+        };
+        let tmux = FakeTmux::default().with_new_session_fails(true);
+
+        assert_eq!(commit_create(&pending, &tmux, &mut config, &path, &mut state), None);
+        assert_eq!(config.groups[0].members, vec!["alpha".to_string()]);
+        assert!(std::fs::metadata(&path).is_err(), "nothing written on failure");
     }
 
     #[test]
@@ -1332,6 +1385,7 @@ mod tests {
             session_name: "newsess".into(),
             window_name: None,
             placement: crate::model::CreatePlacement::AboveSelected { group: 0, member_index: 0 },
+            source: None,
         };
 
         let tmux = FakeTmux::default().with_new_session_fails(true);

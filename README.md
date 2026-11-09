@@ -75,6 +75,7 @@ bind C new-session \; command-prompt -I "" "rename-session '%%'" \; command-prom
 | `x` | Kill the selected session or window (press again to confirm) |
 | `g` | Raise the cursor to group altitude |
 | `n` | Create a new session and switch to it |
+| `b` | Break the selected window out into a new session (placed above its old one) and switch to it |
 | `⇧N` | Create a new empty group above the selected session's group |
 | `,` | Open settings |
 | `d` | Toggle dormant (dim) on the selected session, or the selected window if the cursor is on one |
