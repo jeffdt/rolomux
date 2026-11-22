@@ -10,7 +10,7 @@ const AGENTS_FOOTER_HINT: &str = "1-9 jump · ↵ switch · a tree · q quit";
 /// Header text for a state's section.
 fn section_title(state: AgentState) -> &'static str {
     match state {
-        AgentState::Waiting => "NEEDS YOU",
+        AgentState::Waiting => "BLOCKED",
         AgentState::Done => "DONE",
         AgentState::Working => "WORKING",
     }
@@ -185,11 +185,11 @@ mod tests {
     #[test]
     fn headers_appear_in_urgency_order_and_empty_sections_are_hidden() {
         let buf = render(&mixed(), None);
-        let (n, d, w) = (row_with(&buf, "NEEDS YOU"), row_with(&buf, "DONE"), row_with(&buf, "WORKING"));
+        let (n, d, w) = (row_with(&buf, "BLOCKED"), row_with(&buf, "DONE"), row_with(&buf, "WORKING"));
         assert!(n < d && d < w);
         let st = state_with(vec![("alpha", vec![pane("%1", AgentState::Done, "/a")])]);
         let text = text_of(&render(&st, None)).join("\n");
-        assert!(text.contains("DONE") && !text.contains("NEEDS YOU") && !text.contains("WORKING"));
+        assert!(text.contains("DONE") && !text.contains("BLOCKED") && !text.contains("WORKING"));
     }
 
     #[test]
@@ -213,7 +213,7 @@ mod tests {
     #[test]
     fn header_gutter_and_glyph_use_the_state_color() {
         let buf = render(&mixed(), None);
-        for (needle, color) in [("NEEDS YOU", Color::Red), ("DONE", Color::Yellow), ("WORKING", Color::Green)] {
+        for (needle, color) in [("BLOCKED", Color::Red), ("DONE", Color::Yellow), ("WORKING", Color::Green)] {
             let y = row_with(&buf, needle);
             let x = text_of(&buf)[y as usize].chars().position(|c| c == needle.chars().next().unwrap()).unwrap() as u16;
             assert_eq!(buf[(x, y)].fg, color, "{needle} header");
