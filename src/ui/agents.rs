@@ -16,6 +16,19 @@ fn section_title(state: AgentState) -> &'static str {
     }
 }
 
+/// A section header styled like the tree's group headers: the bold title
+/// flush left, then a rule in the state color running to the edge.
+fn section_header(state: AgentState, width: usize) -> ListItem<'static> {
+    let title = section_title(state);
+    let color = agent_color(state);
+    let rule_len = width.saturating_sub(title.chars().count() + 2);
+    ListItem::new(Line::from(vec![
+        Span::styled(title, Style::default().fg(color).add_modifier(Modifier::BOLD)),
+        Span::raw(" "),
+        Span::styled("─".repeat(rule_len), Style::default().fg(color)),
+    ]))
+}
+
 /// Replaces a leading `home` directory in `path` with `~`.
 fn tilde_home(path: &str, home: Option<&str>) -> String {
     match home.map(|h| h.trim_end_matches('/')).filter(|h| !h.is_empty()) {
@@ -42,12 +55,12 @@ fn agent_item(row: &AgentRow, number: usize, selected: bool, name_width: usize, 
     let label = if number <= 9 { jump_label(number) } else { "  ".to_string() };
     let name = format!("{:<name_width$}", row.session);
     let window = format!("{:<window_width$}", truncate_end(&row.window_name, window_width));
-    let prefix_width = 2 + 2 + 1 + 1 + name_width + 3 + window_width + 1;
+    let prefix_width = 1 + 2 + 1 + 1 + name_width + 3 + window_width + 1;
     let path_room = width.saturating_sub(prefix_width);
     let path = truncate_end(&tilde_home(&row.path, home), path_room);
     let dim = secondary(selected);
     ListItem::new(Line::from(vec![
-        Span::styled("│ ", Style::default().fg(color)),
+        Span::styled("│", Style::default().fg(color)),
         Span::styled(label, dim),
         Span::styled(AGENT_GLYPH, Style::default().fg(color)),
         Span::raw(" "),
@@ -87,10 +100,7 @@ fn draw_agents_with_home(frame: &mut Frame, state: &PickerState, inner: Rect, ho
                     items.push(ListItem::new(Line::from("")));
                 }
                 current = Some(row.state);
-                items.push(ListItem::new(Line::from(Span::styled(
-                    format!(" {}", section_title(row.state)),
-                    Style::default().fg(agent_color(row.state)).add_modifier(Modifier::BOLD),
-                ))));
+                items.push(section_header(row.state, chunks[0].width as usize));
             }
             let selected = i == state.agent_cursor();
             if selected {
@@ -185,13 +195,13 @@ mod tests {
     #[test]
     fn rows_are_numbered_in_display_order_and_overflow_is_blank() {
         let buf = render(&mixed(), None);
-        assert!(text_of(&buf)[row_with(&buf, "beta") as usize].contains("│ 1 ✻ beta"));
-        assert!(text_of(&buf)[row_with(&buf, "gamma") as usize].contains("│ 2 ✻ gamma"));
-        assert!(text_of(&buf)[row_with(&buf, "alpha") as usize].contains("│ 3 ✻ alpha"));
+        assert!(text_of(&buf)[row_with(&buf, "beta") as usize].contains("│1 ✻ beta"));
+        assert!(text_of(&buf)[row_with(&buf, "gamma") as usize].contains("│2 ✻ gamma"));
+        assert!(text_of(&buf)[row_with(&buf, "alpha") as usize].contains("│3 ✻ alpha"));
         let many = state_with((0..11).map(|i| (Box::leak(format!("s{i:02}").into_boxed_str()) as &str, vec![pane("%1", AgentState::Working, "/p")])).collect());
         let buf = render_sized(&many, 40);
-        assert!(text_of(&buf)[row_with(&buf, "s08") as usize].contains("│ 9 ✻"));
-        assert!(text_of(&buf)[row_with(&buf, "s09") as usize].contains("│   ✻"));
+        assert!(text_of(&buf)[row_with(&buf, "s08") as usize].contains("│9 ✻"));
+        assert!(text_of(&buf)[row_with(&buf, "s09") as usize].contains("│  ✻"));
     }
 
     fn render_sized(st: &PickerState, height: u16) -> Buffer {
@@ -214,6 +224,17 @@ mod tests {
             let x = (0..buf.area.width).find(|x| buf[(*x, y)].symbol() == symbol).unwrap();
             assert_eq!(buf[(x, y)].fg, Color::Yellow, "{symbol}");
         }
+    }
+
+    #[test]
+    fn header_is_flush_left_with_a_rule_in_the_state_color() {
+        let buf = render(&mixed(), None);
+        let y = row_with(&buf, "DONE");
+        let header_x = (0..buf.area.width).find(|x| buf[(*x, y)].symbol() == "D").unwrap();
+        let gutter_x = (0..buf.area.width).find(|x| buf[(*x, y + 1)].symbol() == "│" && buf[(*x, y + 1)].fg == Color::Yellow).unwrap();
+        assert_eq!(header_x, gutter_x, "header starts in the gutter column");
+        assert!(text_of(&buf)[y as usize].contains("DONE ───"));
+        assert_eq!(buf[(header_x + 5, y)].fg, Color::Yellow);
     }
 
     #[test]

@@ -204,6 +204,9 @@ For Claude Code, merge this into the `hooks` object in `~/.claude/settings.json`
 }
 ```
 
+If you already have hooks for any of these events, add these entries to that event's existing list rather than replacing it.
+Agents already running appear after their next hook fires, for example the next time you send them a prompt.
+
 ### Settings
 
 ![rolomux settings: behavior, color, and appearance preferences, with a changed setting marked](docs/images/settings.png)
