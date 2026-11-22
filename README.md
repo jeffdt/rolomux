@@ -73,6 +73,7 @@ bind C new-session \; command-prompt -I "" "rename-session '%%'" \; command-prom
 | `⇧J` / `⇧K` | Move the selected session or window up/down (also `⇧↓` / `⇧↑`): a session row reorders within its group or crosses into the neighboring group; a window row reorders within its session or crosses into the neighboring session. Both wrap around at the top/bottom of the list. |
 | `r` | Rename the selected session or window |
 | `x` | Kill the selected session or window (press again to confirm) |
+| `a` | Open the agent view: every CLI agent pane grouped by state; `1`-`9` or `↵` jumps to its pane, `a` returns |
 | `g` | Raise the cursor to group altitude |
 | `n` | Create a new session and switch to it |
 | `⇧N` | Create a new empty group above the selected session's group |
@@ -176,6 +177,32 @@ bind -r C-p set -gu @rolomux_target \; run-shell "rolomux --prev --target-only" 
 ```
 
 If the repeat window closes before your next tap, raise tmux's `repeat-time` (500ms by default), e.g. `set -g repeat-time 800`.
+
+### Agent status
+
+rolomux shows a `✻` for each CLI agent on its window and session rows: red when the agent is waiting on you, yellow when it's done and it's your move, and green while it's working.
+Selecting a window jumps to its most urgent agent pane.
+
+Press `a` for the agent view, which lists every agent pane grouped by state, or open it directly with a tmux bind such as `bind A display-popup -E -B -w 84 -h 60% "exec rolomux --agents"`.
+
+Any agent can opt in by setting a tmux pane option from its hooks, which requires tmux 3.1+: `tmux set -p -t "$TMUX_PANE" @agent_state waiting|done|working`. Clear it with `tmux set -pu -t "$TMUX_PANE" @agent_state`.
+
+For Claude Code, merge this into the `hooks` object in `~/.claude/settings.json`:
+
+```json
+{
+  "hooks": {
+    "SessionStart": [{ "hooks": [{ "type": "command", "command": "[ -n \"$TMUX_PANE\" ] && tmux set -pu -t \"$TMUX_PANE\" @agent_state; true" }] }],
+    "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "[ -n \"$TMUX_PANE\" ] && tmux set -p -t \"$TMUX_PANE\" @agent_state working; true" }] }],
+    "PostToolUse": [{ "hooks": [{ "type": "command", "command": "[ -n \"$TMUX_PANE\" ] && tmux set -p -t \"$TMUX_PANE\" @agent_state working; true" }] }],
+    "PreToolUse": [{ "matcher": "AskUserQuestion", "hooks": [{ "type": "command", "command": "[ -n \"$TMUX_PANE\" ] && tmux set -p -t \"$TMUX_PANE\" @agent_state waiting; true" }] }],
+    "PermissionRequest": [{ "hooks": [{ "type": "command", "command": "[ -n \"$TMUX_PANE\" ] && tmux set -p -t \"$TMUX_PANE\" @agent_state waiting; true" }] }],
+    "Notification": [{ "matcher": "elicitation_dialog|agent_needs_input", "hooks": [{ "type": "command", "command": "[ -n \"$TMUX_PANE\" ] && tmux set -p -t \"$TMUX_PANE\" @agent_state waiting; true" }] }],
+    "Stop": [{ "hooks": [{ "type": "command", "command": "[ -n \"$TMUX_PANE\" ] && tmux set -p -t \"$TMUX_PANE\" @agent_state done; true" }] }],
+    "SessionEnd": [{ "hooks": [{ "type": "command", "command": "[ -n \"$TMUX_PANE\" ] && tmux set -pu -t \"$TMUX_PANE\" @agent_state; true" }] }]
+  }
+}
+```
 
 ### Settings
 

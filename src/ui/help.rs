@@ -14,6 +14,7 @@ const COMMAND_SHORTCUTS: &[(&str, &str)] = &[
     ("Enter", "switch to selected session/window"),
     ("1-9,0 / Alt+1-9,0", "jump to session N (1-20)"),
     ("/", "search"),
+    ("a", "agent view"),
     ("g", "switch to group mode"),
     ("n", "new session"),
     ("⇧N", "new group"),
@@ -62,6 +63,7 @@ fn shortcuts_for_mode(mode: Mode) -> (&'static str, &'static [(&'static str, &'s
         Mode::Groups => ("Group Altitude Shortcuts", ALTITUDE_SHORTCUTS),
         Mode::Settings => ("Settings Shortcuts", SETTINGS_SHORTCUTS),
         Mode::Search => ("Search Shortcuts", &[]),
+        Mode::Agents => ("Agent View Shortcuts", &[]),
     }
 }
 

@@ -331,6 +331,18 @@ pub enum Mode {
     Search,
     Groups,
     Settings,
+    Agents,
+}
+
+/// One agent pane as listed in the agent view.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentRow {
+    pub session: String,
+    pub window_index: u32,
+    pub window_name: String,
+    pub pane_id: String,
+    pub path: String,
+    pub state: AgentState,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -446,10 +458,46 @@ pub fn ensure_inbox_last(groups: &mut Vec<Group>) {
     }
 }
 
+/// State an agent reports for its own tmux pane via the `@agent_state`
+/// pane option. Variant order is urgency order, so `min()` is the most
+/// urgent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum AgentState {
+    Waiting,
+    Done,
+    Working,
+}
+
+impl AgentState {
+    /// Parse an `@agent_state` value; `None` for empty or unknown values.
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "waiting" => Some(Self::Waiting),
+            "done" => Some(Self::Done),
+            "working" => Some(Self::Working),
+            _ => None,
+        }
+    }
+}
+
+/// One pane whose agent has reported a state.
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentPane {
+    /// tmux `#{pane_id}`, e.g. `"%42"`.
+    pub pane_id: String,
+    /// Last state the agent reported via `@agent_state`.
+    pub state: AgentState,
+    /// The pane's current working directory.
+    pub path: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[allow(clippy::enum_variant_names)]
 pub enum Action {
     SwitchSession(String),
     SwitchWindow(String, u32),
+    /// (session name, window index, pane id)
+    SwitchPane(String, u32, String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

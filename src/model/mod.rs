@@ -40,8 +40,10 @@ use swap_indicator::SwapIndicator;
 
 mod blink;
 
+mod agents;
+
 use crate::store::Config;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 
 pub struct PickerState {
@@ -129,6 +131,9 @@ pub struct PickerState {
     /// Anchors the slow-blink clock for empty create/rename placeholder text.
     /// See `src/model/blink.rs`.
     blink_since: Instant,
+    /// Agent panes per tmux window id, from the latest gather.
+    agents: HashMap<String, Vec<AgentPane>>,
+    agent_cursor: usize,
 }
 
 impl PickerState {
@@ -211,6 +216,8 @@ impl PickerState {
             inbox_icon: config.inbox_icon.clone(),
             settings_ui: SettingsUiState::default(),
             blink_since: Instant::now(),
+            agents: HashMap::new(),
+            agent_cursor: 0,
         };
         state.apply_clear_dormant_on_attach();
         state.apply_initial_focus(focus, current);
@@ -302,6 +309,14 @@ impl PickerState {
     }
 
     pub fn ordered(&self) -> Vec<&Session> {
+        let mut out = self.ordered_unfiltered();
+        if self.focus_mode() {
+            out.retain(|s| !self.dormant.contains(&s.name) || s.attached);
+        }
+        out
+    }
+
+    fn ordered_unfiltered(&self) -> Vec<&Session> {
         let mut out: Vec<&Session> = Vec::new();
         let mut seen: HashSet<&str> = HashSet::new();
         for (gi, g) in self.groups.iter().enumerate() {
@@ -326,9 +341,6 @@ impl PickerState {
                     seen.insert(sess.name.as_str());
                 }
             }
-        }
-        if self.focus_mode() {
-            out.retain(|s| !self.dormant.contains(&s.name) || s.attached);
         }
         out
     }
@@ -547,6 +559,41 @@ impl PickerState {
         }
     }
 
+    /// Replace the per-window agent panes from the latest gather.
+    pub fn set_agents(&mut self, agents: HashMap<String, Vec<AgentPane>>) {
+        self.agents = agents;
+    }
+
+    /// Agent panes in `win`, in tmux pane order; empty when none.
+    pub fn window_agents(&self, win: &Window) -> &[AgentPane] {
+        if win.id.is_empty() {
+            return &[];
+        }
+        self.agents.get(&win.id).map_or(&[], Vec::as_slice)
+    }
+
+    /// States of every agent in `sess`, window order then pane order.
+    pub fn session_agent_states(&self, sess: &Session) -> Vec<AgentState> {
+        sess.windows
+            .iter()
+            .flat_map(|w| self.window_agents(w))
+            .map(|a| a.state)
+            .collect()
+    }
+
+    /// Action for a window row: jump to its most urgent agent pane (first on
+    /// ties), or just switch to the window when it has none.
+    pub(super) fn window_action(&self, sess: &Session, win: &Window) -> Action {
+        let urgent = self
+            .window_agents(win)
+            .iter()
+            .reduce(|best, a| if a.state < best.state { a } else { best });
+        match urgent {
+            Some(a) => Action::SwitchPane(sess.name.clone(), win.index, a.pane_id.clone()),
+            None => Action::SwitchWindow(sess.name.clone(), win.index),
+        }
+    }
+
     pub fn selected_action(&self) -> Option<Action> {
         let rows = self.visible_rows();
         let ordered = self.ordered();
@@ -556,7 +603,7 @@ impl PickerState {
             }
             Row::Window(si, wi) => {
                 let sess = ordered[*si];
-                Some(Action::SwitchWindow(sess.name.clone(), sess.windows[*wi].index))
+                Some(self.window_action(sess, &sess.windows[*wi]))
             }
         }
     }
@@ -932,6 +979,80 @@ mod tests {
         state.expand();
         state.move_cursor(2);
         assert_eq!(state.selected_action(), Some(Action::SwitchWindow("a".into(), 3)));
+    }
+
+    fn agent_state(windows: Vec<(&str, Vec<(&str, AgentState)>)>) -> PickerState {
+        let mut sessions = vec![s("a", 30, 1)];
+        sessions[0].windows = windows
+            .iter()
+            .enumerate()
+            .map(|(i, (id, _))| Window { id: (*id).into(), index: i as u32, name: "w".into(), active: false })
+            .collect();
+        let cfg = Config { groups: vec![], ..Default::default() };
+        let mut state = PickerState::build(sessions, &cfg);
+        state.set_agents(
+            windows
+                .into_iter()
+                .map(|(id, ps)| {
+                    (id.to_string(), ps.into_iter().map(|(p, st)| AgentPane { pane_id: p.into(), state: st, path: String::new() }).collect())
+                })
+                .collect(),
+        );
+        state
+    }
+
+    #[test]
+    fn window_agents_looks_up_by_window_id() {
+        let state = agent_state(vec![("@1", vec![("%1", AgentState::Done)]), ("@2", vec![])]);
+        let w = &state.all[0].windows;
+        assert_eq!(state.window_agents(&w[0]).len(), 1);
+        assert!(state.window_agents(&w[1]).is_empty());
+        assert!(state.window_agents(&win(9, "x")).is_empty());
+    }
+
+    #[test]
+    fn session_agent_states_follow_window_then_pane_order() {
+        let state = agent_state(vec![
+            ("@1", vec![("%1", AgentState::Working), ("%2", AgentState::Done)]),
+            ("@2", vec![("%3", AgentState::Waiting)]),
+        ]);
+        assert_eq!(
+            state.session_agent_states(&state.all[0]),
+            vec![AgentState::Working, AgentState::Done, AgentState::Waiting]
+        );
+    }
+
+    #[test]
+    fn window_row_selects_most_urgent_agent_pane() {
+        let mut state = agent_state(vec![("@1", vec![("%1", AgentState::Working), ("%2", AgentState::Waiting)])]);
+        state.expand();
+        state.move_cursor(1);
+        assert_eq!(state.selected_action(), Some(Action::SwitchPane("a".into(), 0, "%2".into())));
+    }
+
+    #[test]
+    fn window_row_tie_picks_first_agent_pane() {
+        let mut state = agent_state(vec![("@1", vec![("%1", AgentState::Done), ("%2", AgentState::Done)])]);
+        state.expand();
+        state.move_cursor(1);
+        assert_eq!(state.selected_action(), Some(Action::SwitchPane("a".into(), 0, "%1".into())));
+    }
+
+    #[test]
+    fn window_row_without_agents_still_switches_window() {
+        let mut state = agent_state(vec![("@1", vec![])]);
+        state.expand();
+        state.move_cursor(1);
+        assert_eq!(state.selected_action(), Some(Action::SwitchWindow("a".into(), 0)));
+    }
+
+    #[test]
+    fn search_window_row_selects_most_urgent_agent_pane() {
+        let mut state = agent_state(vec![("@1", vec![("%1", AgentState::Working), ("%2", AgentState::Waiting)])]);
+        state.enter_search();
+        state.expand_session("a");
+        state.search_move(1);
+        assert_eq!(state.search_selected_action(), Some(Action::SwitchPane("a".into(), 0, "%2".into())));
     }
 
     #[test]

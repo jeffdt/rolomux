@@ -61,7 +61,8 @@ These are the reasons the project exists. Changes should preserve them.
   seeing sessions matters. `g`/`Esc` descends back to the exact row the
   cursor was raised from. Raising costs a deliberate `g`, so once raised it
   is frictionless: no confirmation prompts, and create drops straight into
-  inline naming.
+  inline naming. The agent view (`a` / `--agents`) is a peer screen for agent
+  panes, not an altitude of the tree.
 - **Collapsible session/window tree.** Sessions expand into their windows, with
   a choose-tree feel but calmer behavior (see "Numbering philosophy").
 - **Keyboard-driven, in-picker mutation.** Group membership, group structure,
@@ -101,7 +102,9 @@ These are deliberate and have driven past work. Do not reverse them casually.
   free up `Alt` for the second decade of sessions. `Ctrl+digit` was
   considered for the second decade instead and rejected: without the kitty
   keyboard protocol, most terminals can't reliably deliver a `Ctrl` modifier
-  on digit keys (confirmed empirically, not every digit even round-trips).
+  on digit keys (confirmed empirically, not every digit even round-trips). The agent view is a deliberate, view-local exception: its
+  rows are numbered 1-9 by urgency, so numbers there mean "jumpable agent"
+  and can change between opens; tree numbering is unaffected.
 - **Test seams.** tmux access sits behind a trait so the UI and model are
   testable without a live tmux. Keep new I/O behind seams like these.
 - **Graceful no-op on tmux failure.** Switch/select actions swallow non-zero

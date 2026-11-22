@@ -1,5 +1,5 @@
 use crate::model::{
-    AttachedColorMode, ColorPolicy, CreateStage, DefaultMode, DotColorMode, Group, Mode, PickerState, Row,
+    AgentState, AttachedColorMode, ColorPolicy, CreateStage, DefaultMode, DotColorMode, Group, Mode, PickerState, Row,
     Session, SessionMetric, SettingsRow, StartFocusMode, SwapDirection, Window, ALL_NAMED_COLORS,
 };
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
@@ -9,6 +9,7 @@ use ratatui::widgets::{Block, BorderType, Borders, List, ListItem, ListState, Pa
 use ratatui::Frame;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+mod agents;
 mod help;
 mod settings;
 
@@ -221,6 +222,7 @@ pub fn draw(frame: &mut Frame, state: &PickerState) {
         // through the same renderer, with the session rows receded and the
         // highlight moved up onto a group header.
         Mode::Command | Mode::Groups => draw_command(frame, state, content),
+        Mode::Agents => agents::draw_agents(frame, state, content),
         Mode::Search => draw_search(frame, state, content),
         Mode::Settings => settings::draw_settings(frame, state, content),
     }
@@ -402,6 +404,7 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
                     state.session_swap_marker(&sess.name),
                     wide_numbering,
                     caret,
+                    &state.session_agent_states(sess),
                 ), raised));
             }
             Row::Window(si, wi) => {
@@ -430,6 +433,8 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
                     state.window_swap_marker(&sess.name, sess.windows[*wi].index),
                     wide_numbering,
                     caret,
+                    &window_agent_states(state, &sess.windows[*wi]),
+                    meta.col,
                 ), raised));
             }
         }
@@ -574,7 +579,7 @@ fn draw_search(frame: &mut Frame, state: &PickerState, inner: Rect) {
                             .unwrap_or(attached_static_color),
                         AttachedColorMode::Static => attached_static_color,
                     };
-                    items.push(session_item(sess, state.is_expanded(&sess.name), selected, None, meta, state.is_dormant(&sess.name), attached_color, group_tag, None, state.session_metric, None, None, false, false, None, false, caret));
+                    items.push(session_item(sess, state.is_expanded(&sess.name), selected, None, meta, state.is_dormant(&sess.name), attached_color, group_tag, None, state.session_metric, None, None, false, false, None, false, caret, &state.session_agent_states(sess)));
                 }
                 Row::Window(si, wi) => {
                     let sess = results[*si];
@@ -592,7 +597,7 @@ fn draw_search(frame: &mut Frame, state: &PickerState, inner: Rect) {
                             .unwrap_or(dot_static_color),
                         DotColorMode::Static => dot_static_color,
                     };
-                    items.push(window_item(&sess.windows[*wi], last, selected, None, dormant, window_dormant, None, dot_color, None, false, caret));
+                    items.push(window_item(&sess.windows[*wi], last, selected, None, dormant, window_dormant, None, dot_color, None, false, caret, &window_agent_states(state, &sess.windows[*wi]), meta.col));
                 }
             }
         }
@@ -756,6 +761,7 @@ fn push_create_phantom_row(
             None,
             wide_numbering,
             caret,
+            &[],
         ),
         raised,
     ));
@@ -892,6 +898,11 @@ fn header_item(state: &PickerState, gi: usize, width: u16, color: Color) -> List
     }
     spans.push(Span::styled("─".repeat(rule_len), Style::default().fg(color)));
     ListItem::new(Line::from(spans))
+}
+
+/// States of the agent panes in `win`, in pane order.
+fn window_agent_states(state: &PickerState, win: &Window) -> Vec<AgentState> {
+    state.window_agents(win).iter().map(|a| a.state).collect()
 }
 
 /// The "{n} window(s)" count token for a session, singular for exactly one.
@@ -1055,6 +1066,30 @@ fn jump_label(n: usize) -> String {
     }
 }
 
+const AGENT_GLYPH: &str = "✻";
+
+/// Badge glyph color for an agent state.
+fn agent_color(state: AgentState) -> Color {
+    match state {
+        AgentState::Waiting => Color::Red,
+        AgentState::Done => Color::Yellow,
+        AgentState::Working => Color::Green,
+    }
+}
+
+/// One glyph per agent state, colored by state and separated by single spaces.
+/// Foreground only, so a selected row's highlight background still shows.
+fn agent_badge_spans(agents: &[AgentState]) -> Vec<Span<'static>> {
+    let mut spans = Vec::new();
+    for (i, state) in agents.iter().enumerate() {
+        if i > 0 {
+            spans.push(Span::raw(" "));
+        }
+        spans.push(Span::styled(AGENT_GLYPH, Style::default().fg(agent_color(*state))));
+    }
+    spans
+}
+
 #[allow(clippy::too_many_arguments)]
 fn session_item(
     sess: &Session,
@@ -1074,6 +1109,7 @@ fn session_item(
     swap_marker: Option<(SwapDirection, bool)>,
     wide_numbering: bool,
     caret: Option<&'static str>,
+    agents: &[AgentState],
 ) -> ListItem<'static> {
     let glyph = if expanded { "▾" } else { "▸" };
     let num = match number { Some(n) => jump_label(n), None => "  ".to_string() };
@@ -1165,6 +1201,10 @@ fn session_item(
         spans.push(Span::styled(" · ", secondary(selected)));
         spans.push(Span::styled(tag.to_uppercase(), Style::default().fg(color)));
     }
+    if !agents.is_empty() {
+        spans.push(Span::raw("   "));
+        spans.extend(agent_badge_spans(agents));
+    }
     ListItem::new(Line::from(spans))
 }
 
@@ -1181,6 +1221,8 @@ fn window_item(
     swap_marker: Option<(SwapDirection, bool)>,
     wide_numbering: bool,
     caret: Option<&'static str>,
+    agents: &[AgentState],
+    badge_col: usize,
 ) -> ListItem<'static> {
     // 4 leading spaces (not 2): the connector's tree glyph must land under the
     // parent session's expand glyph (issue #76), which itself shifted right by
@@ -1225,6 +1267,11 @@ fn window_item(
     if let Some((glyph, color)) = swap_marker_glyph(swap_marker, selected) {
         spans.push(Span::raw("  "));
         spans.push(Span::styled(glyph, Style::default().fg(color)));
+    }
+    if !agents.is_empty() {
+        let width: usize = spans.iter().map(|sp| sp.content.chars().count()).sum();
+        spans.push(Span::raw(" ".repeat(badge_col.saturating_sub(width).max(2))));
+        spans.extend(agent_badge_spans(agents));
     }
     ListItem::new(Line::from(spans))
 }
@@ -4933,5 +4980,96 @@ mod tests {
         assert!(text.contains("Settings Shortcuts"));
         assert!(text.contains("activate row"));
     }
+    fn badge_state(per_window: Vec<(&str, Vec<AgentState>)>) -> PickerState {
+        use crate::model::AgentPane;
+        let mut sess = Session {
+            id: "$1".into(), name: "alpha".into(), activity: 30, created: 1, attached: false, windows: vec![],
+        };
+        sess.windows = per_window
+            .iter()
+            .enumerate()
+            .map(|(i, (id, _))| Window { id: (*id).into(), index: i as u32, name: "shell".into(), active: false })
+            .collect();
+        let mut state = PickerState::build(vec![sess], &Config { groups: vec![], ..Default::default() });
+        state.set_agents(
+            per_window
+                .into_iter()
+                .map(|(id, sts)| {
+                    let panes = sts
+                        .into_iter()
+                        .enumerate()
+                        .map(|(i, st)| AgentPane { pane_id: format!("%{i}"), state: st, path: String::new() })
+                        .collect();
+                    (id.to_string(), panes)
+                })
+                .collect(),
+        );
+        state
+    }
+
+    fn render_buffer(state: &PickerState) -> ratatui::buffer::Buffer {
+        let mut terminal = Terminal::new(TestBackend::new(80, 20)).unwrap();
+        terminal.draw(|f| draw(f, state)).unwrap();
+        terminal.backend().buffer().clone()
+    }
+
+    fn glyph_cells(buf: &ratatui::buffer::Buffer, y: u16) -> Vec<(u16, Color)> {
+        (0..buf.area.width)
+            .filter(|x| buf[(*x, y)].symbol() == "✻")
+            .map(|x| (x, buf[(x, y)].fg))
+            .collect()
+    }
+
+    #[test]
+    fn agent_badges_show_on_session_and_window_rows() {
+        let mut state = badge_state(vec![("@1", vec![AgentState::Waiting])]);
+        state.expand_session("alpha");
+        let buf = render_buffer(&state);
+        let session_y = row_of(&buf, "alpha");
+        let window_y = row_of(&buf, "shell");
+        assert_eq!(glyph_cells(&buf, session_y).iter().map(|c| c.1).collect::<Vec<_>>(), vec![Color::Red]);
+        assert_eq!(glyph_cells(&buf, window_y).iter().map(|c| c.1).collect::<Vec<_>>(), vec![Color::Red]);
+    }
+
+    #[test]
+    fn two_agents_render_two_colored_glyphs_separated_by_a_space() {
+        let state = badge_state(vec![("@1", vec![AgentState::Done, AgentState::Working])]);
+        let buf = render_buffer(&state);
+        let y = row_of(&buf, "alpha");
+        let cells = glyph_cells(&buf, y);
+        assert_eq!(cells.len(), 2);
+        assert_eq!(cells[1].0, cells[0].0 + 2);
+        assert_eq!((cells[0].1, cells[1].1), (Color::Yellow, Color::Green));
+    }
+
+    #[test]
+    fn window_badge_starts_at_the_session_meta_column() {
+        let mut state = badge_state(vec![("@1", vec![AgentState::Done])]);
+        state.expand_session("alpha");
+        let buf = render_buffer(&state);
+        let session_y = row_of(&buf, "alpha");
+        let window_y = row_of(&buf, "shell");
+        let meta_x = find_text_x(&buf, session_y, "1 window").unwrap();
+        assert_eq!(glyph_cells(&buf, window_y)[0].0, meta_x);
+    }
+
+    #[test]
+    fn badge_on_selected_row_keeps_highlight_background_and_state_color() {
+        let mut state = badge_state(vec![("@1", vec![AgentState::Waiting])]);
+        state.focus_session("alpha");
+        let buf = render_buffer(&state);
+        let y = row_of(&buf, "alpha");
+        let x = glyph_cells(&buf, y)[0].0;
+        assert_eq!(buf[(x, y)].bg, SEL_BG);
+        assert_eq!(buf[(x, y)].fg, Color::Red);
+    }
+
+    #[test]
+    fn no_agents_renders_no_glyph() {
+        let mut state = badge_state(vec![("@1", vec![])]);
+        state.expand_session("alpha");
+        assert!(!render_to_string(&state).contains('✻'));
+    }
+
 }
 

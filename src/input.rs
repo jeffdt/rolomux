@@ -15,6 +15,7 @@ pub enum Input {
     Switch(usize),
     EnterGroups,
     EnterSettings,
+    EnterAgents,
     MoveUp,
     MoveDown,
     EnterSearch,
@@ -102,6 +103,33 @@ pub fn map_altitude_key(key: KeyEvent) -> AltitudeInput {
         KeyCode::Char(c @ '1'..='9') => AltitudeInput::Switch(c as usize - '0' as usize),
         KeyCode::Char('0') => AltitudeInput::Switch(10),
         _ => AltitudeInput::None,
+    }
+}
+
+/// Semantic action produced by a key press in the agent view.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AgentsInput {
+    Up,
+    Down,
+    Select,
+    Jump(usize),
+    ToggleTree,
+    Quit,
+    None,
+}
+
+/// Key mapping for the agent view: vim/arrow movement, `Enter` switches to the
+/// highlighted pane, `1`-`9` jump straight to a row, and `a`/`q`/`Esc` leave
+/// (`a` back to the tree, `q`/`Esc` out of the picker).
+pub fn map_agents_key(key: KeyEvent) -> AgentsInput {
+    match key.code {
+        KeyCode::Char('j') | KeyCode::Down => AgentsInput::Down,
+        KeyCode::Char('k') | KeyCode::Up => AgentsInput::Up,
+        KeyCode::Enter => AgentsInput::Select,
+        KeyCode::Char(c @ '1'..='9') => AgentsInput::Jump(c as usize - '0' as usize),
+        KeyCode::Char('a') => AgentsInput::ToggleTree,
+        KeyCode::Char('q') | KeyCode::Esc => AgentsInput::Quit,
+        _ => AgentsInput::None,
     }
 }
 
@@ -209,6 +237,7 @@ pub fn map_key(key: KeyEvent) -> Input {
         KeyCode::Enter => Input::Select,
         KeyCode::Char('g') => Input::EnterGroups,
         KeyCode::Char(',') => Input::EnterSettings,
+        KeyCode::Char('a') => Input::EnterAgents,
         KeyCode::Char('/') => Input::EnterSearch,
         KeyCode::Char('d') if ctrl => Input::UndormantSession,
         KeyCode::Char('d') => Input::ToggleDormant,
@@ -320,6 +349,27 @@ mod tests {
         assert_eq!(map_key(alt(KeyCode::Char('1'))), Input::Switch(11));
         assert_eq!(map_key(alt(KeyCode::Char('9'))), Input::Switch(19));
         assert_eq!(map_key(alt(KeyCode::Char('0'))), Input::Switch(20));
+    }
+
+    #[test]
+    fn map_key_a_enters_agents() {
+        assert_eq!(map_key(key(KeyCode::Char('a'))), Input::EnterAgents);
+    }
+
+    #[test]
+    fn maps_agents_keys() {
+        assert_eq!(map_agents_key(key(KeyCode::Char('j'))), AgentsInput::Down);
+        assert_eq!(map_agents_key(key(KeyCode::Down)), AgentsInput::Down);
+        assert_eq!(map_agents_key(key(KeyCode::Char('k'))), AgentsInput::Up);
+        assert_eq!(map_agents_key(key(KeyCode::Up)), AgentsInput::Up);
+        assert_eq!(map_agents_key(key(KeyCode::Enter)), AgentsInput::Select);
+        assert_eq!(map_agents_key(key(KeyCode::Char('1'))), AgentsInput::Jump(1));
+        assert_eq!(map_agents_key(key(KeyCode::Char('9'))), AgentsInput::Jump(9));
+        assert_eq!(map_agents_key(key(KeyCode::Char('0'))), AgentsInput::None);
+        assert_eq!(map_agents_key(key(KeyCode::Char('a'))), AgentsInput::ToggleTree);
+        assert_eq!(map_agents_key(key(KeyCode::Char('q'))), AgentsInput::Quit);
+        assert_eq!(map_agents_key(key(KeyCode::Esc)), AgentsInput::Quit);
+        assert_eq!(map_agents_key(key(KeyCode::Char('x'))), AgentsInput::None);
     }
 
     #[test]
