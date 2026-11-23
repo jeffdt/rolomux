@@ -111,6 +111,7 @@ impl PickerState {
         let command_focus = self.cursor_session_name();
         let search_focus = self.search_cursor_name();
         change(self);
+        self.agent_cursor = self.agent_cursor.min(self.agent_rows().len().saturating_sub(1));
         if let Some(name) = command_focus.as_deref().filter(|name| self.session_visible(name)) {
             self.focus_session(name);
         } else {

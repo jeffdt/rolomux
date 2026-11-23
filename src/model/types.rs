@@ -346,6 +346,8 @@ pub struct AgentRow {
     pub background: u32,
     pub since: i64,
     pub note: String,
+    /// The session or window is dormant, so the row renders dimmed.
+    pub dormant: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

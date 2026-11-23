@@ -7,7 +7,7 @@ use crate::model::AgentRow;
 
 const MAX_WINDOW_WIDTH: usize = 24;
 const DETAIL_INDENT: usize = 7;
-const AGENTS_FOOTER_HINT: &str = "1-9 jump · ↵ switch · a tree · q quit";
+const AGENTS_FOOTER_HINT: &str = "1-9 jump · ↵ switch · f focus · a tree · q quit";
 
 /// Header text for a state's section.
 fn section_title(state: AgentState) -> &'static str {
@@ -77,14 +77,15 @@ fn agent_item(row: &AgentRow, number: usize, selected: bool, name_width: usize, 
     let path = truncate_end(&tilde_home(&row.path, home), path_room);
     let path = if age_cell == 0 { path } else { format!("{path:<path_room$}  {:>age_width$}", state_age(row)) };
     let dim = secondary(selected);
+    let name_style = if row.dormant { dormant_session(selected) } else { Style::default() };
     ListItem::new(Line::from(vec![
         Span::styled("│", Style::default().fg(color)),
         Span::styled(label, dim),
         Span::styled(AGENT_GLYPH, Style::default().fg(color)),
         Span::raw(" "),
-        Span::raw(name),
+        Span::styled(name, name_style),
         Span::styled(" › ", dim),
-        Span::raw(window),
+        Span::styled(window, name_style),
         Span::styled(badge_cell, Style::default().fg(color)),
         Span::raw(" "),
         Span::styled(path, dim),
@@ -109,6 +110,11 @@ fn detail_lines(row: Option<&AgentRow>, width: usize) -> Vec<Line<'static>> {
     };
     let second = lines.next().map_or_else(|| Line::from(""), |text| Line::from(format!("{}{text}", " ".repeat(DETAIL_INDENT))));
     vec![first, second]
+}
+
+/// The footer hint; `f` reads `show` while focus mode hides agents, as in the tree.
+fn agents_footer_hint(state: &PickerState) -> String {
+    if state.focus_mode() { AGENTS_FOOTER_HINT.replace("f focus", "f show") } else { AGENTS_FOOTER_HINT.to_string() }
 }
 
 /// Draws the agent view: rows grouped under per-state headers, plus the footer.
@@ -163,8 +169,8 @@ fn draw_agents_with_home(frame: &mut Frame, state: &PickerState, inner: Rect, ho
     frame.render_widget(Paragraph::new(detail_lines(rows.get(state.agent_cursor()), chunks[1].width as usize)), chunks[1]);
 
     let footer = Paragraph::new(vec![
-        Line::from(Span::styled("─".repeat(chunks[2].width as usize), Style::default().fg(DIM))),
-        styled_hint(AGENTS_FOOTER_HINT, color_from_name(&state.shortcut_color)),
+        footer_rule_line(chunks[2].width, state),
+        styled_hint(&agents_footer_hint(state), color_from_name(&state.shortcut_color)),
     ]);
     frame.render_widget(footer, chunks[2]);
 }
@@ -337,9 +343,23 @@ mod tests {
     }
 
     #[test]
+    fn dormant_agents_dim_and_focus_mode_hides_them_with_footer_status() {
+        let mut st = state_with(vec![("alpha", vec![pane("%1", AgentState::Done, "/a")]), ("beta", vec![pane("%2", AgentState::Done, "/b")])]);
+        st.focus_session("beta");
+        st.toggle_dormant();
+        let buf = render(&st, None);
+        let y = row_with(&buf, "beta");
+        let x = (0..buf.area.width).find(|x| buf[(*x, y)].symbol() == "b").unwrap();
+        assert_eq!(buf[(x, y)].fg, DIM);
+        st.toggle_focus_mode();
+        let text = text_of(&render(&st, None)).join("\n");
+        assert!(!text.contains("beta") && text.contains("1 session hidden") && text.contains("f show"));
+    }
+
+    #[test]
     fn footer_lists_agent_view_keys() {
         let text = text_of(&render(&mixed(), None)).join("\n");
-        assert!(text.contains("1-9 jump · ↵ switch · a tree · q quit"));
+        assert!(text.contains("1-9 jump · ↵ switch · f focus · a tree · q quit"));
     }
 
     fn noted(id: &str, state: AgentState, path: &str, background: u32, note: &str) -> AgentPane {

@@ -704,6 +704,8 @@ fn event_loop(
                         }
                     }
                     AgentsInput::ToggleTree => state.exit_agents(),
+                    AgentsInput::ToggleFocusMode => state.toggle_focus_mode(),
+                    AgentsInput::TogglePeek => state.toggle_peek(),
                     AgentsInput::Quit => return Ok(None),
                     AgentsInput::None => {}
                 },

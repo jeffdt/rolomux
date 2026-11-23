@@ -25,6 +25,7 @@ impl PickerState {
                         background: p.background,
                         since: p.since,
                         note: p.note.clone(),
+                        dormant: self.is_dormant(&sess.name) || self.is_window_dormant(&sess.name, win.index),
                     })
                 })
             })
@@ -126,6 +127,24 @@ mod tests {
         st.focus_mode = true;
         let ids: Vec<String> = st.agent_rows().into_iter().map(|r| r.pane_id).collect();
         assert_eq!(ids, ["%2", "%1"]);
+    }
+
+    #[test]
+    fn rows_flag_dormant_sessions_and_windows() {
+        let mut st = mixed();
+        st.dormant_windows.insert(("a".into(), 3));
+        st.dormant.insert("b".into());
+        assert!(st.agent_rows().iter().all(|r| r.dormant));
+    }
+
+    #[test]
+    fn focus_toggle_clamps_the_agent_cursor() {
+        let mut st = mixed();
+        st.enter_agents();
+        st.agent_move(3);
+        st.dormant.insert("b".into());
+        st.toggle_focus_mode();
+        assert_eq!(st.agent_cursor(), 1);
     }
 
     #[test]

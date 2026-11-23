@@ -114,15 +114,20 @@ pub enum AgentsInput {
     Select,
     Jump(usize),
     ToggleTree,
+    ToggleFocusMode,
+    TogglePeek,
     Quit,
     None,
 }
 
 /// Key mapping for the agent view: vim/arrow movement, `Enter` switches to the
 /// highlighted pane, `1`-`9` jump straight to a row, and `a`/`q`/`Esc` leave
-/// (`a` back to the tree, `q`/`Esc` out of the picker).
+/// (`a` back to the tree, `q`/`Esc` out of the picker). `f` and `⇧F` toggle
+/// focus mode and peek, the same as in the tree.
 pub fn map_agents_key(key: KeyEvent) -> AgentsInput {
     match key.code {
+        KeyCode::Char('F') if key.modifiers.contains(KeyModifiers::SHIFT) => AgentsInput::TogglePeek,
+        KeyCode::Char('f') => AgentsInput::ToggleFocusMode,
         KeyCode::Char('j') | KeyCode::Down => AgentsInput::Down,
         KeyCode::Char('k') | KeyCode::Up => AgentsInput::Up,
         KeyCode::Enter => AgentsInput::Select,
@@ -366,6 +371,8 @@ mod tests {
         assert_eq!(map_agents_key(key(KeyCode::Char('1'))), AgentsInput::Jump(1));
         assert_eq!(map_agents_key(key(KeyCode::Char('9'))), AgentsInput::Jump(9));
         assert_eq!(map_agents_key(key(KeyCode::Char('0'))), AgentsInput::None);
+        assert_eq!(map_agents_key(key(KeyCode::Char('f'))), AgentsInput::ToggleFocusMode);
+        assert_eq!(map_agents_key(shift(KeyCode::Char('F'))), AgentsInput::TogglePeek);
         assert_eq!(map_agents_key(key(KeyCode::Char('a'))), AgentsInput::ToggleTree);
         assert_eq!(map_agents_key(key(KeyCode::Char('q'))), AgentsInput::Quit);
         assert_eq!(map_agents_key(key(KeyCode::Esc)), AgentsInput::Quit);
