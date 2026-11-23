@@ -36,7 +36,7 @@ fn sentences(text: &str) -> Vec<String> {
 }
 
 /// Reduces a note to one sentence: the last question if any, else the first sentence.
-#[allow(dead_code)] // the agent view uses this next
+#[allow(dead_code)] // wired up by the agent view
 pub fn condense(note: &str) -> String {
     let all = sentences(&strip_fences(note));
     all.iter()
@@ -49,7 +49,7 @@ pub fn condense(note: &str) -> String {
 
 /// Wraps `text` on word boundaries into at most `lines` lines of at most `width` chars,
 /// ending the last line with `…` when text remains.
-#[allow(dead_code)] // the agent view uses this next
+#[allow(dead_code)] // wired up by the agent view
 pub fn wrap_note(text: &str, width: usize, lines: usize) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     if width == 0 || lines == 0 {
@@ -83,7 +83,7 @@ pub fn wrap_note(text: &str, width: usize, lines: usize) -> Vec<String> {
     }
     if out.len() < lines && !cur.is_empty() {
         out.push(cur);
-    } else if out.len() == lines && (!words.is_empty() || !cur.is_empty()) {
+    } else if !words.is_empty() {
         ellipsize_last(&mut out, width);
     }
     out
@@ -92,9 +92,11 @@ pub fn wrap_note(text: &str, width: usize, lines: usize) -> Vec<String> {
 fn ellipsize_last(out: &mut [String], width: usize) {
     let last = out.last_mut().expect("non-empty");
     let mut chars: Vec<char> = last.chars().collect();
-    chars.truncate(width.saturating_sub(1));
-    if let Some(pos) = chars.iter().rposition(|c| *c == ' ') {
-        chars.truncate(pos);
+    if chars.len() > width.saturating_sub(1) {
+        chars.truncate(width.saturating_sub(1));
+        if let Some(pos) = chars.iter().rposition(|c| *c == ' ') {
+            chars.truncate(pos);
+        }
     }
     let mut s: String = chars.into_iter().collect();
     s.push('…');
@@ -152,6 +154,11 @@ mod tests {
     #[test]
     fn wrap_ellipsizes_overflow() {
         assert_eq!(wrap_note("aaa bbb ccc ddd eee", 7, 2), vec!["aaa bbb", "ccc…"]);
+    }
+
+    #[test]
+    fn wrap_keeps_short_line_whole_before_ellipsis() {
+        assert_eq!(wrap_note("aa bb cccccc", 10, 1), vec!["aa bb…"]);
     }
 
     #[test]
