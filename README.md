@@ -187,21 +187,23 @@ Press `a` for the agent view, which lists every agent pane grouped by state, lon
 
 Any agent can opt in by setting a tmux pane option from its hooks, which requires tmux 3.1+: `tmux set -p -t "$TMUX_PANE" @agent_state waiting|done|working`. Clear it with `tmux set -pu -t "$TMUX_PANE" @agent_state`. Optionally set `@agent_since` to the Unix time the state began, `@agent_note` to a one-line note, and `@agent_bg` to a count of running background tasks.
 
-For Claude Code, the agent view also shows a short note for the selected agent (what it asks, what it said, or your last prompt), how long each agent has been in its state, and marks agents with background tasks running. Install the hook script and merge its hooks into `~/.claude/settings.json` (needs `jq`; your other hooks are kept, a backup is saved as `settings.json.bak`, and rerunning it upgrades in place):
+For Claude Code, the agent view also shows a short note for the selected agent (what it asks, what it said, or your last prompt), how long each agent has been in its state, and marks agents with background tasks running. Install the hook script and merge its hooks into `~/.claude/settings.json` (needs `jq`; your other hooks are kept, a backup is saved as `settings.json.bak`, nothing changes if a step fails, and rerunning it upgrades in place):
 
 ```sh
 base=https://raw.githubusercontent.com/jeffdt/rolomux/main/contrib/claude-code
 mkdir -p ~/.claude/hooks
 curl -fsSL "$base/rolomux-agent-state.sh" -o ~/.claude/hooks/rolomux-agent-state.sh
 chmod +x ~/.claude/hooks/rolomux-agent-state.sh
-[ -f ~/.claude/settings.json ] || echo '{}' > ~/.claude/settings.json
-cp ~/.claude/settings.json ~/.claude/settings.json.bak
-curl -fsSL "$base/hooks.json" | jq --slurpfile add /dev/stdin '
-  .hooks = reduce ($add[0].hooks | to_entries[]) as $e (.hooks // {};
-    .[$e.key] = [(.[$e.key] // [])[]
-      | .hooks |= map(select(.command | tostring | contains("rolomux-agent-state") | not))
-      | select(.hooks | length > 0)] + $e.value)' \
-  ~/.claude/settings.json.bak > ~/.claude/settings.json
+s=~/.claude/settings.json
+[ -s "$s" ] || echo '{}' > "$s"
+curl -fsSL "$base/hooks.json" -o "$s.rolomux-hooks" &&
+  jq --slurpfile add "$s.rolomux-hooks" '
+    .hooks = reduce ($add[0].hooks | to_entries[]) as $e (.hooks // {};
+      .[$e.key] = [(.[$e.key] // [])[]
+        | .hooks |= map(select(.command | tostring | contains("rolomux-agent-state") | not))
+        | select(.hooks | length > 0)] + $e.value)' "$s" > "$s.new" &&
+  cp "$s" "$s.bak" && mv "$s.new" "$s"
+rm -f "$s.rolomux-hooks" "$s.new"
 ```
 
 The script and hooks live in [`contrib/claude-code`](contrib/claude-code).

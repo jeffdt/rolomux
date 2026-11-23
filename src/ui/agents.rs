@@ -6,6 +6,7 @@ use crate::model::note::{condense, wrap_note};
 use crate::model::AgentRow;
 
 const MAX_WINDOW_WIDTH: usize = 24;
+const MAX_SESSION_WIDTH: usize = 24;
 const DETAIL_INDENT: usize = 7;
 const AGENTS_FOOTER_HINT: &str = "1-9 jump · ↵ switch · f focus · a tree · q quit";
 
@@ -62,7 +63,7 @@ fn state_age(row: &AgentRow) -> String {
 fn agent_item(row: &AgentRow, number: usize, selected: bool, name_width: usize, window_width: usize, badge_width: usize, badge_glyph: &str, age_width: usize, width: usize, home: Option<&str>) -> ListItem<'static> {
     let color = agent_color(row.state);
     let label = if number <= 9 { jump_label(number) } else { "  ".to_string() };
-    let name = format!("{:<name_width$}", row.session);
+    let name = format!("{:<name_width$}", truncate_end(&row.session, name_width));
     let window = format!("{:<window_width$}", truncate_end(&row.window_name, window_width));
     let badge_cell = if badge_width == 0 {
         String::new()
@@ -136,7 +137,7 @@ fn draw_agents_with_home(frame: &mut Frame, state: &PickerState, inner: Rect, ho
             items.push(ListItem::new(Line::from(Span::styled(text, Style::default().fg(DIM)))));
         }
     } else {
-        let name_width = rows.iter().map(|r| r.session.chars().count()).max().unwrap_or(0);
+        let name_width = rows.iter().map(|r| r.session.chars().count()).max().unwrap_or(0).min(MAX_SESSION_WIDTH);
         let window_width = rows.iter().map(|r| r.window_name.chars().count()).max().unwrap_or(0).min(MAX_WINDOW_WIDTH);
         let badge_width = rows
             .iter()
@@ -459,6 +460,15 @@ mod tests {
         assert!(line("beta").ends_with("  5s"));
         assert!(line("gamma").ends_with("/pc"));
         assert_eq!(line("alpha").chars().count(), line("beta").chars().count(), "ages end in one column");
+    }
+
+    #[test]
+    fn long_session_name_is_capped_so_paths_keep_room() {
+        let long = "s".repeat(60);
+        let st = state_with(vec![(long.as_str(), vec![pane("%1", AgentState::Done, "/the/path")])]);
+        let text = text_of(&render(&st, None)).join("\n");
+        assert!(text.contains(&format!("{}… ›", "s".repeat(MAX_SESSION_WIDTH - 1))));
+        assert!(text.contains("/the/path"));
     }
 
     #[test]

@@ -314,14 +314,6 @@ impl PickerState {
     }
 
     pub fn ordered(&self) -> Vec<&Session> {
-        let mut out = self.ordered_unfiltered();
-        if self.focus_mode() {
-            out.retain(|s| !self.dormant.contains(&s.name) || s.attached);
-        }
-        out
-    }
-
-    fn ordered_unfiltered(&self) -> Vec<&Session> {
         let mut out: Vec<&Session> = Vec::new();
         let mut seen: HashSet<&str> = HashSet::new();
         for (gi, g) in self.groups.iter().enumerate() {
@@ -346,6 +338,9 @@ impl PickerState {
                     seen.insert(sess.name.as_str());
                 }
             }
+        }
+        if self.focus_mode() {
+            out.retain(|s| !self.dormant.contains(&s.name) || s.attached);
         }
         out
     }
@@ -578,13 +573,12 @@ impl PickerState {
         self.agents.get(&win.id).map_or(&[], Vec::as_slice)
     }
 
-    /// States of every agent in `sess`, window order then pane order.
+    /// States of every agent in `sess`, most urgent first, so a row clipped
+    /// at the card edge loses its least urgent badges.
     pub fn session_agent_states(&self, sess: &Session) -> Vec<AgentState> {
-        sess.windows
-            .iter()
-            .flat_map(|w| self.window_agents(w))
-            .map(|a| a.state)
-            .collect()
+        let mut states: Vec<AgentState> = sess.windows.iter().flat_map(|w| self.window_agents(w)).map(|a| a.state).collect();
+        states.sort();
+        states
     }
 
     /// Action for a window row: jump to its most urgent agent pane (first on
@@ -1017,14 +1011,14 @@ mod tests {
     }
 
     #[test]
-    fn session_agent_states_follow_window_then_pane_order() {
+    fn session_agent_states_sort_most_urgent_first() {
         let state = agent_state(vec![
             ("@1", vec![("%1", AgentState::Working), ("%2", AgentState::Done)]),
             ("@2", vec![("%3", AgentState::Waiting)]),
         ]);
         assert_eq!(
             state.session_agent_states(&state.all[0]),
-            vec![AgentState::Working, AgentState::Done, AgentState::Waiting]
+            vec![AgentState::Waiting, AgentState::Done, AgentState::Working]
         );
     }
 
