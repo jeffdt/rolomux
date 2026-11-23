@@ -42,7 +42,7 @@ mod blink;
 
 mod agents;
 
-mod note;
+pub mod note;
 
 use crate::store::Config;
 use std::collections::{HashMap, HashSet};
@@ -120,6 +120,8 @@ pub struct PickerState {
     pub dot_color_mode: DotColorMode,
     pub dot_color: String,
     pub shortcut_color: String,
+    /// Glyph shown in the agent view for agents with background tasks.
+    pub background_badge: String,
     pub always_show_shortcuts: bool,
     pub caret_style: CaretStyle,
     pub caret_blink: bool,
@@ -211,6 +213,7 @@ impl PickerState {
             dot_color_mode: config.dot_color_mode,
             dot_color: config.dot_color.clone(),
             shortcut_color: config.shortcut_color.clone(),
+            background_badge: "↻".to_string(),
             always_show_shortcuts: config.always_show_shortcuts,
             caret_style: config.caret_style,
             caret_blink: config.caret_blink,

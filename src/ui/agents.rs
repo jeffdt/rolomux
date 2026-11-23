@@ -2,9 +2,11 @@
 //! Shared helpers and palette constants come from the parent `ui` module.
 
 use super::*;
+use crate::model::note::{condense, wrap_note};
 use crate::model::AgentRow;
 
 const MAX_WINDOW_WIDTH: usize = 24;
+const DETAIL_INDENT: usize = 7;
 const AGENTS_FOOTER_HINT: &str = "1-9 jump · ↵ switch · a tree · q quit";
 
 /// Header text for a state's section.
@@ -49,13 +51,21 @@ fn truncate_end(text: &str, max: usize) -> String {
     format!("{kept}…")
 }
 
+#[allow(clippy::too_many_arguments)]
 /// One agent row: jump number, state glyph, session, window and path.
-fn agent_item(row: &AgentRow, number: usize, selected: bool, name_width: usize, window_width: usize, width: usize, home: Option<&str>) -> ListItem<'static> {
+fn agent_item(row: &AgentRow, number: usize, selected: bool, name_width: usize, window_width: usize, badge_width: usize, badge_glyph: &str, width: usize, home: Option<&str>) -> ListItem<'static> {
     let color = agent_color(row.state);
     let label = if number <= 9 { jump_label(number) } else { "  ".to_string() };
     let name = format!("{:<name_width$}", row.session);
     let window = format!("{:<window_width$}", truncate_end(&row.window_name, window_width));
-    let prefix_width = 1 + 2 + 1 + 1 + name_width + 3 + window_width + 1;
+    let badge_cell = if badge_width == 0 {
+        String::new()
+    } else if row.background > 0 {
+        format!(" {:<badge_width$}", format!("{badge_glyph}{}", row.background))
+    } else {
+        " ".repeat(badge_width + 1)
+    };
+    let prefix_width = 1 + 2 + 1 + 1 + name_width + 3 + window_width + badge_cell.chars().count() + 1;
     let path_room = width.saturating_sub(prefix_width);
     let path = truncate_end(&tilde_home(&row.path, home), path_room);
     let dim = secondary(selected);
@@ -67,9 +77,30 @@ fn agent_item(row: &AgentRow, number: usize, selected: bool, name_width: usize, 
         Span::raw(name),
         Span::styled(" › ", dim),
         Span::raw(window),
+        Span::styled(badge_cell, Style::default().fg(color)),
         Span::raw(" "),
         Span::styled(path, dim),
     ]))
+}
+
+/// The two-line detail block for the selected row: its condensed note under a
+/// label in the state color. Blank lines when there is nothing to show.
+fn detail_lines(row: Option<&AgentRow>, width: usize) -> Vec<Line<'static>> {
+    let Some(row) = row else { return vec![Line::from(""), Line::from("")] };
+    let wrapped = wrap_note(&condense(&row.note), width.saturating_sub(DETAIL_INDENT), 2);
+    let label = match row.state {
+        AgentState::Waiting => "asks",
+        AgentState::Done => "said",
+        AgentState::Working if row.background > 0 => "said",
+        AgentState::Working => "asked",
+    };
+    let mut lines = wrapped.into_iter();
+    let first = match lines.next() {
+        Some(text) => Line::from(vec![Span::styled(format!("{label:<5}  "), Style::default().fg(agent_color(row.state))), Span::raw(text)]),
+        None => Line::from(""),
+    };
+    let second = lines.next().map_or_else(|| Line::from(""), |text| Line::from(format!("{}{text}", " ".repeat(DETAIL_INDENT))));
+    vec![first, second]
 }
 
 /// Draws the agent view: rows grouped under per-state headers, plus the footer.
@@ -80,7 +111,7 @@ pub(super) fn draw_agents(frame: &mut Frame, state: &PickerState, inner: Rect) {
 fn draw_agents_with_home(frame: &mut Frame, state: &PickerState, inner: Rect, home: Option<&str>) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Min(0), Constraint::Length(2)])
+        .constraints([Constraint::Min(0), Constraint::Length(2), Constraint::Length(2)])
         .split(inner);
 
     let rows = state.agent_rows();
@@ -93,6 +124,12 @@ fn draw_agents_with_home(frame: &mut Frame, state: &PickerState, inner: Rect, ho
     } else {
         let name_width = rows.iter().map(|r| r.session.chars().count()).max().unwrap_or(0);
         let window_width = rows.iter().map(|r| r.window_name.chars().count()).max().unwrap_or(0).min(MAX_WINDOW_WIDTH);
+        let badge_width = rows
+            .iter()
+            .filter(|r| r.background > 0)
+            .map(|r| state.background_badge.chars().count() + r.background.to_string().len())
+            .max()
+            .unwrap_or(0);
         let mut current: Option<AgentState> = None;
         for (i, row) in rows.iter().enumerate() {
             if current != Some(row.state) {
@@ -106,7 +143,7 @@ fn draw_agents_with_home(frame: &mut Frame, state: &PickerState, inner: Rect, ho
             if selected {
                 selected_line = Some(items.len());
             }
-            items.push(agent_item(row, i + 1, selected, name_width, window_width, chunks[0].width as usize, home));
+            items.push(agent_item(row, i + 1, selected, name_width, window_width, badge_width, &state.background_badge, chunks[0].width as usize, home));
         }
     }
     let list = List::new(items).highlight_style(Style::default().bg(SEL_BG).add_modifier(Modifier::BOLD));
@@ -114,11 +151,13 @@ fn draw_agents_with_home(frame: &mut Frame, state: &PickerState, inner: Rect, ho
     list_state.select(selected_line);
     frame.render_stateful_widget(list, chunks[0], &mut list_state);
 
+    frame.render_widget(Paragraph::new(detail_lines(rows.get(state.agent_cursor()), chunks[1].width as usize)), chunks[1]);
+
     let footer = Paragraph::new(vec![
-        Line::from(Span::styled("─".repeat(chunks[1].width as usize), Style::default().fg(DIM))),
+        Line::from(Span::styled("─".repeat(chunks[2].width as usize), Style::default().fg(DIM))),
         styled_hint(AGENTS_FOOTER_HINT, color_from_name(&state.shortcut_color)),
     ]);
-    frame.render_widget(footer, chunks[1]);
+    frame.render_widget(footer, chunks[2]);
 }
 
 #[cfg(test)]
@@ -292,5 +331,77 @@ mod tests {
     fn footer_lists_agent_view_keys() {
         let text = text_of(&render(&mixed(), None)).join("\n");
         assert!(text.contains("1-9 jump · ↵ switch · a tree · q quit"));
+    }
+
+    fn noted(id: &str, state: AgentState, path: &str, background: u32, note: &str) -> AgentPane {
+        AgentPane { background, note: note.into(), ..pane(id, state, path) }
+    }
+
+    fn detail_lines(buf: &Buffer) -> (String, String) {
+        let t = text_of(buf);
+        let hint = row_with(buf, "1-9 jump") as usize;
+        (t[hint - 3].trim().to_string(), t[hint - 2].trim().to_string())
+    }
+
+    #[test]
+    fn detail_shows_selected_note_with_state_label_and_color() {
+        let mut st = state_with(vec![
+            ("alpha", vec![noted("%1", AgentState::Waiting, "/a", 0, "Should I proceed? Other text.")]),
+            ("beta", vec![noted("%2", AgentState::Done, "/b", 0, "All finished. More.")]),
+        ]);
+        let buf = render(&st, None);
+        assert_eq!(detail_lines(&buf).0, "asks   Should I proceed?");
+        let y = row_with(&buf, "asks");
+        let x = (0..buf.area.width).find(|x| buf[(*x, y)].symbol() == "a").unwrap();
+        assert_eq!(buf[(x, y)].fg, Color::Red);
+        st.agent_move(1);
+        assert_eq!(detail_lines(&render(&st, None)).0, "said   All finished.");
+    }
+
+    #[test]
+    fn working_label_is_asked_or_said_with_background() {
+        let st = state_with(vec![("alpha", vec![noted("%1", AgentState::Working, "/a", 0, "Do it.")])]);
+        assert_eq!(detail_lines(&render(&st, None)).0, "asked  Do it.");
+        let st = state_with(vec![("alpha", vec![noted("%1", AgentState::Working, "/a", 2, "Do it.")])]);
+        assert_eq!(detail_lines(&render(&st, None)).0, "said   Do it.");
+    }
+
+    #[test]
+    fn empty_note_keeps_detail_block_blank_and_footer_in_place() {
+        let blank = render(&mixed(), None);
+        let noted_st = state_with(vec![("alpha", vec![noted("%1", AgentState::Done, "/a", 0, "Hi.")])]);
+        let with_note = render(&noted_st, None);
+        assert_eq!(detail_lines(&blank), (String::new(), String::new()));
+        assert_eq!(row_with(&blank, "1-9 jump"), row_with(&with_note, "1-9 jump"));
+    }
+
+    #[test]
+    fn long_note_wraps_to_two_lines_ending_in_ellipsis() {
+        let note = "word ".repeat(40);
+        let st = state_with(vec![("alpha", vec![noted("%1", AgentState::Done, "/a", 0, &note)])]);
+        let (a, b) = detail_lines(&render(&st, None));
+        assert!(a.starts_with("said"));
+        assert!(b.ends_with('…'));
+    }
+
+    #[test]
+    fn background_badge_shows_in_row_color_and_paths_stay_aligned() {
+        let st = state_with(vec![
+            ("alpha", vec![noted("%1", AgentState::Working, "/pa", 2, "")]),
+            ("beta", vec![noted("%2", AgentState::Done, "/pb", 0, "")]),
+        ]);
+        let buf = render(&st, None);
+        let text = text_of(&buf);
+        let ya = row_with(&buf, "alpha") as usize;
+        assert!(text[ya].contains("↻2"));
+        let x = (0..buf.area.width).find(|x| buf[(*x, ya as u16)].symbol() == "↻").unwrap();
+        assert_eq!(buf[(x, ya as u16)].fg, Color::Green);
+        assert_eq!(text[ya].find("/pa").map(|i| text[ya][..i].chars().count()), text[row_with(&buf, "beta") as usize].find("/pb").map(|i| text[row_with(&buf, "beta") as usize][..i].chars().count()));
+    }
+
+    #[test]
+    fn no_badge_column_when_no_row_has_background_work() {
+        let buf = render(&mixed(), None);
+        assert!(text_of(&buf)[row_with(&buf, "alpha") as usize].contains("win-alpha /w/alpha"));
     }
 }

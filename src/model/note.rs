@@ -36,7 +36,6 @@ fn sentences(text: &str) -> Vec<String> {
 }
 
 /// Reduces a note to one sentence: the last question if any, else the first sentence.
-#[allow(dead_code)] // wired up by the agent view
 pub fn condense(note: &str) -> String {
     let all = sentences(&strip_fences(note));
     all.iter()
@@ -49,7 +48,6 @@ pub fn condense(note: &str) -> String {
 
 /// Wraps `text` on word boundaries into at most `lines` lines of at most `width` chars,
 /// ending the last line with `…` when text remains.
-#[allow(dead_code)] // wired up by the agent view
 pub fn wrap_note(text: &str, width: usize, lines: usize) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     if width == 0 || lines == 0 {
