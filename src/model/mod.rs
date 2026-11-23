@@ -42,6 +42,8 @@ mod blink;
 
 mod agents;
 
+mod note;
+
 use crate::store::Config;
 use std::collections::{HashMap, HashSet};
 use std::time::Instant;
