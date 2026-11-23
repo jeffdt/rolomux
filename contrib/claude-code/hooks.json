@@ -1,0 +1,12 @@
+{
+  "hooks": {
+    "SessionStart": [{ "hooks": [{ "type": "command", "command": "~/.claude/hooks/rolomux-agent-state.sh start" }] }],
+    "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "~/.claude/hooks/rolomux-agent-state.sh prompt" }] }],
+    "PostToolUse": [{ "hooks": [{ "type": "command", "command": "~/.claude/hooks/rolomux-agent-state.sh tool" }] }],
+    "PreToolUse": [{ "matcher": "AskUserQuestion", "hooks": [{ "type": "command", "command": "~/.claude/hooks/rolomux-agent-state.sh ask" }] }],
+    "PermissionRequest": [{ "hooks": [{ "type": "command", "command": "~/.claude/hooks/rolomux-agent-state.sh permission" }] }],
+    "Notification": [{ "matcher": "elicitation_dialog|agent_needs_input", "hooks": [{ "type": "command", "command": "~/.claude/hooks/rolomux-agent-state.sh notify" }] }],
+    "Stop": [{ "hooks": [{ "type": "command", "command": "~/.claude/hooks/rolomux-agent-state.sh stop" }] }],
+    "SessionEnd": [{ "hooks": [{ "type": "command", "command": "~/.claude/hooks/rolomux-agent-state.sh end" }] }]
+  }
+}

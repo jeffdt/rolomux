@@ -344,6 +344,7 @@ pub struct AgentRow {
     pub path: String,
     pub state: AgentState,
     pub background: u32,
+    pub since: i64,
     pub note: String,
 }
 
@@ -500,6 +501,8 @@ pub struct AgentPane {
     pub path: String,
     /// Background tasks the agent reported running.
     pub background: u32,
+    /// Unix time the agent entered its reported state; 0 when unknown.
+    pub since: i64,
     /// Free-text note the agent reported.
     pub note: String,
 }

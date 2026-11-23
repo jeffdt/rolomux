@@ -51,9 +51,15 @@ fn truncate_end(text: &str, max: usize) -> String {
     format!("{kept}…")
 }
 
+/// Time `row` has spent in its state, or empty when the agent never said.
+fn state_age(row: &AgentRow) -> String {
+    if row.since > 0 { activity_age(row.since) } else { String::new() }
+}
+
 #[allow(clippy::too_many_arguments)]
-/// One agent row: jump number, state glyph, session, window and path.
-fn agent_item(row: &AgentRow, number: usize, selected: bool, name_width: usize, window_width: usize, badge_width: usize, badge_glyph: &str, width: usize, home: Option<&str>) -> ListItem<'static> {
+/// One agent row: jump number, state glyph, session, window, path, and the
+/// time in state right-aligned at the end.
+fn agent_item(row: &AgentRow, number: usize, selected: bool, name_width: usize, window_width: usize, badge_width: usize, badge_glyph: &str, age_width: usize, width: usize, home: Option<&str>) -> ListItem<'static> {
     let color = agent_color(row.state);
     let label = if number <= 9 { jump_label(number) } else { "  ".to_string() };
     let name = format!("{:<name_width$}", row.session);
@@ -66,8 +72,10 @@ fn agent_item(row: &AgentRow, number: usize, selected: bool, name_width: usize, 
         " ".repeat(badge_width + 1)
     };
     let prefix_width = 1 + 2 + 1 + 1 + name_width + 3 + window_width + badge_cell.chars().count() + 1;
-    let path_room = width.saturating_sub(prefix_width);
+    let age_cell = if age_width == 0 { 0 } else { age_width + 2 };
+    let path_room = width.saturating_sub(prefix_width + age_cell);
     let path = truncate_end(&tilde_home(&row.path, home), path_room);
+    let path = if age_cell == 0 { path } else { format!("{path:<path_room$}  {:>age_width$}", state_age(row)) };
     let dim = secondary(selected);
     ListItem::new(Line::from(vec![
         Span::styled("│", Style::default().fg(color)),
@@ -130,6 +138,7 @@ fn draw_agents_with_home(frame: &mut Frame, state: &PickerState, inner: Rect, ho
             .map(|r| state.background_badge.chars().count() + r.background.to_string().len())
             .max()
             .unwrap_or(0);
+        let age_width = rows.iter().map(|r| state_age(r).chars().count()).max().unwrap_or(0);
         let mut current: Option<AgentState> = None;
         for (i, row) in rows.iter().enumerate() {
             if current != Some(row.state) {
@@ -143,7 +152,7 @@ fn draw_agents_with_home(frame: &mut Frame, state: &PickerState, inner: Rect, ho
             if selected {
                 selected_line = Some(items.len());
             }
-            items.push(agent_item(row, i + 1, selected, name_width, window_width, badge_width, &state.background_badge, chunks[0].width as usize, home));
+            items.push(agent_item(row, i + 1, selected, name_width, window_width, badge_width, &state.background_badge, age_width, chunks[0].width as usize, home));
         }
     }
     let list = List::new(items).highlight_style(Style::default().bg(SEL_BG).add_modifier(Modifier::BOLD));
@@ -170,7 +179,7 @@ mod tests {
     use ratatui::Terminal;
 
     fn pane(id: &str, state: AgentState, path: &str) -> AgentPane {
-        AgentPane { pane_id: id.into(), state, reported_state: state, path: path.into(), background: 0, note: String::new() }
+        AgentPane { pane_id: id.into(), state, reported_state: state, path: path.into(), background: 0, since: 0, note: String::new() }
     }
 
     fn state_with(agents: Vec<(&str, Vec<AgentPane>)>) -> PickerState {
@@ -397,6 +406,23 @@ mod tests {
         let x = (0..buf.area.width).find(|x| buf[(*x, ya as u16)].symbol() == "↻").unwrap();
         assert_eq!(buf[(x, ya as u16)].fg, Color::Green);
         assert_eq!(text[ya].find("/pa").map(|i| text[ya][..i].chars().count()), text[row_with(&buf, "beta") as usize].find("/pb").map(|i| text[row_with(&buf, "beta") as usize][..i].chars().count()));
+    }
+
+    #[test]
+    fn time_in_state_right_aligns_and_is_blank_when_unknown() {
+        let _clock = crate::ui::tests::freeze_clock(10_000);
+        let st = state_with(vec![
+            ("alpha", vec![AgentPane { since: 10_000 - 720, ..pane("%1", AgentState::Waiting, "/pa") }]),
+            ("beta", vec![AgentPane { since: 10_000 - 5, ..pane("%2", AgentState::Waiting, "/pb") }]),
+            ("gamma", vec![pane("%3", AgentState::Waiting, "/pc")]),
+        ]);
+        let buf = render(&st, None);
+        let text = text_of(&buf);
+        let line = |name| text[row_with(&buf, name) as usize].trim_end_matches(['│', ' ']).to_string();
+        assert!(line("alpha").ends_with(" 12m"));
+        assert!(line("beta").ends_with("  5s"));
+        assert!(line("gamma").ends_with("/pc"));
+        assert_eq!(line("alpha").chars().count(), line("beta").chars().count(), "ages end in one column");
     }
 
     #[test]

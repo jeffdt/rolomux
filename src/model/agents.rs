@@ -6,14 +6,15 @@
 use super::{move_index_with_edge_wrap, Action, AgentRow, Mode, PickerState};
 
 impl PickerState {
-    /// All agent panes in tree order (ignoring focus mode, so dormant
-    /// sessions' agents still appear), stable-sorted by urgency.
+    /// Agent panes the tree would show (focus mode hides dormant sessions and
+    /// windows here too), sorted by urgency, then longest in that state first;
+    /// panes with no known start time keep tree order after those that have one.
     pub fn agent_rows(&self) -> Vec<AgentRow> {
         let mut rows: Vec<AgentRow> = self
-            .ordered_unfiltered()
+            .ordered()
             .into_iter()
             .flat_map(|sess| {
-                sess.windows.iter().flat_map(move |win| {
+                sess.windows.iter().filter(|win| self.window_visible(&sess.name, win.index, win.active)).flat_map(move |win| {
                     self.window_agents(win).iter().map(move |p| AgentRow {
                         session: sess.name.clone(),
                         window_index: win.index,
@@ -22,12 +23,13 @@ impl PickerState {
                         path: p.path.clone(),
                         state: p.state,
                         background: p.background,
+                        since: p.since,
                         note: p.note.clone(),
                     })
                 })
             })
             .collect();
-        rows.sort_by_key(|r| r.state);
+        rows.sort_by_key(|r| (r.state, r.since == 0, r.since));
         rows
     }
 
@@ -79,7 +81,7 @@ mod tests {
     use crate::store::Config;
 
     fn pane(id: &str, state: AgentState) -> AgentPane {
-        AgentPane { pane_id: id.into(), state, reported_state: state, path: format!("/p/{id}"), background: 0, note: String::new() }
+        AgentPane { pane_id: id.into(), state, reported_state: state, path: format!("/p/{id}"), background: 0, since: 0, note: String::new() }
     }
 
     /// Sessions `a` (window @1) and `b` (window @2), in that order.
@@ -117,12 +119,29 @@ mod tests {
     }
 
     #[test]
-    fn dormant_session_agents_listed_under_focus_mode() {
+    fn focus_mode_hides_dormant_sessions_agents() {
         let mut st = mixed();
         st.dormant.insert("b".into());
+        assert_eq!(st.agent_rows().len(), 4, "dormant alone only dims");
         st.focus_mode = true;
-        assert!(!st.ordered().iter().any(|s| s.name == "b"));
-        assert_eq!(st.agent_rows().len(), 4);
+        let ids: Vec<String> = st.agent_rows().into_iter().map(|r| r.pane_id).collect();
+        assert_eq!(ids, ["%2", "%1"]);
+    }
+
+    #[test]
+    fn focus_mode_hides_dormant_windows_agents() {
+        let mut st = mixed();
+        st.dormant_windows.insert(("b".into(), 0));
+        st.focus_mode = true;
+        assert_eq!(st.agent_rows().len(), 2);
+    }
+
+    #[test]
+    fn longest_in_state_sorts_first_and_unknown_start_goes_last() {
+        let at = |id, since| AgentPane { since, ..pane(id, AgentState::Waiting) };
+        let st = two_sessions(vec![at("%1", 0), at("%2", 200)], vec![at("%3", 100)]);
+        let ids: Vec<String> = st.agent_rows().into_iter().map(|r| r.pane_id).collect();
+        assert_eq!(ids, ["%3", "%2", "%1"]);
     }
 
     #[test]

@@ -434,7 +434,7 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
                     wide_numbering,
                     caret,
                     &window_agent_states(state, &sess.windows[*wi]),
-                    meta.col,
+                    meta.width,
                 ), raised));
             }
         }
@@ -597,7 +597,7 @@ fn draw_search(frame: &mut Frame, state: &PickerState, inner: Rect) {
                             .unwrap_or(dot_static_color),
                         DotColorMode::Static => dot_static_color,
                     };
-                    items.push(window_item(&sess.windows[*wi], last, selected, None, dormant, window_dormant, None, dot_color, None, false, caret, &window_agent_states(state, &sess.windows[*wi]), meta.col));
+                    items.push(window_item(&sess.windows[*wi], last, selected, None, dormant, window_dormant, None, dot_color, None, false, caret, &window_agent_states(state, &sess.windows[*wi]), meta.width));
                 }
             }
         }
@@ -740,7 +740,7 @@ fn push_create_phantom_row(
     let sess = Session {
         id: String::new(), name: String::new(), activity: 0, created: 0, attached: false, windows: vec![],
     };
-    let meta = MetaLayout { col: 0, count_width: 0 };
+    let meta = MetaLayout { col: 0, count_width: 0, width: 0 };
     let (rename_buf, dim_buf) = if buf.is_empty() { (placeholder, true) } else { (buf, false) };
     items.push(recede(
         session_item(
@@ -1018,6 +1018,8 @@ fn shortcut_hint_line(state: &PickerState, text: &str) -> Line<'static> {
 struct MetaLayout {
     col: usize,
     count_width: usize,
+    /// Full row width, so agent badges can right-align to one shared column.
+    width: usize,
 }
 
 impl MetaLayout {
@@ -1046,7 +1048,7 @@ impl MetaLayout {
         }
         let target = META_COL.max(longest_prefix + META_GAP);
         let cap = (width as usize).saturating_sub(META_BUDGET).max(META_COL);
-        MetaLayout { col: target.min(cap), count_width }
+        MetaLayout { col: target.min(cap), count_width, width: width as usize }
     }
 }
 
@@ -1088,6 +1090,18 @@ fn agent_badge_spans(agents: &[AgentState]) -> Vec<Span<'static>> {
         spans.push(Span::styled(AGENT_GLYPH, Style::default().fg(agent_color(*state))));
     }
     spans
+}
+
+/// Appends `agents`' badges right-aligned to `row_width` (one cell of margin),
+/// so every row's badges end in the same column whatever precedes them.
+fn push_agent_badges(spans: &mut Vec<Span<'static>>, agents: &[AgentState], row_width: usize) {
+    if agents.is_empty() {
+        return;
+    }
+    let used: usize = spans.iter().map(Span::width).sum();
+    let badges_width = agents.len() * 2 - 1;
+    spans.push(Span::raw(" ".repeat(row_width.saturating_sub(used + badges_width + 1).max(2))));
+    spans.extend(agent_badge_spans(agents));
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1201,10 +1215,7 @@ fn session_item(
         spans.push(Span::styled(" · ", secondary(selected)));
         spans.push(Span::styled(tag.to_uppercase(), Style::default().fg(color)));
     }
-    if !agents.is_empty() {
-        spans.push(Span::raw("   "));
-        spans.extend(agent_badge_spans(agents));
-    }
+    push_agent_badges(&mut spans, agents, meta.width);
     ListItem::new(Line::from(spans))
 }
 
@@ -1222,7 +1233,7 @@ fn window_item(
     wide_numbering: bool,
     caret: Option<&'static str>,
     agents: &[AgentState],
-    badge_col: usize,
+    row_width: usize,
 ) -> ListItem<'static> {
     // 4 leading spaces (not 2): the connector's tree glyph must land under the
     // parent session's expand glyph (issue #76), which itself shifted right by
@@ -1268,11 +1279,7 @@ fn window_item(
         spans.push(Span::raw("  "));
         spans.push(Span::styled(glyph, Style::default().fg(color)));
     }
-    if !agents.is_empty() {
-        let width: usize = spans.iter().map(|sp| sp.content.chars().count()).sum();
-        spans.push(Span::raw(" ".repeat(badge_col.saturating_sub(width).max(2))));
-        spans.extend(agent_badge_spans(agents));
-    }
+    push_agent_badges(&mut spans, agents, row_width);
     ListItem::new(Line::from(spans))
 }
 
@@ -1294,7 +1301,7 @@ mod tests {
     /// Freezes `now_unix()` at `now` for the lifetime of the returned guard,
     /// so a test's age-string assertions can't race the real wall clock.
     /// Restores the real clock on drop (including on assertion panic).
-    struct ClockGuard;
+    pub(super) struct ClockGuard;
 
     impl Drop for ClockGuard {
         fn drop(&mut self) {
@@ -1302,7 +1309,7 @@ mod tests {
         }
     }
 
-    fn freeze_clock(now: i64) -> ClockGuard {
+    pub(super) fn freeze_clock(now: i64) -> ClockGuard {
         TEST_CLOCK.with(|c| c.set(Some(now)));
         ClockGuard
     }
@@ -5005,7 +5012,7 @@ mod tests {
                     let panes = sts
                         .into_iter()
                         .enumerate()
-                        .map(|(i, st)| AgentPane { pane_id: format!("%{i}"), state: st, reported_state: st, path: String::new(), background: 0, note: String::new() })
+                        .map(|(i, st)| AgentPane { pane_id: format!("%{i}"), state: st, reported_state: st, path: String::new(), background: 0, since: 0, note: String::new() })
                         .collect();
                     (id.to_string(), panes)
                 })
@@ -5050,14 +5057,18 @@ mod tests {
     }
 
     #[test]
-    fn window_badge_starts_at_the_session_meta_column() {
-        let mut state = badge_state(vec![("@1", vec![AgentState::Done])]);
+    fn badges_right_align_to_one_column_across_rows_and_selection() {
+        let mut state = badge_state(vec![("@1", vec![AgentState::Done]), ("@2", vec![AgentState::Waiting, AgentState::Working])]);
         state.expand_session("alpha");
-        let buf = render_buffer(&state);
-        let session_y = row_of(&buf, "alpha");
-        let window_y = row_of(&buf, "shell");
-        let meta_x = find_text_x(&buf, session_y, "1 window").unwrap();
-        assert_eq!(glyph_cells(&buf, window_y)[0].0, meta_x);
+        let unselected = render_buffer(&state);
+        let last_x = |buf: &ratatui::buffer::Buffer, y| glyph_cells(buf, y).last().unwrap().0;
+        let rows: Vec<u16> = (0..unselected.area.height).filter(|y| !glyph_cells(&unselected, *y).is_empty()).collect();
+        assert_eq!(rows.len(), 3, "session row and both window rows carry badges");
+        let end = last_x(&unselected, rows[0]);
+        assert!(rows.iter().all(|y| last_x(&unselected, *y) == end), "every row's badges end in the same column");
+        state.move_cursor(1);
+        let selected = render_buffer(&state);
+        assert!(rows.iter().all(|y| last_x(&selected, *y) == end), "selection shifts nothing");
     }
 
     #[test]

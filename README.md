@@ -183,54 +183,28 @@ If the repeat window closes before your next tap, raise tmux's `repeat-time` (50
 rolomux shows a `✻` for each CLI agent on its window and session rows: red when the agent is waiting on you, yellow when it's done and it's your move, and green while it's working.
 Selecting a window jumps to its most urgent agent pane.
 
-Press `a` for the agent view, which lists every agent pane grouped by state, or open it directly with a tmux bind such as `bind A display-popup -E -B -w 84 -h 60% "exec rolomux --agents"`.
+Press `a` for the agent view, which lists every agent pane grouped by state, longest in its state first, or open it directly with a tmux bind such as `bind A display-popup -E -B -w 84 -h 60% "exec rolomux --agents"`.
 
-Any agent can opt in by setting a tmux pane option from its hooks, which requires tmux 3.1+: `tmux set -p -t "$TMUX_PANE" @agent_state waiting|done|working`. Clear it with `tmux set -pu -t "$TMUX_PANE" @agent_state`.
+Any agent can opt in by setting a tmux pane option from its hooks, which requires tmux 3.1+: `tmux set -p -t "$TMUX_PANE" @agent_state waiting|done|working`. Clear it with `tmux set -pu -t "$TMUX_PANE" @agent_state`. Optionally set `@agent_since` to the Unix time the state began, `@agent_note` to a one-line note, and `@agent_bg` to a count of running background tasks.
 
-For Claude Code, the agent view also shows a short note for the selected agent (what it asks, what it said, or your last prompt) and marks agents with background tasks running. Save this script as `~/.claude/hooks/rolomux-agent-state.sh`, make it executable with `chmod +x`, and make sure `jq` is installed:
+For Claude Code, the agent view also shows a short note for the selected agent (what it asks, what it said, or your last prompt), how long each agent has been in its state, and marks agents with background tasks running. Install the hook script and merge its hooks into `~/.claude/settings.json` (needs `jq`; your other hooks are kept, a backup is saved as `settings.json.bak`, and rerunning it upgrades in place):
 
 ```sh
-#!/bin/sh
-# Reports this Claude Code session's state to rolomux through tmux pane options.
-[ -n "$TMUX_PANE" ] || exit 0
-input=$(cat)
-field() { printf '%s' "$input" | jq -r "$1" 2>/dev/null; }
-opt() { tmux set -p -t "$TMUX_PANE" "$1" "$2"; }
-unset_opt() { tmux set -pu -t "$TMUX_PANE" "$1"; }
-case "$1" in
-  start|end) unset_opt @agent_state; unset_opt @agent_note; unset_opt @agent_bg ;;
-  prompt) opt @agent_state working; opt @agent_note "$(field '.prompt | gsub("\\s+"; " ")')"; unset_opt @agent_bg ;;
-  tool) opt @agent_state working ;;
-  ask) opt @agent_state waiting; opt @agent_note "$(field '[.tool_input.questions[].question] | join(" · ") | gsub("\\s+"; " ")')" ;;
-  permission) opt @agent_state waiting; opt @agent_note "wants $(field .tool_name)" ;;
-  notify) opt @agent_state waiting ;;
-  stop)
-    opt @agent_state done
-    opt @agent_note "$(field '.last_assistant_message // "" | gsub("\\s+"; " ")')"
-    n=$(field '.background_tasks | length')
-    if [ "${n:-0}" -gt 0 ] 2>/dev/null; then opt @agent_bg "$n"; else unset_opt @agent_bg; fi ;;
-esac
-exit 0
+base=https://raw.githubusercontent.com/jeffdt/rolomux/main/contrib/claude-code
+mkdir -p ~/.claude/hooks
+curl -fsSL "$base/rolomux-agent-state.sh" -o ~/.claude/hooks/rolomux-agent-state.sh
+chmod +x ~/.claude/hooks/rolomux-agent-state.sh
+[ -f ~/.claude/settings.json ] || echo '{}' > ~/.claude/settings.json
+cp ~/.claude/settings.json ~/.claude/settings.json.bak
+curl -fsSL "$base/hooks.json" | jq --slurpfile add /dev/stdin '
+  .hooks = reduce ($add[0].hooks | to_entries[]) as $e (.hooks // {};
+    .[$e.key] = [(.[$e.key] // [])[]
+      | .hooks |= map(select(.command | tostring | contains("rolomux-agent-state") | not))
+      | select(.hooks | length > 0)] + $e.value)' \
+  ~/.claude/settings.json.bak > ~/.claude/settings.json
 ```
 
-Then merge this into the `hooks` object in `~/.claude/settings.json`:
-
-```json
-{
-  "hooks": {
-    "SessionStart": [{ "hooks": [{ "type": "command", "command": "~/.claude/hooks/rolomux-agent-state.sh start" }] }],
-    "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "~/.claude/hooks/rolomux-agent-state.sh prompt" }] }],
-    "PostToolUse": [{ "hooks": [{ "type": "command", "command": "~/.claude/hooks/rolomux-agent-state.sh tool" }] }],
-    "PreToolUse": [{ "matcher": "AskUserQuestion", "hooks": [{ "type": "command", "command": "~/.claude/hooks/rolomux-agent-state.sh ask" }] }],
-    "PermissionRequest": [{ "hooks": [{ "type": "command", "command": "~/.claude/hooks/rolomux-agent-state.sh permission" }] }],
-    "Notification": [{ "matcher": "elicitation_dialog|agent_needs_input", "hooks": [{ "type": "command", "command": "~/.claude/hooks/rolomux-agent-state.sh notify" }] }],
-    "Stop": [{ "hooks": [{ "type": "command", "command": "~/.claude/hooks/rolomux-agent-state.sh stop" }] }],
-    "SessionEnd": [{ "hooks": [{ "type": "command", "command": "~/.claude/hooks/rolomux-agent-state.sh end" }] }]
-  }
-}
-```
-
-If you already have hooks for any of these events, add these entries to that event's existing list rather than replacing it.
+The script and hooks live in [`contrib/claude-code`](contrib/claude-code).
 Agents already running appear after their next hook fires, for example the next time you send them a prompt.
 
 ### Settings
