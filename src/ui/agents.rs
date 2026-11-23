@@ -131,7 +131,7 @@ mod tests {
     use ratatui::Terminal;
 
     fn pane(id: &str, state: AgentState, path: &str) -> AgentPane {
-        AgentPane { pane_id: id.into(), state, path: path.into() }
+        AgentPane { pane_id: id.into(), state, reported_state: state, path: path.into(), background: 0, note: String::new() }
     }
 
     fn state_with(agents: Vec<(&str, Vec<AgentPane>)>) -> PickerState {

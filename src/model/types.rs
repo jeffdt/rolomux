@@ -343,6 +343,8 @@ pub struct AgentRow {
     pub pane_id: String,
     pub path: String,
     pub state: AgentState,
+    pub background: u32,
+    pub note: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -485,10 +487,17 @@ impl AgentState {
 pub struct AgentPane {
     /// tmux `#{pane_id}`, e.g. `"%42"`.
     pub pane_id: String,
-    /// Last state the agent reported via `@agent_state`.
+    /// State shown for the pane: the reported state, except `done` with
+    /// background work running counts as `Working`.
     pub state: AgentState,
+    /// What the agent set via `@agent_state`, before background work is counted.
+    pub reported_state: AgentState,
     /// The pane's current working directory.
     pub path: String,
+    /// Background tasks the agent reported running.
+    pub background: u32,
+    /// Free-text note the agent reported.
+    pub note: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -994,7 +994,7 @@ mod tests {
             windows
                 .into_iter()
                 .map(|(id, ps)| {
-                    (id.to_string(), ps.into_iter().map(|(p, st)| AgentPane { pane_id: p.into(), state: st, path: String::new() }).collect())
+                    (id.to_string(), ps.into_iter().map(|(p, st)| AgentPane { pane_id: p.into(), state: st, reported_state: st, path: String::new(), background: 0, note: String::new() }).collect())
                 })
                 .collect(),
         );

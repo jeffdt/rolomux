@@ -21,6 +21,8 @@ impl PickerState {
                         pane_id: p.pane_id.clone(),
                         path: p.path.clone(),
                         state: p.state,
+                        background: p.background,
+                        note: p.note.clone(),
                     })
                 })
             })
@@ -77,7 +79,7 @@ mod tests {
     use crate::store::Config;
 
     fn pane(id: &str, state: AgentState) -> AgentPane {
-        AgentPane { pane_id: id.into(), state, path: format!("/p/{id}") }
+        AgentPane { pane_id: id.into(), state, reported_state: state, path: format!("/p/{id}"), background: 0, note: String::new() }
     }
 
     /// Sessions `a` (window @1) and `b` (window @2), in that order.

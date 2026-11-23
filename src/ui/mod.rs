@@ -4998,7 +4998,7 @@ mod tests {
                     let panes = sts
                         .into_iter()
                         .enumerate()
-                        .map(|(i, st)| AgentPane { pane_id: format!("%{i}"), state: st, path: String::new() })
+                        .map(|(i, st)| AgentPane { pane_id: format!("%{i}"), state: st, reported_state: st, path: String::new(), background: 0, note: String::new() })
                         .collect();
                     (id.to_string(), panes)
                 })
