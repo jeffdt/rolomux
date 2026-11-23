@@ -187,19 +187,45 @@ Press `a` for the agent view, which lists every agent pane grouped by state, or 
 
 Any agent can opt in by setting a tmux pane option from its hooks, which requires tmux 3.1+: `tmux set -p -t "$TMUX_PANE" @agent_state waiting|done|working`. Clear it with `tmux set -pu -t "$TMUX_PANE" @agent_state`.
 
-For Claude Code, merge this into the `hooks` object in `~/.claude/settings.json`:
+For Claude Code, the agent view also shows a short note for the selected agent (what it asks, what it said, or your last prompt) and marks agents with background tasks running. Save this script as `~/.claude/hooks/rolomux-agent-state.sh`, make it executable with `chmod +x`, and make sure `jq` is installed:
+
+```sh
+#!/bin/sh
+# Reports this Claude Code session's state to rolomux through tmux pane options.
+[ -n "$TMUX_PANE" ] || exit 0
+input=$(cat)
+field() { printf '%s' "$input" | jq -r "$1" 2>/dev/null; }
+opt() { tmux set -p -t "$TMUX_PANE" "$1" "$2"; }
+unset_opt() { tmux set -pu -t "$TMUX_PANE" "$1"; }
+case "$1" in
+  start|end) unset_opt @agent_state; unset_opt @agent_note; unset_opt @agent_bg ;;
+  prompt) opt @agent_state working; opt @agent_note "$(field '.prompt | gsub("\\s+"; " ")')"; unset_opt @agent_bg ;;
+  tool) opt @agent_state working ;;
+  ask) opt @agent_state waiting; opt @agent_note "$(field '[.tool_input.questions[].question] | join(" · ") | gsub("\\s+"; " ")')" ;;
+  permission) opt @agent_state waiting; opt @agent_note "wants $(field .tool_name)" ;;
+  notify) opt @agent_state waiting ;;
+  stop)
+    opt @agent_state done
+    opt @agent_note "$(field '.last_assistant_message // "" | gsub("\\s+"; " ")')"
+    n=$(field '.background_tasks | length')
+    if [ "${n:-0}" -gt 0 ] 2>/dev/null; then opt @agent_bg "$n"; else unset_opt @agent_bg; fi ;;
+esac
+exit 0
+```
+
+Then merge this into the `hooks` object in `~/.claude/settings.json`:
 
 ```json
 {
   "hooks": {
-    "SessionStart": [{ "hooks": [{ "type": "command", "command": "[ -n \"$TMUX_PANE\" ] && tmux set -pu -t \"$TMUX_PANE\" @agent_state; true" }] }],
-    "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "[ -n \"$TMUX_PANE\" ] && tmux set -p -t \"$TMUX_PANE\" @agent_state working; true" }] }],
-    "PostToolUse": [{ "hooks": [{ "type": "command", "command": "[ -n \"$TMUX_PANE\" ] && tmux set -p -t \"$TMUX_PANE\" @agent_state working; true" }] }],
-    "PreToolUse": [{ "matcher": "AskUserQuestion", "hooks": [{ "type": "command", "command": "[ -n \"$TMUX_PANE\" ] && tmux set -p -t \"$TMUX_PANE\" @agent_state waiting; true" }] }],
-    "PermissionRequest": [{ "hooks": [{ "type": "command", "command": "[ -n \"$TMUX_PANE\" ] && tmux set -p -t \"$TMUX_PANE\" @agent_state waiting; true" }] }],
-    "Notification": [{ "matcher": "elicitation_dialog|agent_needs_input", "hooks": [{ "type": "command", "command": "[ -n \"$TMUX_PANE\" ] && tmux set -p -t \"$TMUX_PANE\" @agent_state waiting; true" }] }],
-    "Stop": [{ "hooks": [{ "type": "command", "command": "[ -n \"$TMUX_PANE\" ] && tmux set -p -t \"$TMUX_PANE\" @agent_state done; true" }] }],
-    "SessionEnd": [{ "hooks": [{ "type": "command", "command": "[ -n \"$TMUX_PANE\" ] && tmux set -pu -t \"$TMUX_PANE\" @agent_state; true" }] }]
+    "SessionStart": [{ "hooks": [{ "type": "command", "command": "~/.claude/hooks/rolomux-agent-state.sh start" }] }],
+    "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "~/.claude/hooks/rolomux-agent-state.sh prompt" }] }],
+    "PostToolUse": [{ "hooks": [{ "type": "command", "command": "~/.claude/hooks/rolomux-agent-state.sh tool" }] }],
+    "PreToolUse": [{ "matcher": "AskUserQuestion", "hooks": [{ "type": "command", "command": "~/.claude/hooks/rolomux-agent-state.sh ask" }] }],
+    "PermissionRequest": [{ "hooks": [{ "type": "command", "command": "~/.claude/hooks/rolomux-agent-state.sh permission" }] }],
+    "Notification": [{ "matcher": "elicitation_dialog|agent_needs_input", "hooks": [{ "type": "command", "command": "~/.claude/hooks/rolomux-agent-state.sh notify" }] }],
+    "Stop": [{ "hooks": [{ "type": "command", "command": "~/.claude/hooks/rolomux-agent-state.sh stop" }] }],
+    "SessionEnd": [{ "hooks": [{ "type": "command", "command": "~/.claude/hooks/rolomux-agent-state.sh end" }] }]
   }
 }
 ```
@@ -239,6 +265,7 @@ Each row shows a jump number in its gutter; pressing it jumps straight to that r
 - **Inbox icon.** The glyph shown before the inbox group's header. Cycle through a curated set with `h`/`l`.
 - **Caret style.** The glyph used for the inline text caret when renaming, creating, or searching: a thin bar (default), an underline, or a solid block.
 - **Caret blink.** Off by default (the caret stays solid). When on, the caret blinks.
+- **Background badge.** The glyph that marks agents with background tasks still running in the agent view. Cycle through ↻, ⧗ and ◔ with `h`/`l`.
 
 | Key | Action |
 | --- | --- |

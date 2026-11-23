@@ -398,6 +398,10 @@ pub const INBOX_ICONS: [&str; 21] = [
     "⊕", "∅", "⧉", "♤", "♡", "♢", "♧",
 ];
 
+/// The glyphs a user can cycle the agent view's background-task badge through
+/// (`SettingsRow::BackgroundBadge`). Index 0 is the default.
+pub const BACKGROUND_BADGES: [&str; 3] = ["↻", "⧗", "◔"];
+
 /// A user-named, ordered collection of sessions that renders as its own
 /// section. One group is always the inbox (see `inbox` below), which
 /// receives sessions not explicitly listed anywhere else. Groups are

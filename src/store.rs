@@ -63,6 +63,7 @@ pub struct Config {
     pub border_color: String,
     pub border_color_policy: ColorPolicy,
     pub inbox_icon: String,
+    pub background_badge: String,
     pub remember_expanded_sessions: bool,
     pub expanded: Vec<String>,
     pub session_metric: SessionMetric,
@@ -114,6 +115,7 @@ impl Default for Config {
             border_color: "green".to_string(),
             border_color_policy: ColorPolicy::Static,
             inbox_icon: "⊛".to_string(),
+            background_badge: "↻".to_string(),
             remember_expanded_sessions: false,
             expanded: Vec::new(),
             session_metric: SessionMetric::default(),
@@ -167,6 +169,8 @@ struct RawSettings {
     #[serde(default)]
     inbox_icon: Option<String>,
     #[serde(default)]
+    background_badge: Option<String>,
+    #[serde(default)]
     remember_expanded_sessions: Option<bool>,
     #[serde(default)]
     session_metric: Option<String>,
@@ -200,6 +204,7 @@ struct OutSettings {
     border_color: String,
     border_color_policy: String,
     inbox_icon: String,
+    background_badge: String,
     remember_expanded_sessions: bool,
     session_metric: String,
     start_focus_mode: String,
@@ -330,6 +335,7 @@ impl Config {
             .map(ColorPolicy::from_config_str)
             .unwrap_or(ColorPolicy::Static);
         let inbox_icon = raw.settings.inbox_icon.unwrap_or_else(|| "⊛".to_string());
+        let background_badge = raw.settings.background_badge.unwrap_or_else(|| "↻".to_string());
         let active_palette = raw
             .settings
             .active_palette
@@ -386,6 +392,7 @@ impl Config {
             border_color,
             border_color_policy,
             inbox_icon,
+            background_badge,
             remember_expanded_sessions: raw.settings.remember_expanded_sessions.unwrap_or(false),
             expanded: raw.expanded,
             session_metric,
@@ -440,6 +447,7 @@ impl Config {
                 border_color: self.border_color.clone(),
                 border_color_policy: self.border_color_policy.as_config_str().to_string(),
                 inbox_icon: self.inbox_icon.clone(),
+                background_badge: self.background_badge.clone(),
                 remember_expanded_sessions: self.remember_expanded_sessions,
                 session_metric: self.session_metric.as_config_str().to_string(),
                 start_focus_mode: self.start_focus_mode.as_config_str().to_string(),
@@ -1205,6 +1213,32 @@ inbox = true
         cfg.save_to(&path).unwrap();
         let reloaded = Config::load_from(&path);
         assert_eq!(reloaded.inbox_icon, "♧");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn default_config_has_clockwise_arrow_background_badge() {
+        assert_eq!(Config::default().background_badge, "↻");
+    }
+
+    #[test]
+    fn round_trips_background_badge() {
+        let dir = std::env::temp_dir().join(format!("rolomux-bg-badge-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.toml");
+        let cfg = Config { background_badge: "◔".to_string(), ..Default::default() };
+        cfg.save_to(&path).unwrap();
+        assert_eq!(Config::load_from(&path).background_badge, "◔");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn absent_background_badge_key_loads_the_default() {
+        let dir = std::env::temp_dir().join(format!("rolomux-bg-badge-absent-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.toml");
+        std::fs::write(&path, "[settings]\ninbox_icon = \"♧\"\n").unwrap();
+        assert_eq!(Config::load_from(&path).background_badge, "↻");
         std::fs::remove_dir_all(&dir).ok();
     }
 

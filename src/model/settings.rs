@@ -43,17 +43,18 @@ pub enum SettingsRow {
     PaletteColor(usize),
     CaretStyle,
     CaretBlink,
+    BackgroundBadge,
 }
 
-/// The 17 top-level Settings rows in fixed display/jump-number order.
+/// The 18 top-level Settings rows in fixed display/jump-number order.
 /// Position `i` in this array is jump number `i + 1`. This is the single
 /// source of truth for both `settings_visible_rows` (which splices child
 /// rows in after `ShortcutColor`/`BorderPalette`/`Palette` when expanded) and
 /// jump-number lookup, so the two can never drift out of sync. Never reorder
 /// this array without updating every fixed-position test that references it
-/// (`settings_visible_rows_collapsed_shows_seventeen_rows_in_order` and the
+/// (`settings_visible_rows_collapsed_shows_eighteen_rows_in_order` and the
 /// `settings_move_cursor` row-index tests throughout this file).
-const TOP_LEVEL_ROWS: [SettingsRow; 17] = [
+const TOP_LEVEL_ROWS: [SettingsRow; 18] = [
     SettingsRow::DefaultMode,
     SettingsRow::DormantNumbering,
     SettingsRow::RememberExpanded,
@@ -71,6 +72,7 @@ const TOP_LEVEL_ROWS: [SettingsRow; 17] = [
     SettingsRow::InboxIcon,
     SettingsRow::CaretStyle,
     SettingsRow::CaretBlink,
+    SettingsRow::BackgroundBadge,
 ];
 
 impl SettingsRow {
@@ -173,6 +175,9 @@ impl SettingsRow {
                 "The inline text caret stays solid."
             }
             .to_string(),
+            SettingsRow::BackgroundBadge => {
+                "The glyph marking agents with background tasks still running, in the agent view.".to_string()
+            }
         }
     }
 
@@ -215,10 +220,11 @@ impl SettingsRow {
             SettingsRow::Palette | SettingsRow::PaletteColor(_) => state.active_palette != d.active_palette,
             SettingsRow::CaretStyle => state.caret_style != d.caret_style,
             SettingsRow::CaretBlink => state.caret_blink != d.caret_blink,
+            SettingsRow::BackgroundBadge => state.background_badge != d.background_badge,
         }
     }
 
-    /// This row's stable 1-based jump number (1-17), or `None` for a child
+    /// This row's stable 1-based jump number (1-18), or `None` for a child
     /// row (`ShortcutColorOption`/`PaletteColor`) -- those are reached by
     /// first jumping to their parent, not directly, since there are only
     /// 20 digit slots and up to 32 possible children across both pickers.
@@ -306,7 +312,7 @@ impl PickerState {
             .collect()
     }
 
-    /// The top-level Settings row that jump number `n` (1-17) targets, or
+    /// The top-level Settings row that jump number `n` (1-18) targets, or
     /// `None` outside that range. The inverse of `SettingsRow::jump_number`.
     fn settings_row_for_number(n: usize) -> Option<SettingsRow> {
         TOP_LEVEL_ROWS.get(n.checked_sub(1)?).copied()
@@ -468,6 +474,10 @@ impl PickerState {
                 self.inbox_icon = Self::cycle_inbox_icon(&self.inbox_icon, -1);
                 self.dirty = true;
             }
+            SettingsRow::BackgroundBadge => {
+                self.background_badge = Self::cycle_background_badge(&self.background_badge, -1);
+                self.dirty = true;
+            }
             SettingsRow::AttachedColor => self.cycle_attached_color_mode(),
             SettingsRow::BorderColorPolicy => {
                 self.border_color_policy = self.border_color_policy.prev();
@@ -519,6 +529,10 @@ impl PickerState {
                 self.inbox_icon = Self::cycle_inbox_icon(&self.inbox_icon, 1);
                 self.dirty = true;
             }
+            SettingsRow::BackgroundBadge => {
+                self.background_badge = Self::cycle_background_badge(&self.background_badge, 1);
+                self.dirty = true;
+            }
             SettingsRow::AttachedColor => self.cycle_attached_color_mode(),
             SettingsRow::BorderColorPolicy => {
                 self.border_color_policy = self.border_color_policy.next();
@@ -560,7 +574,8 @@ impl PickerState {
             | SettingsRow::BorderColorPolicy
             | SettingsRow::ColorPolicy
             | SettingsRow::CaretStyle
-            | SettingsRow::CaretBlink => self.settings_step_right(),
+            | SettingsRow::CaretBlink
+            | SettingsRow::BackgroundBadge => self.settings_step_right(),
             SettingsRow::ShortcutColor => self.expand_shortcut_color(),
             SettingsRow::ShortcutColorOption(idx) => self.select_shortcut_color(idx),
             SettingsRow::Palette => {}
@@ -657,6 +672,14 @@ impl PickerState {
         let idx = INBOX_ICONS.iter().position(|c| *c == current).unwrap_or(0) as i32;
         let next = (idx + delta).rem_euclid(len);
         INBOX_ICONS[next as usize].to_string()
+    }
+
+    /// Step `current`'s position in `BACKGROUND_BADGES` by `delta`, wrapping
+    /// in both directions.
+    fn cycle_background_badge(current: &str, delta: i32) -> String {
+        let len = BACKGROUND_BADGES.len() as i32;
+        let idx = BACKGROUND_BADGES.iter().position(|c| *c == current).unwrap_or(0) as i32;
+        BACKGROUND_BADGES[(idx + delta).rem_euclid(len) as usize].to_string()
     }
 
     /// `c`: cycle the current row's raw color value forward through all 16
@@ -771,6 +794,7 @@ impl PickerState {
             SettingsRow::Palette | SettingsRow::PaletteColor(_) => self.active_palette = d.active_palette.clone(),
             SettingsRow::CaretStyle => self.caret_style = d.caret_style,
             SettingsRow::CaretBlink => self.caret_blink = d.caret_blink,
+            SettingsRow::BackgroundBadge => self.background_badge = d.background_badge.clone(),
         }
     }
 
@@ -858,7 +882,7 @@ mod tests {
         st.settings_activate();
         assert_eq!(st.shortcut_color, ALL_NAMED_COLORS[idx]);
         assert!(st.dirty);
-        assert_eq!(st.settings_visible_rows().len(), 17, "collapsed after committing");
+        assert_eq!(st.settings_visible_rows().len(), 18, "collapsed after committing");
         assert_eq!(st.settings_cursor(), 13, "cursor returned to the ShortcutColor row");
     }
 
@@ -903,10 +927,10 @@ mod tests {
         assert!(!st.border_palette_expanded());
         st.settings_step_right();
         assert!(st.border_palette_expanded());
-        assert_eq!(st.settings_visible_rows().len(), 17 + 16);
+        assert_eq!(st.settings_visible_rows().len(), 18 + 16);
         st.settings_step_left();
         assert!(!st.border_palette_expanded());
-        assert_eq!(st.settings_visible_rows().len(), 17);
+        assert_eq!(st.settings_visible_rows().len(), 18);
     }
 
     #[test]
@@ -938,7 +962,7 @@ mod tests {
     fn settings_jump_on_border_palette_expands_to_the_first_active_swatch() {
         let mut st = settings_state(); // default border_active_palette: cyan, green, yellow, magenta, blue, red
         st.settings_jump(11); // BorderPalette
-        assert_eq!(st.settings_visible_rows().len(), 17 + 16, "expanded");
+        assert_eq!(st.settings_visible_rows().len(), 18 + 16, "expanded");
         let SettingsRow::BorderPaletteColor(idx) = st.settings_visible_rows()[st.settings_cursor()] else {
             panic!("expected cursor to land on a BorderPaletteColor row");
         };
@@ -979,14 +1003,14 @@ mod tests {
         let mut st = settings_state();
         st.settings_move_cursor(13); // row 13: ShortcutColor
         st.settings_step_right();
-        assert_eq!(st.settings_visible_rows().len(), 17 + 16);
+        assert_eq!(st.settings_visible_rows().len(), 18 + 16);
         assert_eq!(
             st.settings_visible_rows()[st.settings_cursor()],
             SettingsRow::ShortcutColorOption(7),
             "cursor lands on the currently selected color (gray, index 7)"
         );
         st.settings_step_left();
-        assert_eq!(st.settings_visible_rows().len(), 17);
+        assert_eq!(st.settings_visible_rows().len(), 18);
         assert_eq!(st.settings_cursor(), 13, "cursor returned to the ShortcutColor row");
     }
 
@@ -1025,7 +1049,7 @@ mod tests {
         st.settings_cycle_color();
         assert_eq!(st.attached_color, "yellow", "green -> yellow, next in ALL_NAMED_COLORS");
         assert!(st.dirty);
-        assert_eq!(st.settings_visible_rows().len(), 17, "stays collapsed");
+        assert_eq!(st.settings_visible_rows().len(), 18, "stays collapsed");
     }
 
     #[test]
@@ -1050,7 +1074,7 @@ mod tests {
         st.settings_cycle_color();
         assert_eq!(st.shortcut_color, "darkgray", "gray -> darkgray, next in ALL_NAMED_COLORS");
         assert!(st.dirty);
-        assert_eq!(st.settings_visible_rows().len(), 17, "stays collapsed");
+        assert_eq!(st.settings_visible_rows().len(), 18, "stays collapsed");
     }
 
     #[test]
@@ -1120,8 +1144,8 @@ mod tests {
         let mut st = settings_state();
         st.settings_move_cursor(10); // BorderPalette
         st.settings_step_right(); // expand BorderPalette: 16 rows now sit between it and ColorPolicy/Palette
-        st.settings_step_left(); // collapse BorderPalette again, back to the 17-row layout
-        assert_eq!(st.settings_visible_rows().len(), 17);
+        st.settings_step_left(); // collapse BorderPalette again, back to the 18-row layout
+        assert_eq!(st.settings_visible_rows().len(), 18);
         st.settings_move_cursor(2); // BorderPalette(10) -> Palette(12)
         assert_eq!(st.settings_visible_rows()[st.settings_cursor()], SettingsRow::Palette);
         st.settings_step_right(); // expand Palette
@@ -1137,10 +1161,10 @@ mod tests {
         assert!(!st.palette_expanded());
         st.settings_step_right();
         assert!(st.palette_expanded());
-        assert_eq!(st.settings_visible_rows().len(), 17 + 16);
+        assert_eq!(st.settings_visible_rows().len(), 18 + 16);
         st.settings_step_left();
         assert!(!st.palette_expanded());
-        assert_eq!(st.settings_visible_rows().len(), 17);
+        assert_eq!(st.settings_visible_rows().len(), 18);
     }
 
     #[test]
@@ -1181,13 +1205,13 @@ mod tests {
         let mut st = settings_state();
         assert_eq!(st.settings_cursor(), 0);
         st.settings_move_cursor(-1);
-        assert_eq!(st.settings_cursor(), 16, "moving up from the top wraps to bottom");
+        assert_eq!(st.settings_cursor(), 17, "moving up from the top wraps to bottom");
         st.settings_move_cursor(1);
         assert_eq!(st.settings_cursor(), 0, "moving down from the bottom wraps to top");
         st.settings_move_cursor(1);
         assert_eq!(st.settings_cursor(), 1);
         st.settings_move_cursor(99);
-        assert_eq!(st.settings_cursor(), 16, "large jumps still land on the edge");
+        assert_eq!(st.settings_cursor(), 17, "large jumps still land on the edge");
     }
 
     #[test]
@@ -1323,7 +1347,7 @@ mod tests {
     }
 
     #[test]
-    fn settings_visible_rows_collapsed_shows_seventeen_rows_in_order() {
+    fn settings_visible_rows_collapsed_shows_eighteen_rows_in_order() {
         let st = settings_state();
         assert_eq!(
             st.settings_visible_rows(),
@@ -1345,12 +1369,13 @@ mod tests {
                 SettingsRow::InboxIcon,
                 SettingsRow::CaretStyle,
                 SettingsRow::CaretBlink,
+                SettingsRow::BackgroundBadge,
             ]
         );
     }
 
     #[test]
-    fn jump_number_assigns_one_through_seventeen_to_top_level_rows_in_order() {
+    fn jump_number_assigns_one_through_eighteen_to_top_level_rows_in_order() {
         assert_eq!(SettingsRow::DefaultMode.jump_number(), Some(1));
         assert_eq!(SettingsRow::DormantNumbering.jump_number(), Some(2));
         assert_eq!(SettingsRow::AttachedColor.jump_number(), Some(8));
@@ -1366,6 +1391,29 @@ mod tests {
     }
 
     #[test]
+    fn background_badge_is_the_last_top_level_row() {
+        assert_eq!(SettingsRow::BackgroundBadge.jump_number(), Some(18));
+        assert_eq!(settings_state().settings_visible_rows().last(), Some(&SettingsRow::BackgroundBadge));
+    }
+
+    #[test]
+    fn h_and_l_cycle_background_badge_with_wraparound() {
+        let mut st = settings_state();
+        st.settings_move_cursor(17);
+        assert_eq!(st.current_settings_row(), SettingsRow::BackgroundBadge);
+        assert_eq!(st.background_badge, "↻");
+        st.settings_step_right();
+        assert_eq!(st.background_badge, "⧗");
+        st.settings_step_left();
+        assert_eq!(st.background_badge, "↻");
+        st.settings_step_left();
+        assert_eq!(st.background_badge, "◔", "wraps backward");
+        st.settings_step_right();
+        assert_eq!(st.background_badge, "↻", "wraps forward");
+        assert!(st.dirty);
+    }
+
+    #[test]
     fn jump_number_is_none_for_child_rows() {
         assert_eq!(SettingsRow::PaletteColor(0).jump_number(), None);
         assert_eq!(SettingsRow::ShortcutColorOption(3).jump_number(), None);
@@ -1374,7 +1422,7 @@ mod tests {
 
     #[test]
     fn settings_row_for_number_round_trips_with_jump_number() {
-        for n in 1..=17 {
+        for n in 1..=18 {
             let row = PickerState::settings_row_for_number(n).unwrap();
             assert_eq!(row.jump_number(), Some(n));
         }
@@ -1383,7 +1431,7 @@ mod tests {
     #[test]
     fn settings_row_for_number_is_none_out_of_range() {
         assert_eq!(PickerState::settings_row_for_number(0), None);
-        assert_eq!(PickerState::settings_row_for_number(18), None);
+        assert_eq!(PickerState::settings_row_for_number(19), None);
         assert_eq!(PickerState::settings_row_for_number(20), None);
     }
 
@@ -1784,7 +1832,7 @@ mod tests {
     fn settings_jump_out_of_range_is_a_noop() {
         let mut st = settings_state();
         let cursor_before = st.settings_cursor();
-        st.settings_jump(18);
+        st.settings_jump(19);
         assert_eq!(st.settings_cursor(), cursor_before);
         st.settings_jump(0);
         assert_eq!(st.settings_cursor(), cursor_before);
@@ -1794,7 +1842,7 @@ mod tests {
     fn settings_jump_on_shortcut_color_expands_to_the_current_selection() {
         let mut st = settings_state();
         st.settings_jump(14); // ShortcutColor
-        assert_eq!(st.settings_visible_rows().len(), 17 + 16, "expanded");
+        assert_eq!(st.settings_visible_rows().len(), 18 + 16, "expanded");
         let SettingsRow::ShortcutColorOption(idx) = st.settings_visible_rows()[st.settings_cursor()] else {
             panic!("expected cursor to land on a ShortcutColorOption row");
         };
@@ -1805,7 +1853,7 @@ mod tests {
     fn settings_jump_on_palette_expands_to_the_first_active_swatch() {
         let mut st = settings_state(); // default active_palette: cyan, green, yellow, magenta, blue, red
         st.settings_jump(13); // Palette
-        assert_eq!(st.settings_visible_rows().len(), 17 + 16, "expanded");
+        assert_eq!(st.settings_visible_rows().len(), 18 + 16, "expanded");
         let SettingsRow::PaletteColor(idx) = st.settings_visible_rows()[st.settings_cursor()] else {
             panic!("expected cursor to land on a PaletteColor row");
         };

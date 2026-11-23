@@ -400,6 +400,15 @@ mod tests {
     }
 
     #[test]
+    fn background_badge_uses_the_configured_glyph() {
+        let mut st = state_with(vec![("alpha", vec![noted("%1", AgentState::Working, "/pa", 2, "")])]);
+        st.background_badge = "◔".to_string();
+        let buf = render(&st, None);
+        let line = &text_of(&buf)[row_with(&buf, "alpha") as usize];
+        assert!(line.contains("◔2") && !line.contains('↻'));
+    }
+
+    #[test]
     fn no_badge_column_when_no_row_has_background_work() {
         let buf = render(&mixed(), None);
         assert!(text_of(&buf)[row_with(&buf, "alpha") as usize].contains("win-alpha /w/alpha"));

@@ -213,7 +213,7 @@ impl PickerState {
             dot_color_mode: config.dot_color_mode,
             dot_color: config.dot_color.clone(),
             shortcut_color: config.shortcut_color.clone(),
-            background_badge: "↻".to_string(),
+            background_badge: config.background_badge.clone(),
             always_show_shortcuts: config.always_show_shortcuts,
             caret_style: config.caret_style,
             caret_blink: config.caret_blink,
@@ -476,6 +476,7 @@ impl PickerState {
         config.border_color = self.border_color.clone();
         config.border_color_policy = self.border_color_policy;
         config.inbox_icon = self.inbox_icon.clone();
+        config.background_badge = self.background_badge.clone();
         config.remember_expanded_sessions = self.remember_expanded_sessions;
         config.clear_dormant_on_attach = self.clear_dormant_on_attach;
         config.session_metric = self.session_metric;

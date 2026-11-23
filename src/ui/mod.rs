@@ -4422,6 +4422,13 @@ mod tests {
     }
 
     #[test]
+    fn draw_settings_renders_background_badge_row_with_its_glyph() {
+        let text = render_to_string_sized(&settings_view(), 80, 40);
+        let line = text.lines().find(|l| l.contains("Background badge")).expect("row rendered");
+        assert!(line.contains('↻'));
+    }
+
+    #[test]
     fn draw_settings_section_headers_are_colored_by_section() {
         let state = settings_view();
         let backend = TestBackend::new(80, 31);
