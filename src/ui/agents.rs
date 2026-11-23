@@ -354,6 +354,22 @@ mod tests {
         st.toggle_focus_mode();
         let text = text_of(&render(&st, None)).join("\n");
         assert!(!text.contains("beta") && text.contains("1 session hidden") && text.contains("f show"));
+        assert!(!text.contains("blocked"), "a hidden done agent is not called out");
+    }
+
+    #[test]
+    fn footer_calls_out_blocked_agents_hidden_by_focus_mode_in_red() {
+        let mut st = state_with(vec![("alpha", vec![pane("%1", AgentState::Done, "/a")]), ("beta", vec![pane("%2", AgentState::Waiting, "/b")])]);
+        st.focus_session("beta");
+        st.toggle_dormant();
+        st.toggle_focus_mode();
+        let buf = render(&st, None);
+        let y = row_with(&buf, "1 blocked");
+        assert!(text_of(&buf)[y as usize].contains("1 session hidden · 1 blocked ─"));
+        let x = (0..buf.area.width).find(|x| buf[(*x, y)].symbol() == "b" && buf[(*x + 1, y)].symbol() == "l").unwrap();
+        assert_eq!(buf[(x, y)].fg, Color::Red);
+        st.toggle_peek();
+        assert!(!text_of(&render(&st, None)).join("\n").contains("blocked"), "peeking shows the agent, so no callout");
     }
 
     #[test]

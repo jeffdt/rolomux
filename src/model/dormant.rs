@@ -57,6 +57,21 @@ impl PickerState {
         self.all.iter().filter(|s| self.is_dormant(&s.name) && !s.attached).count()
     }
 
+    /// Blocked (waiting) agents that focus mode currently hides, in hidden
+    /// sessions or hidden windows, so the footer can say something needs you.
+    pub fn hidden_blocked_count(&self) -> usize {
+        if !self.focus_mode() {
+            return 0;
+        }
+        self.all
+            .iter()
+            .flat_map(|s| s.windows.iter().map(move |w| (s, w)))
+            .filter(|(s, w)| !self.session_visible(&s.name) || !self.window_visible(&s.name, w.index, w.active))
+            .flat_map(|(_, w)| self.window_agents(w))
+            .filter(|a| a.state == AgentState::Waiting)
+            .count()
+    }
+
     /// Count of dormant, non-active windows hidden by focus mode --
     /// scoped to sessions that are currently *expanded*, so this reflects
     /// what's actually elided from the current view rather than a global
