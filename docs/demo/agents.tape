@@ -9,12 +9,12 @@
 # throwaway dir inside the tmux server so agent paths read as ~/code/<name>.
 #
 # Story: opens in api's server window, where an agent is working. `prefix +
-# s` shows the tree with its agent badges; `a` flips to the agent view,
-# where the dot marks the api row you came from and the first row, a
-# blocked agent, shows its question below the list. Moving down shows the
-# note for a done agent, then for a done agent that still has background
-# tasks (listed under WORKING with ↻2). `g` shows the flat list and back;
-# `1` jumps to the blocked agent, which is asking the same question.
+# a` opens straight into the agent view (`rolomux --agents`), where the dot
+# marks the api row you came from and the first row, a blocked agent, shows
+# its question below the list. Moving down shows the note for a done agent,
+# then for a done agent that still has background tasks (listed under
+# WORKING with ↻2). `1` jumps to the blocked agent, which is asking the same
+# question. The flat layout is shown as a still instead (agents-layouts.tape).
 
 Output "docs/images/agents.gif"
 
@@ -30,27 +30,19 @@ Enter
 Sleep 2s
 Show
 
-Sleep 1500ms
+Sleep 1200ms
 Ctrl+B
-Type "s"
-Sleep 2200ms
-
 Type "a"
 Sleep 2500ms
 
 Down
-Sleep 1500ms
+Sleep 1800ms
 Down
 Sleep 400ms
 Down
 Sleep 400ms
 Down
-Sleep 2000ms
-
-Type "g"
-Sleep 2000ms
-Type "g"
-Sleep 1000ms
+Sleep 2200ms
 
 Type "1"
 Sleep 3000ms

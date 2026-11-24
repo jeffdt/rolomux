@@ -188,13 +188,17 @@ If the repeat window closes before your next tap, raise tmux's `repeat-time` (50
 
 ### Agent status
 
-![rolomux agent view: agent badges in the tree, then every agent grouped by state with what each one asks or said, and a jump straight to the one waiting on you](docs/images/agents.gif)
+![rolomux agent view: every agent grouped by state with what each one asks or said, then a jump straight to the one waiting on you](docs/images/agents.gif)
 
 rolomux shows a `✻` for each CLI agent on its window and session rows: red when the agent is waiting on you, yellow when it's done and it's your move, and green while it's working.
 Selecting a window jumps to its most urgent agent pane. Turn the badges off with the **Agent badges** setting.
 
 Press `a` for the agent view, which lists every agent pane grouped by state, newest in its state first, or open it directly with a tmux bind such as `bind a display-popup -E -B -w 84 -h 60% "exec rolomux --agents"`. `s` sorts oldest first instead, and `g` drops the grouping for one list in that order; both are remembered. A `●` marks the window you opened it from.
 Focus mode works there the same as in the tree: `f` hides agents in dormant sessions and windows, which are otherwise listed dimmed, and `⇧F` peeks. If focus mode is hiding an agent that's waiting on you, the footer says so in red, for example `1 blocked`.
+
+| Grouped by state (default) | Flat, `g` |
+|---|---|
+| ![agent view grouped into BLOCKED, DONE and WORKING sections](docs/images/agents-grouped.png) | ![agent view as one list, newest first, with a state-colored glyph per row](docs/images/agents-flat.png) |
 
 Any agent can opt in by setting a tmux pane option from its hooks, which requires tmux 3.1+: `tmux set -p -t "$TMUX_PANE" @rolomux_agent_state waiting|done|working`. Clear it with `tmux set -pu -t "$TMUX_PANE" @rolomux_agent_state`. Optionally set `@rolomux_agent_since` to the Unix time the state began, `@rolomux_agent_note` to a one-line note, and `@rolomux_agent_bg` to a count of running background tasks.
 
