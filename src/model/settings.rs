@@ -86,7 +86,7 @@ impl SettingsRow {
     pub fn description(&self, state: &PickerState) -> String {
         match self {
             SettingsRow::DefaultMode => match state.default_mode {
-                DefaultMode::Command => "On launch, rolomux opens in Command mode.",
+                DefaultMode::Picker => "On launch, rolomux opens in Picker mode.",
                 DefaultMode::Search => "On launch, rolomux opens straight into Search.",
             }
             .to_string(),
@@ -233,9 +233,9 @@ impl PickerState {
         self.mode = Mode::Settings;
     }
 
-    /// Leave settings mode back to session command mode.
+    /// Leave settings mode back to session picker mode.
     pub fn exit_settings(&mut self) {
-        self.mode = Mode::Command;
+        self.mode = Mode::Picker;
     }
 
     /// The current cursor position within the settings rows (Task 4).
@@ -1101,11 +1101,11 @@ mod tests {
     #[test]
     fn enter_and_exit_settings_toggles_mode() {
         let mut st = grouped_state();
-        assert_eq!(st.mode, Mode::Command);
+        assert_eq!(st.mode, Mode::Picker);
         st.enter_settings();
         assert_eq!(st.mode, Mode::Settings);
         st.exit_settings();
-        assert_eq!(st.mode, Mode::Command);
+        assert_eq!(st.mode, Mode::Picker);
     }
 
     #[test]
@@ -1424,11 +1424,11 @@ mod tests {
     #[test]
     fn step_cycles_default_mode_in_either_direction() {
         let mut st = settings_state(); // cursor on row 0, DefaultMode
-        assert_eq!(st.default_mode, DefaultMode::Command);
+        assert_eq!(st.default_mode, DefaultMode::Picker);
         st.settings_step_right();
         assert_eq!(st.default_mode, DefaultMode::Search);
         st.settings_step_right();
-        assert_eq!(st.default_mode, DefaultMode::Command, "2-state cycle wraps");
+        assert_eq!(st.default_mode, DefaultMode::Picker, "2-state cycle wraps");
         st.settings_step_left();
         assert_eq!(st.default_mode, DefaultMode::Search, "h also flips a 2-state toggle");
         assert!(st.dirty);
@@ -1463,7 +1463,7 @@ mod tests {
     #[test]
     fn settings_row_description_reflects_default_mode() {
         let mut st = settings_state();
-        assert_eq!(SettingsRow::DefaultMode.description(&st), "On launch, rolomux opens in Command mode.");
+        assert_eq!(SettingsRow::DefaultMode.description(&st), "On launch, rolomux opens in Picker mode.");
         st.default_mode = DefaultMode::Search;
         assert_eq!(SettingsRow::DefaultMode.description(&st), "On launch, rolomux opens straight into Search.");
     }

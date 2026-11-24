@@ -484,7 +484,7 @@ impl PickerState {
         self.help_visible
     }
 
-    /// `?` from Command/Groups/Settings mode: open the full-shortcut overlay.
+    /// `?` from Picker/Groups/Settings mode: open the full-shortcut overlay.
     /// Not persisted and not `dirty` -- like the search query or an
     /// in-flight rename buffer, this is per-popup UI state.
     pub fn open_help(&mut self) {
@@ -539,7 +539,7 @@ impl PickerState {
     /// Remove `name` from the expanded set regardless of prior state -- the
     /// name-based counterpart to `expand_session`, used by search mode's
     /// collapse (`search_collapse`), which re-focuses within its own row
-    /// list rather than command mode's `visible_rows`.
+    /// list rather than picker mode's `visible_rows`.
     pub fn collapse_session(&mut self, name: &str) {
         self.expanded.remove(name);
         if self.remember_expanded_sessions {
@@ -1047,7 +1047,7 @@ mod tests {
         let sessions = vec![s("a", 30, 1)];
         let cfg = Config { groups: vec![], ..Default::default() };
         let state = PickerState::build(sessions, &cfg);
-        assert_eq!(state.mode, Mode::Command);
+        assert_eq!(state.mode, Mode::Picker);
         assert!(state.query.is_empty());
     }
 

@@ -53,12 +53,12 @@ const SETTINGS_SHORTCUTS: &[(&str, &str)] = &[
     ("c", "cycle color swatch"),
     ("r", "reset row to default"),
     ("R", "reset all settings (press twice)"),
-    ("Esc / q / ,", "back to command mode"),
+    ("Esc / q / ,", "back to picker mode"),
 ];
 
 fn shortcuts_for_mode(mode: Mode) -> (&'static str, &'static [(&'static str, &'static str)]) {
     match mode {
-        Mode::Command => ("Command Shortcuts", COMMAND_SHORTCUTS),
+        Mode::Picker => ("Picker Shortcuts", COMMAND_SHORTCUTS),
         Mode::Groups => ("Group Altitude Shortcuts", ALTITUDE_SHORTCUTS),
         Mode::Settings => ("Settings Shortcuts", SETTINGS_SHORTCUTS),
         Mode::Search => ("Search Shortcuts", &[]),
@@ -170,8 +170,8 @@ mod tests {
 
     #[test]
     fn shortcuts_for_mode_covers_command_groups_and_settings() {
-        assert_eq!(shortcuts_for_mode(Mode::Command).0, "Command Shortcuts");
-        assert!(!shortcuts_for_mode(Mode::Command).1.is_empty());
+        assert_eq!(shortcuts_for_mode(Mode::Picker).0, "Picker Shortcuts");
+        assert!(!shortcuts_for_mode(Mode::Picker).1.is_empty());
         assert_eq!(shortcuts_for_mode(Mode::Groups).0, "Group Altitude Shortcuts");
         assert!(!shortcuts_for_mode(Mode::Groups).1.is_empty());
         assert_eq!(shortcuts_for_mode(Mode::Settings).0, "Settings Shortcuts");
@@ -181,24 +181,24 @@ mod tests {
     #[test]
     fn command_mode_help_contains_new_group_and_switch_to_group_mode() {
         let mut state = PickerState::build(vec![], &Config::default());
-        state.mode = Mode::Command;
+        state.mode = Mode::Picker;
         let rendered = render_help_to_string(&state);
         assert!(
             rendered.contains("⇧N"),
-            "Command mode help should contain ⇧N key for new group"
+            "Picker mode help should contain ⇧N key for new group"
         );
         assert!(
             rendered.contains("switch to group mode"),
-            "Command mode help should describe g as 'switch to group mode'"
+            "Picker mode help should describe g as 'switch to group mode'"
         );
     }
 
     #[test]
     fn command_mode_help_contains_new_session_key() {
         let mut state = PickerState::build(vec![], &Config::default());
-        state.mode = Mode::Command;
+        state.mode = Mode::Picker;
         let rendered = render_help_to_string(&state);
-        assert!(rendered.contains("new session"), "Command mode help should describe n as 'new session'");
+        assert!(rendered.contains("new session"), "Picker mode help should describe n as 'new session'");
     }
 
     #[test]
@@ -230,7 +230,7 @@ mod tests {
         let rendered = render_help_to_string(&state);
         assert!(
             !rendered.contains("Esc / q / g"),
-            "q no longer shares a 'back to command mode' entry with Esc/g at group altitude"
+            "q no longer shares a 'back to picker mode' entry with Esc/g at group altitude"
         );
         assert!(
             rendered.contains("back to session mode"),

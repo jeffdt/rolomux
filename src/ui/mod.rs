@@ -220,7 +220,7 @@ pub fn draw(frame: &mut Frame, state: &PickerState) {
         // Group altitude is not a separate screen: it renders the same picker
         // through the same renderer, with the session rows receded and the
         // highlight moved up onto a group header.
-        Mode::Command | Mode::Groups => draw_command(frame, state, content),
+        Mode::Picker | Mode::Groups => draw_picker(frame, state, content),
         Mode::Search => draw_search(frame, state, content),
         Mode::Settings => settings::draw_settings(frame, state, content),
     }
@@ -230,7 +230,7 @@ pub fn draw(frame: &mut Frame, state: &PickerState) {
     }
 }
 
-fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
+fn draw_picker(frame: &mut Frame, state: &PickerState, inner: Rect) {
     // Split inner area: list region on top, 2-row footer at bottom.
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -288,7 +288,7 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
     // purely from `state.mode` plus existing public accessors -- no key can
     // move the cursor while `state.creating()` is true, so these stay in
     // sync with whatever `start_create_here`/`start_create_in_group` picked.
-    // `create_above_session` (Command-mode `AboveSelected`) wins when set;
+    // `create_above_session` (Picker-mode `AboveSelected`) wins when set;
     // otherwise `create_end_target_group` (group-mode `EndOfGroup`, or the
     // empty-picker fallback to the inbox) places the phantom at the end of
     // that group's block, including an empty group's own header slot.
@@ -1015,7 +1015,7 @@ impl MetaLayout {
     /// longest visible name when that name would otherwise overrun, and is
     /// capped so metadata never falls off the card. `has_gutter` reserves one
     /// extra leading column when the caller renders a colored gutter bar
-    /// before the jump number (draw_command); draw_search renders no gutter
+    /// before the jump number (draw_picker); draw_search renders no gutter
     /// and must not reserve space for one. `wide_numbering` reserves one more
     /// column for every row in this render (not just the affected ones) when
     /// any session reached the two-character `⌥N` jump label (11-20): that
@@ -1158,7 +1158,7 @@ fn session_item(
     spans.push(Span::styled(meta_text, secondary(selected)));
     // age_pad brings every tagged row's age up to the widest age string among
     // this render's tagged rows, so tags line up in a column even though ages
-    // ("4h" vs "53m") naturally differ in width. Untagged rows (command mode,
+    // ("4h" vs "53m") naturally differ in width. Untagged rows (picker mode,
     // residual search matches) never receive a pad, so their line is unchanged.
     if let Some((tag, color, age_pad)) = group_tag {
         spans.push(Span::styled(" ".repeat(age_pad), secondary(selected)));
@@ -2339,7 +2339,7 @@ mod tests {
     }
 
     #[test]
-    fn draw_command_shows_inline_rename_field() {
+    fn draw_picker_shows_inline_rename_field() {
         let sessions = vec![
             Session { id: String::new(), name: "alpha".into(), activity: 30, created: 1, attached: false,
                       windows: vec![Window { id: String::new(), index: 0, name: "w".into(), active: true }] },
@@ -2373,7 +2373,7 @@ mod tests {
     }
 
     #[test]
-    fn draw_command_renders_underline_caret_for_an_in_flight_session_rename() {
+    fn draw_picker_renders_underline_caret_for_an_in_flight_session_rename() {
         let mut st = grouped_state();
         st.caret_style = CaretStyle::Underline;
         st.start_rename();
@@ -2385,7 +2385,7 @@ mod tests {
     }
 
     #[test]
-    fn draw_command_hides_caret_mid_blink_when_caret_blink_is_on() {
+    fn draw_picker_hides_caret_mid_blink_when_caret_blink_is_on() {
         let mut st = grouped_state();
         st.caret_style = CaretStyle::Block;
         st.caret_blink = true;
@@ -2400,7 +2400,7 @@ mod tests {
     }
 
     #[test]
-    fn draw_command_shows_phantom_group_row_above_target_group_header() {
+    fn draw_picker_shows_phantom_group_row_above_target_group_header() {
         let mut st = grouped_state(); // G1=[a], G2=[b], INBOX=[c]
         st.focus_session("b");
         st.start_quick_create();
@@ -2421,7 +2421,7 @@ mod tests {
     }
 
     #[test]
-    fn draw_command_quick_create_moves_the_selection_bar_off_the_anchor_session() {
+    fn draw_picker_quick_create_moves_the_selection_bar_off_the_anchor_session() {
         let mut st = grouped_state(); // G1=[a], G2=[b], INBOX=[c]
         st.focus_session("b");
         st.start_quick_create(); // buffer starts empty; selection bar moves onto the phantom row
@@ -2442,7 +2442,7 @@ mod tests {
     }
 
     #[test]
-    fn draw_command_shows_create_phantom_row_above_selected_session() {
+    fn draw_picker_shows_create_phantom_row_above_selected_session() {
         let sessions = vec![
             Session { id: String::new(), name: "alpha".into(), activity: 1, created: 1, attached: false, windows: vec![] },
             Session { id: String::new(), name: "bravo".into(), activity: 1, created: 2, attached: false, windows: vec![] },
@@ -2474,7 +2474,7 @@ mod tests {
     }
 
     #[test]
-    fn draw_command_create_phantom_row_keeps_session_name_in_window_stage() {
+    fn draw_picker_create_phantom_row_keeps_session_name_in_window_stage() {
         let sessions = vec![
             Session { id: String::new(), name: "alpha".into(), activity: 1, created: 1, attached: false, windows: vec![] },
         ];
@@ -2499,7 +2499,7 @@ mod tests {
     }
 
     #[test]
-    fn draw_command_create_phantom_row_placeholder_is_visible_against_the_selection_bar() {
+    fn draw_picker_create_phantom_row_placeholder_is_visible_against_the_selection_bar() {
         let sessions = vec![
             Session { id: String::new(), name: "alpha".into(), activity: 1, created: 1, attached: false, windows: vec![] },
         ];
@@ -2522,7 +2522,7 @@ mod tests {
     }
 
     #[test]
-    fn draw_command_create_phantom_row_above_parent_session_when_window_row_focused() {
+    fn draw_picker_create_phantom_row_above_parent_session_when_window_row_focused() {
         let sessions = vec![
             Session { id: String::new(), name: "alpha".into(), activity: 1, created: 1, attached: false,
                       windows: vec![Window { id: String::new(), index: 0, name: "w".into(), active: true }] },
@@ -2545,7 +2545,7 @@ mod tests {
     }
 
     #[test]
-    fn draw_command_shows_create_phantom_row_at_end_of_target_group_in_group_mode() {
+    fn draw_picker_shows_create_phantom_row_at_end_of_target_group_in_group_mode() {
         let sessions = vec![
             Session { id: String::new(), name: "alpha".into(), activity: 1, created: 1, attached: false, windows: vec![] },
             Session { id: String::new(), name: "bravo".into(), activity: 1, created: 2, attached: false, windows: vec![] },
@@ -2572,7 +2572,7 @@ mod tests {
     }
 
     #[test]
-    fn draw_command_shows_create_phantom_row_in_empty_target_group() {
+    fn draw_picker_shows_create_phantom_row_in_empty_target_group() {
         let sessions = vec![
             Session { id: String::new(), name: "alpha".into(), activity: 1, created: 1, attached: false, windows: vec![] },
         ];
@@ -2598,7 +2598,7 @@ mod tests {
     }
 
     #[test]
-    fn draw_command_shows_create_phantom_row_at_inbox_end_on_empty_picker() {
+    fn draw_picker_shows_create_phantom_row_at_inbox_end_on_empty_picker() {
         let cfg = Config::default();
         let mut st = PickerState::build(Vec::new(), &cfg);
         st.start_create_here();
@@ -2617,7 +2617,7 @@ mod tests {
     }
 
     #[test]
-    fn draw_command_footer_shows_create_hint_over_altitude_hint_in_group_mode() {
+    fn draw_picker_footer_shows_create_hint_over_altitude_hint_in_group_mode() {
         let mut st = grouped_state();
         st.enter_groups();
         st.start_create_in_group();
@@ -2629,7 +2629,7 @@ mod tests {
     }
 
     #[test]
-    fn draw_command_footer_shows_create_stage_hints_and_clears_after_cancel() {
+    fn draw_picker_footer_shows_create_stage_hints_and_clears_after_cancel() {
         let mut st = grouped_state();
         st.focus_session("a");
         st.start_create_here();
@@ -2725,12 +2725,12 @@ mod tests {
                 checked = true;
             }
         }
-        assert!(checked, "expected to find the rename hint in the command-mode footer");
+        assert!(checked, "expected to find the rename hint in the picker-mode footer");
     }
 
     // Guards against a future edit reverting one footer call site back to a
     // raw `Style::default().fg(DIM)` span, bypassing `styled_hint` -- while
-    // command mode already gets a full draw()-level assertion above, the
+    // picker mode already gets a full draw()-level assertion above, the
     // other three modes all end their hint in "Esc back", so one shared
     // helper is enough to catch that regression without three near-duplicate
     // copies of the same render-and-inspect test.
@@ -3832,7 +3832,7 @@ mod tests {
     fn draw_settings_shows_description_of_selected_row() {
         let text = render_to_string(&settings_view());
         // Cursor starts on the first row, DefaultMode.
-        assert!(text.contains("On launch, rolomux opens in Command mode."));
+        assert!(text.contains("On launch, rolomux opens in Picker mode."));
     }
 
     #[test]
@@ -3849,7 +3849,7 @@ mod tests {
         let lines: Vec<&str> = text.lines().collect();
         let description_idx = lines
             .iter()
-            .position(|l| l.contains("On launch, rolomux opens in Command mode."))
+            .position(|l| l.contains("On launch, rolomux opens in Picker mode."))
             .expect("description line rendered");
         let hint_idx = lines
             .iter()
@@ -3890,7 +3890,7 @@ mod tests {
         // the list area.
         let text = render_to_string_sized(&settings_view(), 80, 29);
         assert!(text.contains("Default mode"));
-        assert!(text.contains("Command"));
+        assert!(text.contains("Picker"));
         assert!(text.contains("Number dormant sessions"));
         assert!(text.contains("On"));
         assert!(text.contains("New group color"));
@@ -4031,8 +4031,8 @@ mod tests {
     }
 
     #[test]
-    fn draw_command_mode_does_not_show_the_version() {
-        // The version footer is a Settings-only affordance; Command mode's
+    fn draw_picker_mode_does_not_show_the_version() {
+        // The version footer is a Settings-only affordance; Picker mode's
         // border stays clean.
         let sessions = vec![Session { id: String::new(), name: "a".into(), activity: 1, created: 1, attached: false,
                                        windows: vec![] }];
@@ -4658,7 +4658,7 @@ mod tests {
 
         let session_x = (0..buf.area.height).find_map(|y| find_text_x(&buf, y, "claude")).unwrap();
         let window_x = (0..buf.area.height).find_map(|y| find_text_x(&buf, y, "editor")).unwrap();
-        assert_eq!(window_x, session_x + 2, "search's expanded window name indents one step, same as command mode");
+        assert_eq!(window_x, session_x + 2, "search's expanded window name indents one step, same as picker mode");
     }
 
     #[test]
@@ -4691,7 +4691,7 @@ mod tests {
                 }
             }
         }
-        assert!(!found_gutter_before_window, "search's expanded window rows must not render command mode's colored gutter bar");
+        assert!(!found_gutter_before_window, "search's expanded window rows must not render picker mode's colored gutter bar");
     }
 
     #[test]
@@ -4873,7 +4873,7 @@ mod tests {
                 checked = true;
             }
         }
-        assert!(checked, "expected to find the rename hint in the command-mode footer");
+        assert!(checked, "expected to find the rename hint in the picker-mode footer");
     }
 
     #[test]
@@ -4893,7 +4893,7 @@ mod tests {
         let mut state = PickerState::build(sessions, &cfg);
         state.open_help();
         let text = render_to_string_sized(&state, 84, 40);
-        assert!(text.contains("Command Shortcuts"));
+        assert!(text.contains("Picker Shortcuts"));
         assert!(text.contains("kill session/window"));
         assert!(text.contains("Esc / q / ? close"));
         assert!(!text.contains("more"), "everything fits, so no truncation marker");
@@ -4906,7 +4906,7 @@ mod tests {
         let mut state = PickerState::build(sessions, &cfg);
         state.open_help();
         let text = render_to_string_sized(&state, 84, 20);
-        assert!(text.contains("Command Shortcuts"));
+        assert!(text.contains("Picker Shortcuts"));
         assert!(text.contains("more"), "the full command list doesn't fit at the CI-minimum terminal size");
     }
 
