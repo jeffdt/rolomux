@@ -51,6 +51,10 @@ pub struct Config {
     pub dormant: Vec<String>,
     pub dormant_windows: Vec<DormantWindow>,
     pub focus_mode: bool,
+    /// Agent view lists the longest-waiting agent first instead of the newest.
+    pub agents_oldest_first: bool,
+    /// Agent view shows one list instead of a section per state.
+    pub agents_flat: bool,
     pub default_mode: DefaultMode,
     pub number_dormant_sessions: bool,
     pub clear_dormant_on_attach: bool,
@@ -105,6 +109,8 @@ impl Default for Config {
             dormant: Vec::new(),
             dormant_windows: Vec::new(),
             focus_mode: false,
+            agents_oldest_first: false,
+            agents_flat: false,
             default_mode: DefaultMode::default(),
             number_dormant_sessions: true,
             clear_dormant_on_attach: false,
@@ -246,6 +252,10 @@ struct RawConfig {
     #[serde(default)]
     focus_mode: bool,
     #[serde(default)]
+    agents_oldest_first: bool,
+    #[serde(default)]
+    agents_flat: bool,
+    #[serde(default)]
     settings: RawSettings,
     #[serde(default)]
     expanded: Vec<String>,
@@ -271,6 +281,10 @@ struct OutConfig {
     dormant_windows: Vec<DormantWindow>,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     focus_mode: bool,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    agents_oldest_first: bool,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    agents_flat: bool,
     settings: OutSettings,
     expanded: Vec<String>,
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
@@ -386,6 +400,8 @@ impl Config {
             dormant: raw.dormant,
             dormant_windows: raw.dormant_windows,
             focus_mode,
+            agents_oldest_first: raw.agents_oldest_first,
+            agents_flat: raw.agents_flat,
             default_mode,
             number_dormant_sessions: raw.settings.number_dormant_sessions.unwrap_or(true),
             clear_dormant_on_attach: raw.settings.clear_dormant_on_attach.unwrap_or(false),
@@ -441,6 +457,8 @@ impl Config {
             dormant,
             dormant_windows,
             focus_mode: self.focus_mode,
+            agents_oldest_first: self.agents_oldest_first,
+            agents_flat: self.agents_flat,
             settings: OutSettings {
                 default_mode: self.default_mode.as_config_str().to_string(),
                 number_dormant_sessions: self.number_dormant_sessions,

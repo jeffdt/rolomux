@@ -8,7 +8,7 @@ use crate::model::AgentRow;
 const MAX_WINDOW_WIDTH: usize = 24;
 const MAX_SESSION_WIDTH: usize = 24;
 const DETAIL_INDENT: usize = 7;
-const AGENTS_FOOTER_HINT: &str = "1-9 jump · ↵ switch · f focus · a tree · q quit";
+
 
 /// Header text for a state's section.
 fn section_title(state: AgentState) -> &'static str {
@@ -113,12 +113,17 @@ fn detail_lines(row: Option<&AgentRow>, width: usize) -> Vec<Line<'static>> {
     vec![first, second]
 }
 
-/// The footer hint; `f` reads `show` while focus mode hides agents, as in the tree.
+/// The footer hint. Toggle keys name what pressing them does: `f` reads `show`
+/// while focus mode hides agents (as in the tree), `s` the other sort order,
+/// `g` the other layout.
 fn agents_footer_hint(state: &PickerState) -> String {
-    if state.focus_mode() { AGENTS_FOOTER_HINT.replace("f focus", "f show") } else { AGENTS_FOOTER_HINT.to_string() }
+    let focus = if state.focus_mode() { "show" } else { "focus" };
+    let sort = if state.agents_oldest_first { "newest" } else { "oldest" };
+    let layout = if state.agents_flat { "group" } else { "flat" };
+    format!("1-9 jump · ↵ switch · f {focus} · s {sort} · g {layout} · a tree · q quit")
 }
 
-/// Draws the agent view: rows grouped under per-state headers, plus the footer.
+/// Draws the agent view: rows under per-state headers (or one flat list), plus the footer.
 pub(super) fn draw_agents(frame: &mut Frame, state: &PickerState, inner: Rect) {
     draw_agents_with_home(frame, state, inner, std::env::var("HOME").ok().as_deref());
 }
@@ -148,7 +153,7 @@ fn draw_agents_with_home(frame: &mut Frame, state: &PickerState, inner: Rect, ho
         let age_width = rows.iter().map(|r| state_age(r).chars().count()).max().unwrap_or(0);
         let mut current: Option<AgentState> = None;
         for (i, row) in rows.iter().enumerate() {
-            if current != Some(row.state) {
+            if !state.agents_flat && current != Some(row.state) {
                 if current.is_some() {
                     items.push(ListItem::new(Line::from("")));
                 }
@@ -389,7 +394,24 @@ mod tests {
     #[test]
     fn footer_lists_agent_view_keys() {
         let text = text_of(&render(&mixed(), None)).join("\n");
-        assert!(text.contains("1-9 jump · ↵ switch · f focus · a tree · q quit"));
+        assert!(text.contains("1-9 jump · ↵ switch · f focus · s oldest · g flat · a tree · q quit"));
+    }
+
+    #[test]
+    fn footer_names_the_other_sort_and_layout() {
+        let mut st = mixed();
+        st.toggle_agent_sort();
+        st.toggle_agent_layout();
+        let text = text_of(&render(&st, None)).join("\n");
+        assert!(text.contains("s newest · g group"));
+    }
+
+    #[test]
+    fn flat_layout_drops_section_headers() {
+        let mut st = mixed();
+        st.toggle_agent_layout();
+        let text = text_of(&render(&st, None)).join("\n");
+        assert!(!text.contains("BLOCKED") && !text.contains("WORKING") && text.contains("1 "));
     }
 
     fn noted(id: &str, state: AgentState, path: &str, background: u32, note: &str) -> AgentPane {

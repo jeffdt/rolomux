@@ -7,8 +7,9 @@ use super::{move_index_with_edge_wrap, Action, AgentRow, Mode, PickerState};
 
 impl PickerState {
     /// Agent panes the tree would show (focus mode hides dormant sessions and
-    /// windows here too), sorted by urgency, then longest in that state first;
-    /// panes with no known start time keep tree order after those that have one.
+    /// windows here too), sorted by urgency unless the view is flat, then by
+    /// time in state (newest first unless `agents_oldest_first`); panes with no
+    /// known start time keep tree order after those that have one.
     pub fn agent_rows(&self) -> Vec<AgentRow> {
         let mut rows: Vec<AgentRow> = self
             .ordered()
@@ -30,8 +31,28 @@ impl PickerState {
                 })
             })
             .collect();
-        rows.sort_by_key(|r| (r.state, r.since == 0, r.since));
+        let sign = if self.agents_oldest_first { 1 } else { -1 };
+        rows.sort_by_key(|r| (if self.agents_flat { None } else { Some(r.state) }, r.since == 0, sign * r.since));
         rows
+    }
+
+    /// Flips between newest-first and oldest-first, keeping the selected agent selected.
+    pub fn toggle_agent_sort(&mut self) {
+        self.keep_agent_selected(|st| st.agents_oldest_first = !st.agents_oldest_first);
+    }
+
+    /// Flips between per-state sections and one flat list, keeping the selected agent selected.
+    pub fn toggle_agent_layout(&mut self) {
+        self.keep_agent_selected(|st| st.agents_flat = !st.agents_flat);
+    }
+
+    fn keep_agent_selected(&mut self, change: impl FnOnce(&mut Self)) {
+        let pane = self.agent_rows().into_iter().nth(self.agent_cursor).map(|r| r.pane_id);
+        change(self);
+        self.dirty = true;
+        if let Some(i) = pane.and_then(|id| self.agent_rows().iter().position(|r| r.pane_id == id)) {
+            self.agent_cursor = i;
+        }
     }
 
     /// Enter the agent view with the cursor on the first row.
@@ -156,11 +177,47 @@ mod tests {
     }
 
     #[test]
-    fn longest_in_state_sorts_first_and_unknown_start_goes_last() {
+    fn newest_in_state_sorts_first_by_default_and_unknown_start_goes_last() {
         let at = |id, since| AgentPane { since, ..pane(id, AgentState::Waiting) };
-        let st = two_sessions(vec![at("%1", 0), at("%2", 200)], vec![at("%3", 100)]);
-        let ids: Vec<String> = st.agent_rows().into_iter().map(|r| r.pane_id).collect();
-        assert_eq!(ids, ["%3", "%2", "%1"]);
+        let mut st = two_sessions(vec![at("%1", 0), at("%2", 200)], vec![at("%3", 100)]);
+        let ids = |st: &PickerState| st.agent_rows().into_iter().map(|r| r.pane_id).collect::<Vec<_>>();
+        assert_eq!(ids(&st), ["%2", "%3", "%1"]);
+        st.toggle_agent_sort();
+        assert_eq!(ids(&st), ["%3", "%2", "%1"]);
+    }
+
+    #[test]
+    fn flat_layout_ignores_state_and_sorts_by_time() {
+        let at = |id, state, since| AgentPane { since, ..pane(id, state) };
+        let mut st = two_sessions(vec![at("%1", AgentState::Working, 300), at("%2", AgentState::Waiting, 100)], vec![at("%3", AgentState::Done, 200)]);
+        let ids = |st: &PickerState| st.agent_rows().into_iter().map(|r| r.pane_id).collect::<Vec<_>>();
+        assert_eq!(ids(&st), ["%2", "%3", "%1"]);
+        st.toggle_agent_layout();
+        assert_eq!(ids(&st), ["%1", "%3", "%2"]);
+    }
+
+    #[test]
+    fn toggles_keep_the_selected_agent_selected_and_mark_dirty() {
+        let at = |id, state, since| AgentPane { since, ..pane(id, state) };
+        let mut st = two_sessions(vec![at("%1", AgentState::Working, 300), at("%2", AgentState::Waiting, 100)], vec![at("%3", AgentState::Done, 200)]);
+        st.enter_agents();
+        st.agent_move(2);
+        st.toggle_agent_layout();
+        assert_eq!(st.agent_rows()[st.agent_cursor()].pane_id, "%1");
+        st.toggle_agent_sort();
+        assert_eq!(st.agent_rows()[st.agent_cursor()].pane_id, "%1");
+        assert!(st.dirty);
+    }
+
+    #[test]
+    fn sort_and_layout_persist_through_config() {
+        let mut st = mixed();
+        st.toggle_agent_sort();
+        st.toggle_agent_layout();
+        let mut cfg = Config::default();
+        st.apply_to_config(&mut cfg);
+        let reloaded = PickerState::build(vec![s("a", 1, 1)], &cfg);
+        assert!(reloaded.agents_oldest_first && reloaded.agents_flat);
     }
 
     #[test]

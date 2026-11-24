@@ -57,6 +57,10 @@ pub struct PickerState {
     focus_mode: bool,
     /// Session-only suspension of focus mode; never persisted.
     peeking: bool,
+    /// Agent view lists the longest-waiting agent first instead of the newest.
+    pub agents_oldest_first: bool,
+    /// Agent view shows one list instead of a section per state.
+    pub agents_flat: bool,
     pub start_focus_mode: StartFocusMode,
     pub cursor: usize,
     pub dirty: bool,
@@ -184,6 +188,8 @@ impl PickerState {
                 StartFocusMode::Never => false,
             },
             peeking: false,
+            agents_oldest_first: config.agents_oldest_first,
+            agents_flat: config.agents_flat,
             cursor: 0,
             dirty: false,
             mode: config.default_mode.as_mode(),
@@ -468,6 +474,8 @@ impl PickerState {
             })
             .collect();
         config.focus_mode = self.focus_mode;
+        config.agents_oldest_first = self.agents_oldest_first;
+        config.agents_flat = self.agents_flat;
         config.start_focus_mode = self.start_focus_mode;
         config.default_mode = self.default_mode;
         config.number_dormant_sessions = self.number_dormant_sessions;
@@ -1409,11 +1417,14 @@ mod tests {
         st.always_show_shortcuts = false;
         st.caret_style = CaretStyle::Underline;
         st.caret_blink = true;
+        st.agents_oldest_first = true;
+        st.agents_flat = true;
 
         st.apply_to_config(&mut cfg);
         cfg.save_to(&path).unwrap();
         let reloaded = Config::load_from(&path);
 
+        assert!(reloaded.agents_oldest_first && reloaded.agents_flat);
         assert_eq!(reloaded.attached_color, "magenta");
         assert_eq!(reloaded.attached_color_mode, AttachedColorMode::Match);
         assert_eq!(reloaded.border_color, "yellow");
