@@ -188,6 +188,8 @@ If the repeat window closes before your next tap, raise tmux's `repeat-time` (50
 
 ### Agent status
 
+![rolomux agent view: agent badges in the tree, then every agent grouped by state with what each one asks or said, and a jump straight to the one waiting on you](docs/images/agents.gif)
+
 rolomux shows a `✻` for each CLI agent on its window and session rows: red when the agent is waiting on you, yellow when it's done and it's your move, and green while it's working.
 Selecting a window jumps to its most urgent agent pane. Turn the badges off with the **Agent badges** setting.
 
