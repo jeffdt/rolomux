@@ -11,7 +11,7 @@ use crossterm::terminal::{
     disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
 };
 use crossterm::execute;
-use model::{Action, DefaultMode, KillTarget, Mode, PendingCreate, PendingRename, PickerState, RenameTarget, Row, WindowMove};
+use model::{Action, KillTarget, Mode, PendingCreate, PendingRename, PickerState, RenameTarget, Row, WindowMove};
 use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
 use std::io::{self, stdout};
@@ -52,14 +52,14 @@ const BLINK_TICK: Duration = Duration::from_millis(100);
 
 fn main() -> io::Result<()> {
     let mut cycle: Option<i32> = None;
-    let mut launch_mode: Option<DefaultMode> = None;
+    let mut launch_mode: Option<Mode> = None;
     let target_only = std::env::args().nth(2).as_deref() == Some("--target-only");
     if let Some(arg) = std::env::args().nth(1) {
         match arg.as_str() {
             "--next" => cycle = Some(1),
             "--prev" => cycle = Some(-1),
-            "--picker" => launch_mode = Some(DefaultMode::Picker),
-            "--search" => launch_mode = Some(DefaultMode::Search),
+            "--picker" => launch_mode = Some(Mode::Picker),
+            "--search" => launch_mode = Some(Mode::Search),
             "-V" | "--version" => {
                 println!("rolomux {}", env!("CARGO_PKG_VERSION"));
                 return Ok(());
@@ -96,8 +96,8 @@ fn main() -> io::Result<()> {
 
     let mut state = PickerState::build(gathered.sessions, &config);
     state.refocus_current(gathered.current.as_deref());
-    if let Some(m) = launch_mode {
-        state.mode = m.as_mode();
+    if let Some(mode) = launch_mode {
+        state.mode = mode;
     }
     if live.is_empty() {
         debug::log(|| "exit: no live sessions -> returning immediately".into());

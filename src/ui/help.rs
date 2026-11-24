@@ -179,7 +179,7 @@ mod tests {
     }
 
     #[test]
-    fn command_mode_help_contains_new_group_and_switch_to_group_mode() {
+    fn picker_mode_help_contains_new_group_and_switch_to_group_mode() {
         let mut state = PickerState::build(vec![], &Config::default());
         state.mode = Mode::Picker;
         let rendered = render_help_to_string(&state);
@@ -194,7 +194,7 @@ mod tests {
     }
 
     #[test]
-    fn command_mode_help_contains_new_session_key() {
+    fn picker_mode_help_contains_new_session_key() {
         let mut state = PickerState::build(vec![], &Config::default());
         state.mode = Mode::Picker;
         let rendered = render_help_to_string(&state);

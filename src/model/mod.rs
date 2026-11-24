@@ -1043,7 +1043,7 @@ mod tests {
     }
 
     #[test]
-    fn default_mode_is_command() {
+    fn default_mode_is_picker() {
         let sessions = vec![s("a", 30, 1)];
         let cfg = Config { groups: vec![], ..Default::default() };
         let state = PickerState::build(sessions, &cfg);
