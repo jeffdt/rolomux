@@ -71,7 +71,7 @@ These are the reasons the project exists. Changes should preserve them.
   respects the user's terminal theme rather than imposing its own colors.
 - **Type-to-filter search.** Press `/` to enter a read-only fuzzy filter;
   sessions are re-ranked best-match-first with the top result auto-selected.
-  `Enter` switches; `Esc` returns to command mode. Search never writes config.
+  `Enter` switches; `Esc` returns to picker mode. Search never writes config.
 
 ## Tech stack
 

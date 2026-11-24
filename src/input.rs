@@ -250,7 +250,7 @@ mod tests {
     }
 
     #[test]
-    fn comma_enters_settings_from_command_mode() {
+    fn comma_enters_settings_from_picker_mode() {
         assert_eq!(map_key(key(KeyCode::Char(','))), Input::EnterSettings);
     }
 
@@ -438,7 +438,7 @@ mod tests {
     }
 
     #[test]
-    fn slash_enters_search_in_command_mode() {
+    fn slash_enters_search_in_picker_mode() {
         assert_eq!(map_key(key(KeyCode::Char('/'))), Input::EnterSearch);
     }
 

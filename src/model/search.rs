@@ -13,7 +13,7 @@ impl PickerState {
     }
 
     /// Sessions for the current search query. Empty query returns the normal
-    /// command-mode order; a non-empty query returns matches ranked best-first.
+    /// picker-mode order; a non-empty query returns matches ranked best-first.
     /// Read-only -- never mutates state.
     pub fn search_results(&self) -> Vec<&Session> {
         let base = self.ordered();
@@ -55,13 +55,13 @@ impl PickerState {
         self.search_cursor = 0;
     }
 
-    /// Leave search for command mode. If the search cursor was on a window
-    /// row, the command-mode cursor lands on that exact window (via
+    /// Leave search for picker mode. If the search cursor was on a window
+    /// row, the picker-mode cursor lands on that exact window (via
     /// `focus_window`) rather than just its parent session -- continuity of
     /// what was highlighted, not just which session it belongs to.
     pub fn exit_search(&mut self) {
         let landing = self.search_cursor_target();
-        self.mode = Mode::Command;
+        self.mode = Mode::Picker;
         self.query.clear();
         self.search_cursor = 0;
         if let Some((name, window_index)) = landing {
@@ -142,7 +142,7 @@ impl PickerState {
     }
 
     /// Expand the session under the cursor, sharing the same `expanded` set
-    /// command mode uses. Re-focuses onto that session's own row afterward
+    /// picker mode uses. Re-focuses onto that session's own row afterward
     /// (its row list just grew to include the new window rows).
     pub fn search_expand(&mut self) {
         if let Some(name) = self.search_cursor_name() {
@@ -162,7 +162,7 @@ impl PickerState {
 
     /// Move the search cursor onto `name`'s own session row within the
     /// current `search_rows()` -- the search-local analog of `focus_session`,
-    /// which operates on command mode's `visible_rows()` instead.
+    /// which operates on picker mode's `visible_rows()` instead.
     fn search_focus_session(&mut self, name: &str) {
         let rows = self.search_rows();
         let results = self.search_results();
@@ -197,9 +197,9 @@ mod tests {
         assert_eq!(state.search_cursor_name().as_deref(), Some("pr-review"));
 
         state.exit_search();
-        assert_eq!(state.mode, Mode::Command);
+        assert_eq!(state.mode, Mode::Picker);
         assert!(state.query.is_empty());
-        // Command cursor now sits on the match we had highlighted.
+        // Picker cursor now sits on the match we had highlighted.
         assert_eq!(state.cursor_session_name().as_deref(), Some("pr-review"));
         assert!(!state.dirty, "search is read-only");
     }
@@ -210,8 +210,8 @@ mod tests {
         let cfg = Config { default_mode: DefaultMode::Search, ..Default::default() };
         let mut state = PickerState::build(sessions, &cfg);
         assert_eq!(state.mode, Mode::Search);
-        state.exit_search(); // navigates back to Command at runtime
-        assert_eq!(state.mode, Mode::Command);
+        state.exit_search(); // navigates back to Picker at runtime
+        assert_eq!(state.mode, Mode::Picker);
         assert_eq!(
             state.default_mode,
             DefaultMode::Search,
@@ -451,7 +451,7 @@ mod tests {
         state.enter_search();
 
         state.search_expand();
-        assert!(state.is_expanded("alpha"), "search_expand shares command mode's expanded set");
+        assert!(state.is_expanded("alpha"), "search_expand shares picker mode's expanded set");
         assert_eq!(state.search_rows().len(), 2);
         assert_eq!(state.search_cursor(), 0, "cursor stays on alpha's own row after expanding");
 
@@ -478,7 +478,7 @@ mod tests {
         // which is the wrong target for this test.
         state.search_move(1);
         state.search_move(1);
-        state.exit_search(); // land command-mode cursor on the window row we want to toggle
+        state.exit_search(); // land picker-mode cursor on the window row we want to toggle
         state.toggle_dormant();
         state.enter_search();
         state.search_expand();
@@ -499,12 +499,12 @@ mod tests {
         state.search_move(1); // onto alpha's second window (tmux index 5)
 
         state.exit_search();
-        assert_eq!(state.mode, Mode::Command);
+        assert_eq!(state.mode, Mode::Picker);
         assert!(matches!(state.visible_rows()[state.cursor], Row::Window(_, _)));
         assert_eq!(
             state.selected_action(),
             Some(Action::SwitchWindow("alpha".into(), 5)),
-            "command-mode cursor lands on the exact window that was selected in search"
+            "picker-mode cursor lands on the exact window that was selected in search"
         );
     }
 }

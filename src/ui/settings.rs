@@ -388,7 +388,7 @@ fn settings_color_option_line(name: &str, current: &str, selected: bool) -> Line
 
 fn default_mode_label(m: DefaultMode) -> &'static str {
     match m {
-        DefaultMode::Command => "Command",
+        DefaultMode::Picker => "Picker",
         DefaultMode::Search => "Search",
     }
 }
@@ -497,9 +497,9 @@ mod tests {
 
     #[test]
     fn description_line_with_no_question_mark_is_a_single_plain_span() {
-        let line = description_line("On launch, rolomux opens in Command mode.", Color::Cyan);
+        let line = description_line("On launch, rolomux opens in Picker mode.", Color::Cyan);
         assert_eq!(line.spans.len(), 1);
-        assert_eq!(line.spans[0].content, "On launch, rolomux opens in Command mode.");
+        assert_eq!(line.spans[0].content, "On launch, rolomux opens in Picker mode.");
         assert_eq!(line.spans[0].style.fg, None);
     }
 
@@ -519,12 +519,12 @@ mod tests {
 
     #[test]
     fn settings_row_line_pushes_the_value_flush_right_with_one_cell_of_padding() {
-        let line = settings_row_line(SettingsRow::DefaultMode, "Default mode", vec![Span::raw("Command")], false, false, 40);
+        let line = settings_row_line(SettingsRow::DefaultMode, "Default mode", vec![Span::raw("Picker")], false, false, 40);
         let text = rendered(&line);
         assert_eq!(line.width(), 39, "fills the row except the trailing padding cell");
         let left = "\u{2502}1  Default mode";
-        let gap = 39 - left.chars().count() - "Command".len();
-        assert_eq!(text, format!("{left}{}Command", " ".repeat(gap)));
+        let gap = 39 - left.chars().count() - "Picker".len();
+        assert_eq!(text, format!("{left}{}Picker", " ".repeat(gap)));
     }
 
     #[test]

@@ -4,7 +4,7 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum DefaultMode {
     #[default]
-    Command,
+    Picker,
     Search,
 }
 
@@ -12,13 +12,15 @@ impl DefaultMode {
     pub fn from_config_str(s: &str) -> DefaultMode {
         match s {
             "search" => DefaultMode::Search,
-            _ => DefaultMode::Command,
+            // "command" is the pre-rename spelling still sitting in older configs; keep it readable.
+            "picker" | "command" => DefaultMode::Picker,
+            _ => DefaultMode::Picker,
         }
     }
 
     pub fn as_config_str(self) -> &'static str {
         match self {
-            DefaultMode::Command => "command",
+            DefaultMode::Picker => "picker",
             DefaultMode::Search => "search",
         }
     }
@@ -28,14 +30,14 @@ impl DefaultMode {
     /// "previous".
     pub fn next(self) -> DefaultMode {
         match self {
-            DefaultMode::Command => DefaultMode::Search,
-            DefaultMode::Search => DefaultMode::Command,
+            DefaultMode::Picker => DefaultMode::Search,
+            DefaultMode::Search => DefaultMode::Picker,
         }
     }
 
     pub fn as_mode(self) -> Mode {
         match self {
-            DefaultMode::Command => Mode::Command,
+            DefaultMode::Picker => Mode::Picker,
             DefaultMode::Search => Mode::Search,
         }
     }
@@ -317,7 +319,7 @@ pub enum InitialFocus {
 /// The active initial-focus policy. Swap this one constant to change behavior.
 pub const INITIAL_FOCUS: InitialFocus = InitialFocus::CurrentSession;
 
-/// Picker interaction mode. `Command` is the single-keystroke command UI;
+/// Picker interaction mode. `Picker` is the single-keystroke command UI;
 /// `Search` routes typed characters into a fuzzy-filter query; `Groups` is
 /// group altitude, an in-picker cursor altitude for group-management
 /// operations (create, rename, recolor, reorder, delete) with session rows
@@ -327,7 +329,7 @@ pub const INITIAL_FOCUS: InitialFocus = InitialFocus::CurrentSession;
 /// `DefaultMode`), read once at `build` time -- see `DefaultMode::as_mode`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
-    Command,
+    Picker,
     Search,
     Groups,
     Settings,
@@ -581,20 +583,21 @@ mod tests {
 
     #[test]
     fn default_mode_next_toggles_and_maps_to_mode() {
-        assert_eq!(DefaultMode::Command.next(), DefaultMode::Search);
-        assert_eq!(DefaultMode::Search.next(), DefaultMode::Command);
-        assert_eq!(DefaultMode::Command.as_mode(), Mode::Command);
+        assert_eq!(DefaultMode::Picker.next(), DefaultMode::Search);
+        assert_eq!(DefaultMode::Search.next(), DefaultMode::Picker);
+        assert_eq!(DefaultMode::Picker.as_mode(), Mode::Picker);
         assert_eq!(DefaultMode::Search.as_mode(), Mode::Search);
-        assert_eq!(DefaultMode::Command.as_config_str(), "command");
+        assert_eq!(DefaultMode::Picker.as_config_str(), "picker");
         assert_eq!(DefaultMode::Search.as_config_str(), "search");
     }
 
     #[test]
-    fn default_mode_parses_with_command_fallback() {
+    fn default_mode_reads_legacy_command_value_as_picker() {
         assert_eq!(DefaultMode::from_config_str("search"), DefaultMode::Search);
-        assert_eq!(DefaultMode::from_config_str("command"), DefaultMode::Command);
-        assert_eq!(DefaultMode::from_config_str("garbage"), DefaultMode::Command);
-        assert_eq!(DefaultMode::default(), DefaultMode::Command);
+        assert_eq!(DefaultMode::from_config_str("picker"), DefaultMode::Picker);
+        assert_eq!(DefaultMode::from_config_str("command"), DefaultMode::Picker, "legacy pre-rename value must keep loading as Picker");
+        assert_eq!(DefaultMode::from_config_str("garbage"), DefaultMode::Picker);
+        assert_eq!(DefaultMode::default(), DefaultMode::Picker);
     }
 
     #[test]

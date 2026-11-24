@@ -25,6 +25,9 @@ rolomux - a fast tmux session picker
 
 Usage:
   rolomux            Launch the picker (intended via `tmux popup -E`)
+                     in the mode chosen by the Default mode setting
+  rolomux --picker   Launch the picker in Picker mode
+  rolomux --search   Launch the picker straight into fuzzy search
   rolomux --next     Switch to the next visible non-dormant session, no UI
   rolomux --prev     Switch to the previous visible non-dormant session, no UI
   rolomux --next --target-only, --prev --target-only
@@ -49,11 +52,14 @@ const BLINK_TICK: Duration = Duration::from_millis(100);
 
 fn main() -> io::Result<()> {
     let mut cycle: Option<i32> = None;
+    let mut launch_mode: Option<Mode> = None;
     let target_only = std::env::args().nth(2).as_deref() == Some("--target-only");
     if let Some(arg) = std::env::args().nth(1) {
         match arg.as_str() {
             "--next" => cycle = Some(1),
             "--prev" => cycle = Some(-1),
+            "--picker" => launch_mode = Some(Mode::Picker),
+            "--search" => launch_mode = Some(Mode::Search),
             "-V" | "--version" => {
                 println!("rolomux {}", env!("CARGO_PKG_VERSION"));
                 return Ok(());
@@ -90,6 +96,9 @@ fn main() -> io::Result<()> {
 
     let mut state = PickerState::build(gathered.sessions, &config);
     state.refocus_current(gathered.current.as_deref());
+    if let Some(mode) = launch_mode {
+        state.mode = mode;
+    }
     if live.is_empty() {
         debug::log(|| "exit: no live sessions -> returning immediately".into());
         return Ok(()); // nothing to pick
@@ -461,7 +470,7 @@ fn event_loop(
                 continue;
             }
             match state.mode {
-                Mode::Command => {
+                Mode::Picker => {
                     if state.creating() {
                         match map_search_key(key) {
                             SearchInput::Char(c) => state.create_push(c),
@@ -545,7 +554,7 @@ fn event_loop(
                                 }
                             }
                             // A pending window-move confirm absorbs Quit as
-                            // a cancel-back-to-command-mode instead of
+                            // a cancel-back-to-picker-mode instead of
                             // closing the picker -- matches the existing
                             // Esc/q "back out one level" convention already
                             // used by Search/Groups/Settings mode, rather
@@ -638,7 +647,7 @@ fn event_loop(
                             // A pending delete confirm absorbs Descend
                             // (`g`/Esc) as just a cancel-the-arm instead of
                             // also dropping back to session altitude --
-                            // matches Command mode's had_pending_kill/Quit
+                            // matches Picker mode's had_pending_kill/Quit
                             // absorption above.
                             AltitudeInput::Descend => {
                                 if !had_pending_group_delete {
