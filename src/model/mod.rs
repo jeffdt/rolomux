@@ -27,7 +27,7 @@ pub use create::{CreateStage, PendingCreate};
 // (which construct PendingCreate values with explicit CreatePlacement::AboveSelected),
 // even though no non-test production code path reads it directly.
 #[allow(unused_imports)]
-pub use create::CreatePlacement;
+pub use create::{BreakOutSource, CreatePlacement};
 use create::CreatePrompt;
 
 mod search;
@@ -96,6 +96,8 @@ pub struct PickerState {
     /// cleared by any other group-mode input, mirroring
     /// `pending_window_move`'s clear-on-any-other-key lifecycle.
     group_reorder_blocked: bool,
+    /// One-shot: `b` was pressed on a session's only window.
+    break_out_blocked: bool,
     /// In-flight group-delete confirmation, armed when `x` targets a
     /// non-inbox group; `Some` until a second `x` confirms it or any other
     /// key clears it. See `src/model/groups.rs`.
@@ -186,6 +188,7 @@ impl PickerState {
             pending_kill: None,
             swap_indicator: None,
             group_reorder_blocked: false,
+            break_out_blocked: false,
             pending_group_delete: None,
             default_mode: config.default_mode,
             start_focus_mode: config.start_focus_mode,

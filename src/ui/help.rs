@@ -16,6 +16,7 @@ const COMMAND_SHORTCUTS: &[(&str, &str)] = &[
     ("/", "search"),
     ("g", "switch to group mode"),
     ("n", "new session"),
+    ("b", "break window out into a new session"),
     ("⇧N", "new group"),
     (",", "settings"),
     ("z", "expand/collapse all"),

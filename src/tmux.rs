@@ -46,6 +46,11 @@ pub trait Tmux {
     /// Creates a detached session; `window` names its first window when provided.
     /// Returns Err on non-zero tmux exit.
     fn new_session(&self, name: &str, window: Option<&str>) -> io::Result<()>;
+    /// Creates a detached session named `name` whose only window is the
+    /// existing `src_session:src_index` window, moved rather than copied (it
+    /// keeps its tmux window id). Returns Err, leaving no new session behind,
+    /// if either step fails (e.g. a duplicate name).
+    fn break_out_window(&self, src_session: &str, src_index: u32, name: &str) -> io::Result<()>;
     fn kill_session(&self, name: &str) -> io::Result<()>;
     fn kill_window(&self, session: &str, index: u32) -> io::Result<()>;
     fn detach_on_destroy_off(&self, session: &str) -> bool;
@@ -224,6 +229,26 @@ impl Tmux for RealTmux {
             Ok(())
         } else {
             Err(io::Error::other("tmux new-session failed"))
+        }
+    }
+
+    fn break_out_window(&self, src_session: &str, src_index: u32, name: &str) -> io::Result<()> {
+        // tmux has no single "new session from this window" command, so
+        // create the session with a throwaway seed window and then move the
+        // real window on top of it: `-k` kills the seed in the same step, so
+        // the session is never left empty (which would destroy it).
+        let out = self.command().args(["new-session", "-d", "-s", name, "-P", "-F", "#{window_id}"]).output()?;
+        if !out.status.success() {
+            return Err(io::Error::other("tmux new-session failed"));
+        }
+        let seed = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        let src = format!("{src_session}:{src_index}");
+        let moved = self.command().args(["move-window", "-k", "-s", &src, "-t", &seed]).status()?;
+        if moved.success() {
+            Ok(())
+        } else {
+            let _ = self.kill_session(name);
+            Err(io::Error::other("tmux move-window failed"))
         }
     }
 
@@ -538,6 +563,14 @@ impl Tmux for FakeTmux {
             Ok(())
         }
     }
+    fn break_out_window(&self, src_session: &str, src_index: u32, name: &str) -> std::io::Result<()> {
+        self.calls.borrow_mut().push(format!("break-out:{src_session}:{src_index}:{name}"));
+        if self.new_session_fails.get() {
+            Err(io::Error::other("tmux new-session failed"))
+        } else {
+            Ok(())
+        }
+    }
     fn kill_session(&self, name: &str) -> std::io::Result<()> {
         self.calls.borrow_mut().push(format!("kill-session:{name}"));
         Ok(())
@@ -564,6 +597,33 @@ impl Tmux for FakeTmux {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Exercises the real `break_out_window` against a throwaway tmux
+    /// server on its own socket (never the user's). Skipped without tmux.
+    #[test]
+    fn real_break_out_moves_the_window_keeping_its_id() {
+        if Command::new("tmux").arg("-V").output().is_err() {
+            return;
+        }
+        let sock = std::env::temp_dir().join(format!("rolomux-break-out-{}.sock", std::process::id()));
+        let sock = sock.to_string_lossy().to_string();
+        let t = RealTmux { socket: Some(sock.clone()) };
+        let run = |args: &[&str]| t.command().args(args).output().unwrap();
+        run(&["-f", "/dev/null", "new-session", "-d", "-s", "src", "-n", "editor"]);
+        run(&["new-window", "-t", "src:", "-n", "logs"]);
+        let logs_id = String::from_utf8_lossy(&run(&["display", "-p", "-t", "src:1", "#{window_id}"]).stdout).trim().to_string();
+
+        t.break_out_window("src", 1, "split").unwrap();
+        let dup = t.break_out_window("src", 0, "split");
+
+        let listing = String::from_utf8_lossy(&run(&["list-windows", "-a", "-F", "#{session_name} #{window_name} #{window_id}"]).stdout).to_string();
+        run(&["kill-server"]);
+        let _ = std::fs::remove_file(&sock);
+        assert!(listing.contains(&format!("split logs {logs_id}")), "window moved with its id intact:\n{listing}");
+        assert_eq!(listing.lines().filter(|l| l.starts_with("split ")).count(), 1, "no seed window left behind:\n{listing}");
+        assert!(listing.contains("src editor"), "source keeps its other window:\n{listing}");
+        assert!(dup.is_err(), "duplicate session name is refused");
+    }
     use crate::model::Action;
 
     #[test]
