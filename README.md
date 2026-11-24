@@ -137,6 +137,7 @@ Move within results with `↑`/`↓` (or `Ctrl-n`/`Ctrl-p`, `Ctrl-j`/`Ctrl-k`), 
 
 While searching, section headers and jump numbers (sessions 1-20) are still hidden, but the tree otherwise behaves like picker mode: expand a session to select and switch to one of its windows directly.
 If focus mode is on, search results exclude dormant sessions, and the footer shows how many are currently hidden.
+Turn on the **Search window names** setting to match window names too.
 
 `rolomux --search` opens the popup straight into search, and `rolomux --picker` opens it in picker mode; either flag overrides the Default mode setting, so two binds can open different modes:
 
@@ -240,6 +241,7 @@ Each row shows a jump number in its gutter; pressing it jumps straight to that r
 - **Start in focus mode.** Whether the picker starts in focus mode: **Remember** the last state (default), **Always** start in it, or **Never** start in it, regardless of what was last saved.
 - **Session metadata.** Whether the row's trailing timestamp shows time since last activity (**Recency**, default), time since the session was created (**Age**), or is omitted entirely (**Hidden**).
 - **Show shortcuts.** Whether the footer's key-shortcut legend is always visible (**On**, default), or hidden entirely (**Off**) -- press `?` any time for the full shortcut list regardless of this setting.
+- **Search window names.** Off by default. When on, search also matches window names: a session that matches only through a window shows just that window beneath it, already selected, so `Enter` jumps straight to it.
 
 **Colors**
 

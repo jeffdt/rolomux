@@ -116,6 +116,7 @@ pub struct PickerState {
     pub number_dormant_sessions: bool,
     pub remember_expanded_sessions: bool,
     pub clear_dormant_on_attach: bool,
+    pub search_window_names: bool,
     pub session_metric: SessionMetric,
     pub new_group_color_policy: ColorPolicy,
     pub static_color: String,
@@ -215,6 +216,7 @@ impl PickerState {
             number_dormant_sessions: config.number_dormant_sessions,
             remember_expanded_sessions: config.remember_expanded_sessions,
             clear_dormant_on_attach: config.clear_dormant_on_attach,
+            search_window_names: config.search_window_names,
             session_metric: config.session_metric,
             new_group_color_policy: config.new_group_color_policy,
             static_color: config.static_color.clone(),
@@ -495,6 +497,7 @@ impl PickerState {
         config.agent_badges = self.agent_badges;
         config.remember_expanded_sessions = self.remember_expanded_sessions;
         config.clear_dormant_on_attach = self.clear_dormant_on_attach;
+        config.search_window_names = self.search_window_names;
         config.session_metric = self.session_metric;
         config.dot_color_mode = self.dot_color_mode;
         config.dot_color = self.dot_color.clone();

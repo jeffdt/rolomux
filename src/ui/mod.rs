@@ -575,7 +575,11 @@ fn draw_search(frame: &mut Frame, state: &PickerState, inner: Rect) {
             .map(|ts| activity_age(ts).chars().count())
             .max()
             .unwrap_or(0);
-        for row in rows.iter() {
+        for (ri, row) in rows.iter().enumerate() {
+            // Window rows here can be a filtered subset (focus mode, or only
+            // the windows a query matched), so tree shape comes from the rows
+            // themselves rather than from `sess.windows`.
+            let next_is_window = matches!(rows.get(ri + 1), Some(Row::Window(..)));
             match row {
                 Row::Session(si) => {
                     let sess = results[*si];
@@ -597,7 +601,7 @@ fn draw_search(frame: &mut Frame, state: &PickerState, inner: Rect) {
                             .unwrap_or(attached_static_color),
                         AttachedColorMode::Static => attached_static_color,
                     };
-                    items.push(session_item(sess, state.is_expanded(&sess.name), selected, None, meta, state.is_dormant(&sess.name), attached_color, group_tag, None, state.session_metric, None, None, false, false, None, false, caret, &session_badges(state, sess)));
+                    items.push(session_item(sess, next_is_window, selected, None, meta, state.is_dormant(&sess.name), attached_color, group_tag, None, state.session_metric, None, None, false, false, None, false, caret, &session_badges(state, sess)));
                 }
                 Row::Window(si, wi) => {
                     let sess = results[*si];
@@ -605,7 +609,6 @@ fn draw_search(frame: &mut Frame, state: &PickerState, inner: Rect) {
                     if selected {
                         selected_line = Some(items.len());
                     }
-                    let last = *wi + 1 == sess.windows.len();
                     let window_dormant = state.is_window_dormant(&sess.name, sess.windows[*wi].index);
                     let dormant = state.is_dormant(&sess.name) || window_dormant;
                     let dot_color = match state.dot_color_mode {
@@ -615,7 +618,7 @@ fn draw_search(frame: &mut Frame, state: &PickerState, inner: Rect) {
                             .unwrap_or(dot_static_color),
                         DotColorMode::Static => dot_static_color,
                     };
-                    items.push(window_item(&sess.windows[*wi], last, selected, None, dormant, window_dormant, None, dot_color, None, false, caret, &window_agent_states(state, &sess.windows[*wi]), meta.width));
+                    items.push(window_item(&sess.windows[*wi], !next_is_window, selected, None, dormant, window_dormant, None, dot_color, None, false, caret, &window_agent_states(state, &sess.windows[*wi]), meta.width));
                 }
             }
         }
@@ -4200,7 +4203,7 @@ mod tests {
     #[test]
     fn draw_settings_attached_color_row_shows_mode_label_and_hides_swatch_in_match_mode() {
         let mut st = settings_view();
-        st.settings_move_cursor(7); // AttachedColor
+        st.settings_move_cursor(8); // AttachedColor
         let text = render_to_string(&st);
         let row = text
             .lines()
@@ -4222,7 +4225,7 @@ mod tests {
     #[test]
     fn draw_settings_expanded_shortcut_color_shows_radio_glyphs() {
         let mut st = settings_view();
-        st.settings_move_cursor(13); // ShortcutColor
+        st.settings_move_cursor(14); // ShortcutColor
         st.settings_step_right();
         let text = render_to_string(&st);
         assert!(text.contains("●"));
@@ -4232,7 +4235,7 @@ mod tests {
     #[test]
     fn draw_settings_expanded_palette_shows_swatches_and_checkboxes() {
         let mut st = settings_view();
-        st.settings_move_cursor(12); // Palette
+        st.settings_move_cursor(13); // Palette
         st.settings_step_right(); // expand
         // Taller than the usual 80x20: section headers and the added Show
         // shortcuts/Shortcut color/Active window color/Border color
@@ -4248,7 +4251,7 @@ mod tests {
     #[test]
     fn draw_settings_shows_static_color_value_when_policy_is_static() {
         let mut st = settings_view();
-        st.settings_move_cursor(11); // ColorPolicy row
+        st.settings_move_cursor(12); // ColorPolicy row
         st.settings_step_right(); // Rotate -> Random
         st.settings_step_right(); // Random -> Static
         st.static_color = "magenta".to_string();
@@ -4324,23 +4327,22 @@ mod tests {
 
     #[test]
     fn draw_settings_row_eleven_shows_the_alt_glyph_jump_label() {
-        // Border palette (row 11) sits below the fold at the default 80x20
-        // size; needs height >= 24 to render, same as the other pre-existing
-        // tests that check this row.
+        // Border color (row 11) sits below the fold at the default 80x20
+        // size; needs height >= 24 to render.
         let text = render_to_string_sized(&settings_view(), 80, 24);
         let row = text
             .lines()
-            .find(|line| line.contains("Border palette"))
-            .expect("Border palette row (jump number 11) is rendered");
+            .find(|line| line.contains("Border color"))
+            .expect("Border color row (jump number 11) is rendered");
         // Strip margin and frame border to check the actual content.
         let content = row.chars().skip(3).collect::<String>();
-        assert!(content.starts_with("│⌥1"), "row 11 (Border palette) shows the Alt+1 jump label: {row:?}");
+        assert!(content.starts_with("│⌥1"), "row 11 (Border color) shows the Alt+1 jump label: {row:?}");
     }
 
     #[test]
     fn draw_settings_child_color_option_rows_are_unchanged_by_jump_numbering() {
         let mut st = settings_view();
-        st.settings_move_cursor(13); // ShortcutColor
+        st.settings_move_cursor(14); // ShortcutColor
         st.settings_step_right(); // expand
         let text = render_to_string(&st);
         let row = text
@@ -4358,7 +4360,7 @@ mod tests {
     #[test]
     fn draw_settings_gutter_bar_continues_through_expanded_color_options() {
         let mut st = settings_view();
-        st.settings_move_cursor(13); // ShortcutColor
+        st.settings_move_cursor(14); // ShortcutColor
         st.settings_step_right(); // expand
         let text = render_to_string(&st);
         let row = text
@@ -4373,7 +4375,7 @@ mod tests {
     #[test]
     fn draw_settings_gutter_bar_continues_through_expanded_palette_rows() {
         let mut st = settings_view();
-        st.settings_move_cursor(12); // Palette
+        st.settings_move_cursor(13); // Palette
         st.settings_step_right(); // expand
         // Taller than the usual 80x20: section headers and the added Show
         // shortcuts/Shortcut color/Active window color/Border color
@@ -4422,7 +4424,7 @@ mod tests {
     #[test]
     fn draw_settings_border_palette_row_is_not_dimmed_once_border_color_leaves_static() {
         let mut st = settings_view();
-        st.settings_move_cursor(9); // BorderColorPolicy, defaults to Static
+        st.settings_move_cursor(10); // BorderColorPolicy, defaults to Static
         st.settings_step_right(); // Static -> Rotate
         let backend = TestBackend::new(80, 31);
         let mut terminal = Terminal::new(backend).unwrap();
@@ -4440,7 +4442,7 @@ mod tests {
     #[test]
     fn draw_settings_expanded_border_palette_child_rows_dim_too_when_border_color_is_static() {
         let mut st = settings_view(); // border_color_policy defaults to Static
-        st.settings_jump(11); // BorderPalette, expands to first active swatch
+        st.settings_jump(12); // BorderPalette, expands to first active swatch
         let backend = TestBackend::new(80, 31);
         let mut terminal = Terminal::new(backend).unwrap();
         terminal.draw(|f| draw(f, &st)).unwrap();
@@ -4473,7 +4475,7 @@ mod tests {
     #[test]
     fn draw_settings_group_palette_row_dims_once_new_group_color_becomes_static() {
         let mut st = settings_view();
-        st.settings_move_cursor(11); // ColorPolicy
+        st.settings_move_cursor(12); // ColorPolicy
         st.settings_step_right();
         st.settings_step_right(); // Rotate -> Random -> Static
         let backend = TestBackend::new(80, 31);
@@ -4563,7 +4565,7 @@ mod tests {
 
     #[test]
     fn draw_settings_blank_line_separates_behavior_and_colors_sections() {
-        let text = render_to_string(&settings_view());
+        let text = render_to_string_sized(&settings_view(), 80, 24);
         let lines: Vec<&str> = text.lines().collect();
         let colors_idx = lines.iter().position(|l| l.contains("COLORS")).expect("COLORS header rendered");
         let prev_line = lines[colors_idx - 1];
@@ -4745,6 +4747,22 @@ mod tests {
         let session_x = (0..buf.area.height).find_map(|y| find_text_x(&buf, y, "claude")).unwrap();
         let window_x = (0..buf.area.height).find_map(|y| find_text_x(&buf, y, "editor")).unwrap();
         assert_eq!(window_x, session_x + 2, "window name should indent one step past its parent session's name");
+    }
+
+    #[test]
+    fn draw_search_window_match_renders_as_the_sessions_last_branch() {
+        let sessions = vec![session_with_windows("web", 30, vec![win_active(0, "logs"), win(1, "zsh")])];
+        let cfg = Config { search_window_names: true, ..Default::default() };
+        let mut state = PickerState::build(sessions, &cfg);
+        state.enter_search();
+        for c in "logs".chars() {
+            state.search_push(c);
+        }
+        let text = render_to_string(&state);
+        assert!(text.contains('▾'), "a session showing matched windows renders expanded:\n{text}");
+        let row = text.lines().find(|l| l.contains("logs") && !l.contains("search:")).expect("window row");
+        assert!(row.contains("└─"), "the only shown window closes the branch even though zsh follows it: {row:?}");
+        assert!(!text.contains("zsh"), "non-matching windows stay hidden:\n{text}");
     }
 
     #[test]

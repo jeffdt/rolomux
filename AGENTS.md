@@ -121,8 +121,10 @@ These are deliberate and have driven past work. Do not reverse them casually.
   future `default_mode` config key (deferred, not shipped). During search,
   section headers and jump numbers (1-20) are suppressed by design (digits are
   query text; numbers cannot be stable when results re-rank on every keystroke).
-  Window-name matching is intentionally reachable via the `session_haystack`
-  seam in `src/model.rs` but is not built.
+  Window-name matching is opt-in (`search_window_names`, default off) because
+  auto-renamed windows (`zsh`, `nvim`) would flood results with noise. Names
+  and windows are scored separately, never as one joined string, so a query
+  can't match across names.
 
 ## Configuration
 

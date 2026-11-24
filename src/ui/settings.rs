@@ -94,6 +94,14 @@ pub(super) fn draw_settings(frame: &mut Frame, state: &PickerState, inner: Rect)
                 selected,
                 width,
             ),
+            SettingsRow::SearchWindowNames => settings_row_line(
+                *row,
+                "Search window names",
+                value(if state.search_window_names { "On" } else { "Off" }),
+                changed,
+                selected,
+                width,
+            ),
             SettingsRow::InboxIcon => {
                 settings_row_line(*row, "Inbox icon", value(&state.inbox_icon), changed, selected, width)
             }
