@@ -125,8 +125,12 @@ impl PickerState {
     fn refilter(&mut self, change: impl FnOnce(&mut Self)) {
         let command_focus = self.cursor_session_name();
         let search_focus = self.search_cursor_name();
+        let agent_focus = self.agent_rows().into_iter().nth(self.agent_cursor).map(|r| r.pane_id);
         change(self);
-        self.agent_cursor = self.agent_cursor.min(self.agent_rows().len().saturating_sub(1));
+        let rows = self.agent_rows();
+        self.agent_cursor = agent_focus
+            .and_then(|id| rows.iter().position(|r| r.pane_id == id))
+            .unwrap_or(self.agent_cursor.min(rows.len().saturating_sub(1)));
         if let Some(name) = command_focus.as_deref().filter(|name| self.session_visible(name)) {
             self.focus_session(name);
         } else {

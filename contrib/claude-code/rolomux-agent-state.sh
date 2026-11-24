@@ -3,7 +3,8 @@
 [ -n "$TMUX_PANE" ] || exit 0
 input=$(cat)
 field() { printf '%s' "$input" | jq -r "$1" 2>/dev/null; }
-opt() { tmux set -p -t "$TMUX_PANE" "$1" "$2"; }
+# tmux reads a trailing ; as a command separator, so escape it.
+opt() { case $2 in *';') set -- "$1" "${2%;}\\;" ;; esac; tmux set -p -t "$TMUX_PANE" "$1" "$2"; }
 unset_opt() { tmux set -pu -t "$TMUX_PANE" "$1"; }
 # Flattens whitespace and keeps the head and tail of long text: tmux rejects
 # commands over about 16KB, and the closing question is usually at the end.
@@ -14,6 +15,8 @@ questions() { field "[.tool_input.questions[]?.question] | join(\" · \") | $tex
 before=$(shown)
 case "$1" in
   start|end)
+    # Compaction (even mid-turn) also fires SessionStart; it is not a new session.
+    [ "$(field .source)" = compact ] && exit 0
     for o in @rolomux_agent_state @rolomux_agent_note @rolomux_agent_bg @rolomux_agent_since @rolomux_agent_prompt; do unset_opt "$o"; done
     exit 0 ;;
   prompt)

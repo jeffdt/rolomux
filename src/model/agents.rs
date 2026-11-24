@@ -170,6 +170,16 @@ mod tests {
     }
 
     #[test]
+    fn focus_toggle_keeps_the_selected_agent_when_it_stays_visible() {
+        let mut st = mixed();
+        st.enter_agents();
+        st.agent_move(1);
+        st.dormant.insert("a".into());
+        st.toggle_focus_mode();
+        assert_eq!(st.agent_rows()[st.agent_cursor()].pane_id, "%3");
+    }
+
+    #[test]
     fn focus_mode_hides_dormant_windows_agents() {
         let mut st = mixed();
         st.dormant_windows.insert(("b".into(), 0));

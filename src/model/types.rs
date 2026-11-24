@@ -28,7 +28,7 @@ impl DefaultMode {
         }
     }
 
-    /// The next value, wrapping: Command, Search, Agents.
+    /// The next value, wrapping: Picker, Search, Agents.
     pub fn next(self) -> DefaultMode {
         match self {
             DefaultMode::Picker => DefaultMode::Search,
