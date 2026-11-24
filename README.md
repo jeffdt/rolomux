@@ -219,7 +219,7 @@ Each row shows a jump number in its gutter; pressing it jumps straight to that r
 
 **Behavior**
 
-- **Default mode.** Whether the picker opens in Command mode or straight into Search.
+- **Default mode.** Whether the picker opens in Command mode, straight into Search, or straight into the agent view.
 - **Number dormant sessions.** Whether visible dormant sessions are included in jump numbering (sessions 1-20).
 - **Remember expanded sessions.** Off by default (every popup starts fully collapsed). When on, expanding or collapsing a session's window tree (`l`/`h`/`z`) persists across popups, so the sessions you're actively jumping between stay expanded.
 - **Clear dormant on attach.** Off by default. When on, attaching to a dormant session automatically clears its dormant flag, so you don't have to remember to press `d` yourself.

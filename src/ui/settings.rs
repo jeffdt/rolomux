@@ -396,6 +396,7 @@ fn default_mode_label(m: DefaultMode) -> &'static str {
     match m {
         DefaultMode::Command => "Command",
         DefaultMode::Search => "Search",
+        DefaultMode::Agents => "Agents",
     }
 }
 

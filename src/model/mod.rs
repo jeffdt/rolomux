@@ -236,10 +236,13 @@ impl PickerState {
     /// instead of from `config.expanded`/`remember_expanded_sessions`. Used
     /// to rebuild the picker after a mid-run session/window rename, so a
     /// session expanded this run (even with "remember expanded" off)
-    /// survives the rebuild under its possibly-new name.
+    /// survives the rebuild under its possibly-new name. Every rebuild follows
+    /// a tree action, so it stays in the tree rather than reopening into the
+    /// default mode.
     pub fn build_with_expanded(sessions: Vec<Session>, config: &Config, expanded: Vec<String>) -> PickerState {
         let mut state = Self::build_with_focus(sessions, config, INITIAL_FOCUS, None);
         state.expanded = expanded.into_iter().collect();
+        state.mode = Mode::Command;
         state
     }
 
@@ -1441,6 +1444,15 @@ mod tests {
         let st = PickerState::build_with_expanded(sessions, &cfg, vec!["alpha".to_string()]);
         assert!(st.is_expanded("alpha"));
         assert!(!st.is_expanded("beta"));
+    }
+
+    #[test]
+    fn rebuild_stays_in_the_tree_whatever_the_default_mode() {
+        for default_mode in [DefaultMode::Search, DefaultMode::Agents] {
+            let cfg = Config { default_mode, ..Default::default() };
+            assert_eq!(PickerState::build(vec![s("alpha", 1, 1)], &cfg).mode, default_mode.as_mode());
+            assert_eq!(PickerState::build_with_expanded(vec![s("alpha", 1, 1)], &cfg, vec![]).mode, Mode::Command);
+        }
     }
 
     #[test]

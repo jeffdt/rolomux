@@ -92,6 +92,7 @@ impl SettingsRow {
             SettingsRow::DefaultMode => match state.default_mode {
                 DefaultMode::Command => "On launch, rolomux opens in Command mode.",
                 DefaultMode::Search => "On launch, rolomux opens straight into Search.",
+                DefaultMode::Agents => "On launch, rolomux opens straight into the agent view.",
             }
             .to_string(),
             SettingsRow::DormantNumbering => if state.number_dormant_sessions {
@@ -475,7 +476,7 @@ impl PickerState {
     pub fn settings_step_left(&mut self) {
         match self.current_settings_row() {
             SettingsRow::DefaultMode => {
-                self.default_mode = self.default_mode.next();
+                self.default_mode = self.default_mode.prev();
                 self.dirty = true;
             }
             SettingsRow::DormantNumbering => self.toggle_dormant_numbering(),
@@ -1510,9 +1511,11 @@ mod tests {
         st.settings_step_right();
         assert_eq!(st.default_mode, DefaultMode::Search);
         st.settings_step_right();
-        assert_eq!(st.default_mode, DefaultMode::Command, "2-state cycle wraps");
+        assert_eq!(st.default_mode, DefaultMode::Agents);
+        st.settings_step_right();
+        assert_eq!(st.default_mode, DefaultMode::Command, "wraps forward");
         st.settings_step_left();
-        assert_eq!(st.default_mode, DefaultMode::Search, "h also flips a 2-state toggle");
+        assert_eq!(st.default_mode, DefaultMode::Agents, "h steps back and wraps");
         assert!(st.dirty);
     }
 

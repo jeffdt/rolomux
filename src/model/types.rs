@@ -6,12 +6,14 @@ pub enum DefaultMode {
     #[default]
     Command,
     Search,
+    Agents,
 }
 
 impl DefaultMode {
     pub fn from_config_str(s: &str) -> DefaultMode {
         match s {
             "search" => DefaultMode::Search,
+            "agents" => DefaultMode::Agents,
             _ => DefaultMode::Command,
         }
     }
@@ -20,23 +22,29 @@ impl DefaultMode {
         match self {
             DefaultMode::Command => "command",
             DefaultMode::Search => "search",
+            DefaultMode::Agents => "agents",
         }
     }
 
-    /// The other value. A 2-state cycle, so `h`, `l`, and `Enter`/`Space` on
-    /// the Default Mode settings row all call this: there is no distinct
-    /// "previous".
+    /// The next value, wrapping: Command, Search, Agents.
     pub fn next(self) -> DefaultMode {
         match self {
             DefaultMode::Command => DefaultMode::Search,
-            DefaultMode::Search => DefaultMode::Command,
+            DefaultMode::Search => DefaultMode::Agents,
+            DefaultMode::Agents => DefaultMode::Command,
         }
+    }
+
+    /// The previous value, wrapping.
+    pub fn prev(self) -> DefaultMode {
+        self.next().next()
     }
 
     pub fn as_mode(self) -> Mode {
         match self {
             DefaultMode::Command => Mode::Command,
             DefaultMode::Search => Mode::Search,
+            DefaultMode::Agents => Mode::Agents,
         }
     }
 }
@@ -646,9 +654,14 @@ mod tests {
     }
 
     #[test]
-    fn default_mode_next_toggles_and_maps_to_mode() {
+    fn default_mode_cycles_both_ways_and_maps_to_mode() {
         assert_eq!(DefaultMode::Command.next(), DefaultMode::Search);
-        assert_eq!(DefaultMode::Search.next(), DefaultMode::Command);
+        assert_eq!(DefaultMode::Search.next(), DefaultMode::Agents);
+        assert_eq!(DefaultMode::Agents.next(), DefaultMode::Command);
+        assert_eq!(DefaultMode::Command.prev(), DefaultMode::Agents);
+        assert_eq!(DefaultMode::Agents.prev(), DefaultMode::Search);
+        assert_eq!(DefaultMode::Agents.as_mode(), Mode::Agents);
+        assert_eq!(DefaultMode::from_config_str(DefaultMode::Agents.as_config_str()), DefaultMode::Agents);
         assert_eq!(DefaultMode::Command.as_mode(), Mode::Command);
         assert_eq!(DefaultMode::Search.as_mode(), Mode::Search);
         assert_eq!(DefaultMode::Command.as_config_str(), "command");
