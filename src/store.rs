@@ -54,6 +54,7 @@ pub struct Config {
     pub default_mode: DefaultMode,
     pub number_dormant_sessions: bool,
     pub clear_dormant_on_attach: bool,
+    pub search_window_names: bool,
     pub new_group_color_policy: ColorPolicy,
     pub static_color: String,
     pub active_palette: Vec<String>,
@@ -105,6 +106,7 @@ impl Default for Config {
             default_mode: DefaultMode::default(),
             number_dormant_sessions: true,
             clear_dormant_on_attach: false,
+            search_window_names: false,
             new_group_color_policy: ColorPolicy::default(),
             static_color: "cyan".to_string(),
             active_palette: default_active_palette(),
@@ -149,6 +151,8 @@ struct RawSettings {
     #[serde(default)]
     clear_dormant_on_attach: Option<bool>,
     #[serde(default)]
+    search_window_names: Option<bool>,
+    #[serde(default)]
     new_group_color_policy: Option<String>,
     #[serde(default)]
     static_color: Option<String>,
@@ -191,6 +195,7 @@ struct OutSettings {
     default_mode: String,
     number_dormant_sessions: bool,
     clear_dormant_on_attach: bool,
+    search_window_names: bool,
     new_group_color_policy: String,
     static_color: String,
     active_palette: Vec<String>,
@@ -377,6 +382,7 @@ impl Config {
             default_mode,
             number_dormant_sessions: raw.settings.number_dormant_sessions.unwrap_or(true),
             clear_dormant_on_attach: raw.settings.clear_dormant_on_attach.unwrap_or(false),
+            search_window_names: raw.settings.search_window_names.unwrap_or(false),
             new_group_color_policy,
             static_color,
             active_palette,
@@ -431,6 +437,7 @@ impl Config {
                 default_mode: self.default_mode.as_config_str().to_string(),
                 number_dormant_sessions: self.number_dormant_sessions,
                 clear_dormant_on_attach: self.clear_dormant_on_attach,
+                search_window_names: self.search_window_names,
                 new_group_color_policy: self.new_group_color_policy.as_config_str().to_string(),
                 static_color: self.static_color.clone(),
                 active_palette: self.active_palette.clone(),
@@ -1187,6 +1194,17 @@ inbox = true
         cfg.save_to(&path).unwrap();
         let reloaded = Config::load_from(&path);
         assert!(reloaded.clear_dormant_on_attach);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn search_window_names_defaults_off_and_round_trips() {
+        assert!(!Config::default().search_window_names);
+        let dir = std::env::temp_dir().join(format!("rolomux-search-windows-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.toml");
+        Config { search_window_names: true, ..Default::default() }.save_to(&path).unwrap();
+        assert!(Config::load_from(&path).search_window_names);
         std::fs::remove_dir_all(&dir).ok();
     }
 

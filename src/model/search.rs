@@ -4,49 +4,92 @@
 
 use super::*;
 
+/// One session in the search results plus the window rows shown under it.
+struct SearchEntry<'a> {
+    session: &'a Session,
+    /// Positions in `session.windows` rendered as rows: every visible window
+    /// when the session is expanded, otherwise just the matching ones.
+    window_rows: Vec<usize>,
+    /// The first matching window, set only when the name itself didn't
+    /// match -- that window is the real hit, so the cursor lands on it.
+    window_hit: Option<usize>,
+}
+
 impl PickerState {
-    /// The text a session is matched against in search. Today just its name; the
-    /// seam where window names can later be folded in (a session matches if its
-    /// name OR any window name matches) without touching the interaction layer.
-    fn session_haystack(s: &Session) -> String {
-        s.name.clone()
+    /// The current search results with their window rows. Empty query keeps
+    /// the normal picker-mode order; otherwise matches are ranked best-first.
+    /// Window names only match when `search_window_names` is on.
+    fn search_entries(&self) -> Vec<SearchEntry<'_>> {
+        let base = self.ordered();
+        let visible_windows = |sess: &Session| -> Vec<usize> {
+            (0..sess.windows.len())
+                .filter(|&wi| {
+                    let w = &sess.windows[wi];
+                    self.window_visible(&sess.name, w.index, w.active)
+                })
+                .collect()
+        };
+        let expanded_rows = |sess: &Session| -> Vec<usize> {
+            if self.expanded.contains(&sess.name) { visible_windows(sess) } else { Vec::new() }
+        };
+        if self.query.is_empty() {
+            return base
+                .into_iter()
+                .map(|session| SearchEntry { session, window_rows: expanded_rows(session), window_hit: None })
+                .collect();
+        }
+        let candidates: Vec<crate::search::Candidate> = base
+            .iter()
+            .map(|sess| crate::search::Candidate {
+                name: &sess.name,
+                windows: if self.search_window_names {
+                    visible_windows(sess).into_iter().map(|wi| (wi, sess.windows[wi].name.as_str())).collect()
+                } else {
+                    Vec::new()
+                },
+            })
+            .collect();
+        crate::search::rank(&self.query, &candidates)
+            .into_iter()
+            .map(|hit| {
+                let session = base[hit.index];
+                let window_rows = if self.expanded.contains(&session.name) {
+                    visible_windows(session)
+                } else {
+                    hit.windows.clone()
+                };
+                let window_hit = if hit.name_matched { None } else { hit.windows.first().copied() };
+                SearchEntry { session, window_rows, window_hit }
+            })
+            .collect()
     }
 
-    /// Sessions for the current search query. Empty query returns the normal
-    /// picker-mode order; a non-empty query returns matches ranked best-first.
-    /// Read-only -- never mutates state.
+    /// Sessions for the current search query, in result order. Read-only --
+    /// never mutates state.
     pub fn search_results(&self) -> Vec<&Session> {
-        let base = self.ordered();
-        if self.query.is_empty() {
-            return base;
-        }
-        let haystacks: Vec<String> = base.iter().map(|s| Self::session_haystack(s)).collect();
-        crate::search::rank(&self.query, &haystacks)
-            .into_iter()
-            .map(|i| base[i])
-            .collect()
+        self.search_entries().into_iter().map(|e| e.session).collect()
     }
 
     /// Flatten the current search results into session/window rows, the
     /// search-mode counterpart to `visible_rows()`. A session's own row
-    /// always precedes its window rows, so index 0 is always a
-    /// `Row::Session` -- this is what lets `search_push`'s unconditional
-    /// `search_cursor = 0` reset keep landing on a session even with window
-    /// rows in the mix.
+    /// always precedes its window rows.
     pub fn search_rows(&self) -> Vec<Row> {
-        let results = self.search_results();
         let mut rows = Vec::new();
-        for (si, sess) in results.iter().enumerate() {
+        for (si, entry) in self.search_entries().iter().enumerate() {
             rows.push(Row::Session(si));
-            if self.expanded.contains(&sess.name) {
-                for (wi, w) in sess.windows.iter().enumerate() {
-                    if self.window_visible(&sess.name, w.index, w.active) {
-                        rows.push(Row::Window(si, wi));
-                    }
-                }
-            }
+            rows.extend(entry.window_rows.iter().map(|&wi| Row::Window(si, wi)));
         }
         rows
+    }
+
+    /// Put the search cursor on the top result after a query change: the
+    /// top session's row, or the window that matched when only a window did.
+    fn reset_search_cursor(&mut self) {
+        self.search_cursor = self
+            .search_entries()
+            .first()
+            .and_then(|top| top.window_hit.and_then(|hit| top.window_rows.iter().position(|&wi| wi == hit)))
+            .map_or(0, |pos| pos + 1);
     }
 
     pub fn enter_search(&mut self) {
@@ -74,12 +117,12 @@ impl PickerState {
 
     pub fn search_push(&mut self, c: char) {
         self.query.push(c);
-        self.search_cursor = 0; // every query change re-selects the top match
+        self.reset_search_cursor();
     }
 
     pub fn search_backspace(&mut self) {
         self.query.pop();
-        self.search_cursor = 0;
+        self.reset_search_cursor();
     }
 
     /// Delete the trailing word: strip trailing whitespace, then the run of
@@ -88,13 +131,13 @@ impl PickerState {
         let trimmed = self.query.trim_end_matches(char::is_whitespace);
         let cut = trimmed.trim_end_matches(|c: char| !c.is_whitespace());
         self.query.truncate(cut.len());
-        self.search_cursor = 0;
+        self.reset_search_cursor();
     }
 
     /// Clear the entire query (the Ctrl-U convention).
     pub fn search_clear(&mut self) {
         self.query.clear();
-        self.search_cursor = 0;
+        self.reset_search_cursor();
     }
 
     pub fn search_move(&mut self, delta: i32) {
@@ -506,5 +549,78 @@ mod tests {
             Some(Action::SwitchWindow("alpha".into(), 5)),
             "picker-mode cursor lands on the exact window that was selected in search"
         );
+    }
+
+    fn window_search_state(on: bool) -> PickerState {
+        let mut sessions = vec![s("api", 1, 1), s("web", 1, 2)];
+        sessions[1].windows = vec![win(0, "zsh"), win(2, "logs"), win(4, "build")];
+        let cfg = Config { groups: vec![], search_window_names: on, ..Default::default() };
+        let mut state = PickerState::build(sessions, &cfg);
+        state.enter_search();
+        state
+    }
+
+    #[test]
+    fn window_names_are_ignored_when_the_setting_is_off() {
+        let mut state = window_search_state(false);
+        for c in "logs".chars() {
+            state.search_push(c);
+        }
+        assert!(state.search_results().is_empty());
+    }
+
+    #[test]
+    fn a_window_only_match_shows_just_that_window_and_selects_it() {
+        let mut state = window_search_state(true);
+        for c in "logs".chars() {
+            state.search_push(c);
+        }
+        assert_eq!(state.search_rows(), vec![Row::Session(0), Row::Window(0, 1)]);
+        assert_eq!(state.search_cursor(), 1, "cursor lands on the matching window, not its session");
+        assert_eq!(state.search_selected_action(), Some(Action::SwitchWindow("web".into(), 2)));
+    }
+
+    #[test]
+    fn a_window_match_in_an_expanded_session_shows_all_windows_and_selects_the_match() {
+        let mut state = window_search_state(true);
+        state.expand_session("web");
+        for c in "build".chars() {
+            state.search_push(c);
+        }
+        assert_eq!(state.search_rows().len(), 4, "session row plus all three windows");
+        assert_eq!(state.search_selected_action(), Some(Action::SwitchWindow("web".into(), 4)));
+    }
+
+    #[test]
+    fn a_session_name_match_keeps_the_cursor_on_the_session_row() {
+        let mut sessions = vec![s("logs", 1, 1)];
+        sessions[0].windows = vec![win(0, "logs")];
+        let cfg = Config { groups: vec![], search_window_names: true, ..Default::default() };
+        let mut state = PickerState::build(sessions, &cfg);
+        state.enter_search();
+        for c in "logs".chars() {
+            state.search_push(c);
+        }
+        assert_eq!(state.search_rows(), vec![Row::Session(0), Row::Window(0, 0)]);
+        assert_eq!(state.search_selected_action(), Some(Action::SwitchSession("logs".into())));
+    }
+
+    #[test]
+    fn hidden_dormant_windows_never_match() {
+        let mut sessions = vec![s("web", 1, 1)];
+        sessions[0].windows = vec![win_active(0, "zsh"), win(1, "logs")];
+        let cfg = Config {
+            groups: vec![],
+            focus_mode: true,
+            search_window_names: true,
+            dormant_windows: vec![crate::store::DormantWindow { session: "web".into(), index: 1, id: String::new() }],
+            ..Default::default()
+        };
+        let mut state = PickerState::build(sessions, &cfg);
+        state.enter_search();
+        for c in "logs".chars() {
+            state.search_push(c);
+        }
+        assert!(state.search_results().is_empty());
     }
 }
