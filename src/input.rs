@@ -118,6 +118,7 @@ pub enum AgentsInput {
     TogglePeek,
     ToggleSort,
     ToggleLayout,
+    ToggleHideWorking,
     Search,
     Quit,
     None,
@@ -134,6 +135,7 @@ pub fn map_agents_key(key: KeyEvent) -> AgentsInput {
         KeyCode::Char('f') => AgentsInput::ToggleFocusMode,
         KeyCode::Char('s') => AgentsInput::ToggleSort,
         KeyCode::Char('g') => AgentsInput::ToggleLayout,
+        KeyCode::Char('w') => AgentsInput::ToggleHideWorking,
         KeyCode::Char('/') => AgentsInput::Search,
         KeyCode::Char('j') | KeyCode::Down => AgentsInput::Down,
         KeyCode::Char('k') | KeyCode::Up => AgentsInput::Up,
@@ -383,6 +385,7 @@ mod tests {
         assert_eq!(map_agents_key(shift(KeyCode::Char('F'))), AgentsInput::TogglePeek);
         assert_eq!(map_agents_key(key(KeyCode::Char('s'))), AgentsInput::ToggleSort);
         assert_eq!(map_agents_key(key(KeyCode::Char('g'))), AgentsInput::ToggleLayout);
+        assert_eq!(map_agents_key(key(KeyCode::Char('w'))), AgentsInput::ToggleHideWorking);
         assert_eq!(map_agents_key(key(KeyCode::Char('/'))), AgentsInput::Search);
         assert_eq!(map_agents_key(key(KeyCode::Char('a'))), AgentsInput::ToggleTree);
         assert_eq!(map_agents_key(key(KeyCode::Char('q'))), AgentsInput::Quit);

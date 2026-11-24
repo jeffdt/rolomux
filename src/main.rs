@@ -722,6 +722,7 @@ fn event_loop(
                     AgentsInput::TogglePeek => state.toggle_peek(),
                     AgentsInput::ToggleSort => state.toggle_agent_sort(),
                     AgentsInput::ToggleLayout => state.toggle_agent_layout(),
+                    AgentsInput::ToggleHideWorking => state.toggle_agent_hide_working(),
                     AgentsInput::Search => state.enter_search(),
                     AgentsInput::Quit => return Ok(None),
                     AgentsInput::None => {}
