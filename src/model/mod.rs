@@ -40,8 +40,12 @@ use swap_indicator::SwapIndicator;
 
 mod blink;
 
+mod agents;
+
+pub mod note;
+
 use crate::store::Config;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 
 pub struct PickerState {
@@ -53,6 +57,12 @@ pub struct PickerState {
     focus_mode: bool,
     /// Session-only suspension of focus mode; never persisted.
     peeking: bool,
+    /// Session the popup was opened from, as resolved from `$TMUX`.
+    pub current_session: Option<String>,
+    /// Agent view lists the longest-waiting agent first instead of the newest.
+    pub agents_oldest_first: bool,
+    /// Agent view shows one list instead of a section per state.
+    pub agents_flat: bool,
     pub start_focus_mode: StartFocusMode,
     pub cursor: usize,
     pub dirty: bool,
@@ -119,6 +129,10 @@ pub struct PickerState {
     pub dot_color_mode: DotColorMode,
     pub dot_color: String,
     pub shortcut_color: String,
+    /// Glyph shown in the agent view for agents with background tasks.
+    pub background_badge: String,
+    /// Whether tree and search rows show agent badges.
+    pub agent_badges: bool,
     pub always_show_shortcuts: bool,
     pub caret_style: CaretStyle,
     pub caret_blink: bool,
@@ -132,6 +146,9 @@ pub struct PickerState {
     /// Anchors the slow-blink clock for empty create/rename placeholder text.
     /// See `src/model/blink.rs`.
     blink_since: Instant,
+    /// Agent panes per tmux window id, from the latest gather.
+    agents: HashMap<String, Vec<AgentPane>>,
+    agent_cursor: usize,
 }
 
 impl PickerState {
@@ -174,6 +191,9 @@ impl PickerState {
                 StartFocusMode::Never => false,
             },
             peeking: false,
+            current_session: None,
+            agents_oldest_first: config.agents_oldest_first,
+            agents_flat: config.agents_flat,
             cursor: 0,
             dirty: false,
             mode: config.default_mode.as_mode(),
@@ -209,6 +229,8 @@ impl PickerState {
             dot_color_mode: config.dot_color_mode,
             dot_color: config.dot_color.clone(),
             shortcut_color: config.shortcut_color.clone(),
+            background_badge: config.background_badge.clone(),
+            agent_badges: config.agent_badges,
             always_show_shortcuts: config.always_show_shortcuts,
             caret_style: config.caret_style,
             caret_blink: config.caret_blink,
@@ -216,6 +238,8 @@ impl PickerState {
             inbox_icon: config.inbox_icon.clone(),
             settings_ui: SettingsUiState::default(),
             blink_since: Instant::now(),
+            agents: HashMap::new(),
+            agent_cursor: 0,
         };
         state.apply_clear_dormant_on_attach();
         state.apply_initial_focus(focus, current);
@@ -226,10 +250,13 @@ impl PickerState {
     /// instead of from `config.expanded`/`remember_expanded_sessions`. Used
     /// to rebuild the picker after a mid-run session/window rename, so a
     /// session expanded this run (even with "remember expanded" off)
-    /// survives the rebuild under its possibly-new name.
+    /// survives the rebuild under its possibly-new name. Every rebuild follows
+    /// a tree action, so it stays in the tree rather than reopening into the
+    /// default mode.
     pub fn build_with_expanded(sessions: Vec<Session>, config: &Config, expanded: Vec<String>) -> PickerState {
         let mut state = Self::build_with_focus(sessions, config, INITIAL_FOCUS, None);
         state.expanded = expanded.into_iter().collect();
+        state.mode = Mode::Picker;
         state
     }
 
@@ -452,6 +479,8 @@ impl PickerState {
             })
             .collect();
         config.focus_mode = self.focus_mode;
+        config.agents_oldest_first = self.agents_oldest_first;
+        config.agents_flat = self.agents_flat;
         config.start_focus_mode = self.start_focus_mode;
         config.default_mode = self.default_mode;
         config.number_dormant_sessions = self.number_dormant_sessions;
@@ -464,6 +493,8 @@ impl PickerState {
         config.border_color = self.border_color.clone();
         config.border_color_policy = self.border_color_policy;
         config.inbox_icon = self.inbox_icon.clone();
+        config.background_badge = self.background_badge.clone();
+        config.agent_badges = self.agent_badges;
         config.remember_expanded_sessions = self.remember_expanded_sessions;
         config.clear_dormant_on_attach = self.clear_dormant_on_attach;
         config.search_window_names = self.search_window_names;
@@ -553,6 +584,40 @@ impl PickerState {
         }
     }
 
+    /// Replace the per-window agent panes from the latest gather.
+    pub fn set_agents(&mut self, agents: HashMap<String, Vec<AgentPane>>) {
+        self.agents = agents;
+    }
+
+    /// Agent panes in `win`, in tmux pane order; empty when none.
+    pub fn window_agents(&self, win: &Window) -> &[AgentPane] {
+        if win.id.is_empty() {
+            return &[];
+        }
+        self.agents.get(&win.id).map_or(&[], Vec::as_slice)
+    }
+
+    /// States of every agent in `sess`, most urgent first, so a row clipped
+    /// at the card edge loses its least urgent badges.
+    pub fn session_agent_states(&self, sess: &Session) -> Vec<AgentState> {
+        let mut states: Vec<AgentState> = sess.windows.iter().flat_map(|w| self.window_agents(w)).map(|a| a.state).collect();
+        states.sort();
+        states
+    }
+
+    /// Action for a window row: jump to its most urgent agent pane (first on
+    /// ties), or just switch to the window when it has none.
+    pub(super) fn window_action(&self, sess: &Session, win: &Window) -> Action {
+        let urgent = self
+            .window_agents(win)
+            .iter()
+            .reduce(|best, a| if a.state < best.state { a } else { best });
+        match urgent {
+            Some(a) => Action::SwitchPane(sess.name.clone(), win.index, a.pane_id.clone()),
+            None => Action::SwitchWindow(sess.name.clone(), win.index),
+        }
+    }
+
     pub fn selected_action(&self) -> Option<Action> {
         let rows = self.visible_rows();
         let ordered = self.ordered();
@@ -562,7 +627,7 @@ impl PickerState {
             }
             Row::Window(si, wi) => {
                 let sess = ordered[*si];
-                Some(Action::SwitchWindow(sess.name.clone(), sess.windows[*wi].index))
+                Some(self.window_action(sess, &sess.windows[*wi]))
             }
         }
     }
@@ -940,6 +1005,80 @@ mod tests {
         assert_eq!(state.selected_action(), Some(Action::SwitchWindow("a".into(), 3)));
     }
 
+    fn agent_state(windows: Vec<(&str, Vec<(&str, AgentState)>)>) -> PickerState {
+        let mut sessions = vec![s("a", 30, 1)];
+        sessions[0].windows = windows
+            .iter()
+            .enumerate()
+            .map(|(i, (id, _))| Window { id: (*id).into(), index: i as u32, name: "w".into(), active: false })
+            .collect();
+        let cfg = Config { groups: vec![], ..Default::default() };
+        let mut state = PickerState::build(sessions, &cfg);
+        state.set_agents(
+            windows
+                .into_iter()
+                .map(|(id, ps)| {
+                    (id.to_string(), ps.into_iter().map(|(p, st)| AgentPane { pane_id: p.into(), state: st, reported_state: st, path: String::new(), background: 0, since: 0, note: String::new() }).collect())
+                })
+                .collect(),
+        );
+        state
+    }
+
+    #[test]
+    fn window_agents_looks_up_by_window_id() {
+        let state = agent_state(vec![("@1", vec![("%1", AgentState::Done)]), ("@2", vec![])]);
+        let w = &state.all[0].windows;
+        assert_eq!(state.window_agents(&w[0]).len(), 1);
+        assert!(state.window_agents(&w[1]).is_empty());
+        assert!(state.window_agents(&win(9, "x")).is_empty());
+    }
+
+    #[test]
+    fn session_agent_states_sort_most_urgent_first() {
+        let state = agent_state(vec![
+            ("@1", vec![("%1", AgentState::Working), ("%2", AgentState::Done)]),
+            ("@2", vec![("%3", AgentState::Waiting)]),
+        ]);
+        assert_eq!(
+            state.session_agent_states(&state.all[0]),
+            vec![AgentState::Waiting, AgentState::Done, AgentState::Working]
+        );
+    }
+
+    #[test]
+    fn window_row_selects_most_urgent_agent_pane() {
+        let mut state = agent_state(vec![("@1", vec![("%1", AgentState::Working), ("%2", AgentState::Waiting)])]);
+        state.expand();
+        state.move_cursor(1);
+        assert_eq!(state.selected_action(), Some(Action::SwitchPane("a".into(), 0, "%2".into())));
+    }
+
+    #[test]
+    fn window_row_tie_picks_first_agent_pane() {
+        let mut state = agent_state(vec![("@1", vec![("%1", AgentState::Done), ("%2", AgentState::Done)])]);
+        state.expand();
+        state.move_cursor(1);
+        assert_eq!(state.selected_action(), Some(Action::SwitchPane("a".into(), 0, "%1".into())));
+    }
+
+    #[test]
+    fn window_row_without_agents_still_switches_window() {
+        let mut state = agent_state(vec![("@1", vec![])]);
+        state.expand();
+        state.move_cursor(1);
+        assert_eq!(state.selected_action(), Some(Action::SwitchWindow("a".into(), 0)));
+    }
+
+    #[test]
+    fn search_window_row_selects_most_urgent_agent_pane() {
+        let mut state = agent_state(vec![("@1", vec![("%1", AgentState::Working), ("%2", AgentState::Waiting)])]);
+        state.enter_search();
+        state.expand_session("a");
+        state.search_move(1);
+        assert_eq!(state.search_selected_action(), Some(Action::SwitchPane("a".into(), 0, "%2".into())));
+    }
+
     #[test]
     fn action_for_session_number_uses_stable_pinned_first_order() {
         let sessions = vec![s("a", 10, 1), s("b", 30, 2), s("c", 20, 3)];
@@ -1284,11 +1423,14 @@ mod tests {
         st.always_show_shortcuts = false;
         st.caret_style = CaretStyle::Underline;
         st.caret_blink = true;
+        st.agents_oldest_first = true;
+        st.agents_flat = true;
 
         st.apply_to_config(&mut cfg);
         cfg.save_to(&path).unwrap();
         let reloaded = Config::load_from(&path);
 
+        assert!(reloaded.agents_oldest_first && reloaded.agents_flat);
         assert_eq!(reloaded.attached_color, "magenta");
         assert_eq!(reloaded.attached_color_mode, AttachedColorMode::Match);
         assert_eq!(reloaded.border_color, "yellow");
@@ -1322,6 +1464,15 @@ mod tests {
         let st = PickerState::build_with_expanded(sessions, &cfg, vec!["alpha".to_string()]);
         assert!(st.is_expanded("alpha"));
         assert!(!st.is_expanded("beta"));
+    }
+
+    #[test]
+    fn rebuild_stays_in_the_tree_whatever_the_default_mode() {
+        for default_mode in [DefaultMode::Search, DefaultMode::Agents] {
+            let cfg = Config { default_mode, ..Default::default() };
+            assert_eq!(PickerState::build(vec![s("alpha", 1, 1)], &cfg).mode, default_mode.as_mode());
+            assert_eq!(PickerState::build_with_expanded(vec![s("alpha", 1, 1)], &cfg, vec![]).mode, Mode::Picker);
+        }
     }
 
     #[test]

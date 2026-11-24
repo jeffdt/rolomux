@@ -1,5 +1,5 @@
 use crate::model::{
-    AttachedColorMode, ColorPolicy, CreateStage, DefaultMode, DotColorMode, Group, Mode, PickerState, Row,
+    AgentState, AttachedColorMode, ColorPolicy, CreateStage, DefaultMode, DotColorMode, Group, Mode, PickerState, Row,
     Session, SessionMetric, SettingsRow, StartFocusMode, SwapDirection, Window, ALL_NAMED_COLORS,
 };
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
@@ -9,6 +9,7 @@ use ratatui::widgets::{Block, BorderType, Borders, List, ListItem, ListState, Pa
 use ratatui::Frame;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+mod agents;
 mod help;
 mod settings;
 
@@ -183,6 +184,21 @@ fn inset(area: Rect, margin: u16) -> Rect {
     }
 }
 
+/// The card's title. The agent view appends `/ agents` inside the brackets,
+/// in the border color but not bold, so it reads as a quieter subtitle.
+fn card_title(mode: Mode, border_style: Style) -> Vec<Span<'static>> {
+    let title_style = border_style.add_modifier(Modifier::BOLD | Modifier::ITALIC);
+    let mut spans = vec![Span::styled("─", border_style)];
+    if mode == Mode::Agents {
+        spans.push(Span::styled("‹ rolomux / ", title_style));
+        spans.push(Span::styled("agents", border_style.add_modifier(Modifier::ITALIC)));
+        spans.push(Span::styled(" ›", title_style));
+    } else {
+        spans.push(Span::styled("‹ rolomux ›", title_style));
+    }
+    spans
+}
+
 pub fn draw(frame: &mut Frame, state: &PickerState) {
     let area = inset(frame.area(), POPUP_MARGIN);
     let border_color = color_from_name(&state.border_color);
@@ -191,10 +207,7 @@ pub fn draw(frame: &mut Frame, state: &PickerState) {
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
         .border_style(border_style)
-        .title(Line::from(vec![
-            Span::styled("─", border_style),
-            Span::styled("‹ rolomux ›", border_style.add_modifier(Modifier::BOLD | Modifier::ITALIC)),
-        ]));
+        .title(Line::from(card_title(state.mode, border_style)));
     if state.mode == Mode::Settings {
         block = block.title_bottom(
             Line::from(vec![
@@ -221,6 +234,7 @@ pub fn draw(frame: &mut Frame, state: &PickerState) {
         // through the same renderer, with the session rows receded and the
         // highlight moved up onto a group header.
         Mode::Picker | Mode::Groups => draw_picker(frame, state, content),
+        Mode::Agents => agents::draw_agents(frame, state, content),
         Mode::Search => draw_search(frame, state, content),
         Mode::Settings => settings::draw_settings(frame, state, content),
     }
@@ -406,6 +420,7 @@ fn draw_picker(frame: &mut Frame, state: &PickerState, inner: Rect) {
                     state.session_swap_marker(&sess.name),
                     wide_numbering,
                     caret,
+                    &session_badges(state, sess),
                 ), raised));
             }
             Row::Window(si, wi) => {
@@ -435,6 +450,8 @@ fn draw_picker(frame: &mut Frame, state: &PickerState, inner: Rect) {
                     state.window_swap_marker(&sess.name, sess.windows[*wi].index),
                     wide_numbering,
                     caret,
+                    &window_agent_states(state, &sess.windows[*wi]),
+                    meta.width,
                 ), raised));
             }
         }
@@ -584,7 +601,7 @@ fn draw_search(frame: &mut Frame, state: &PickerState, inner: Rect) {
                             .unwrap_or(attached_static_color),
                         AttachedColorMode::Static => attached_static_color,
                     };
-                    items.push(session_item(sess, next_is_window, selected, None, meta, state.is_dormant(&sess.name), attached_color, group_tag, None, state.session_metric, None, None, false, false, None, false, caret));
+                    items.push(session_item(sess, next_is_window, selected, None, meta, state.is_dormant(&sess.name), attached_color, group_tag, None, state.session_metric, None, None, false, false, None, false, caret, &session_badges(state, sess)));
                 }
                 Row::Window(si, wi) => {
                     let sess = results[*si];
@@ -601,7 +618,7 @@ fn draw_search(frame: &mut Frame, state: &PickerState, inner: Rect) {
                             .unwrap_or(dot_static_color),
                         DotColorMode::Static => dot_static_color,
                     };
-                    items.push(window_item(&sess.windows[*wi], !next_is_window, selected, None, dormant, window_dormant, None, dot_color, None, false, caret));
+                    items.push(window_item(&sess.windows[*wi], !next_is_window, selected, None, dormant, window_dormant, None, dot_color, None, false, caret, &window_agent_states(state, &sess.windows[*wi]), meta.width));
                 }
             }
         }
@@ -745,7 +762,7 @@ fn push_create_phantom_row(
     let sess = Session {
         id: String::new(), name: String::new(), activity: 0, created: 0, attached: false, windows: vec![],
     };
-    let meta = MetaLayout { col: 0, count_width: 0 };
+    let meta = MetaLayout { col: 0, count_width: 0, width: 0 };
     let (rename_buf, dim_buf) = if buf.is_empty() { (placeholder, true) } else { (buf, false) };
     items.push(recede(
         session_item(
@@ -766,6 +783,7 @@ fn push_create_phantom_row(
             None,
             wide_numbering,
             caret,
+            &[],
         ),
         raised,
     ));
@@ -774,7 +792,7 @@ fn push_create_phantom_row(
     if let Some(win) = break_out {
         let win = Window { active: false, ..win.clone() };
         items.push(recede(
-            window_item(&win, true, false, Some(gutter_color), false, false, None, gutter_color, None, wide_numbering, None),
+            window_item(&win, true, false, Some(gutter_color), false, false, None, gutter_color, None, wide_numbering, None, &[], 0),
             raised,
         ));
     }
@@ -913,6 +931,20 @@ fn header_item(state: &PickerState, gi: usize, width: u16, color: Color) -> List
     ListItem::new(Line::from(spans))
 }
 
+/// Badges for a window row: its agents' states in pane order, or none when
+/// the agent badges setting is off.
+fn window_agent_states(state: &PickerState, win: &Window) -> Vec<AgentState> {
+    if !state.agent_badges {
+        return Vec::new();
+    }
+    state.window_agents(win).iter().map(|a| a.state).collect()
+}
+
+/// Badges for a session row, or none when the agent badges setting is off.
+fn session_badges(state: &PickerState, sess: &Session) -> Vec<AgentState> {
+    if state.agent_badges { state.session_agent_states(sess) } else { Vec::new() }
+}
+
 /// The "{n} window(s)" count token for a session, singular for exactly one.
 fn window_count(wins: usize) -> String {
     let label = if wins == 1 { "window" } else { "windows" };
@@ -930,9 +962,23 @@ fn hidden_status(sessions: usize, windows: usize) -> String {
 
 /// The footer divider, tinted `PEEK` while peeking so the temporary
 /// suspension of focus mode is hard to miss.
+/// While focus mode hides blocked agents, a red `N blocked` follows the
+/// hidden count (alone when that count is zero) so an agent waiting on you is never silently out of view.
 fn footer_rule_line(width: u16, state: &PickerState) -> Line<'static> {
     let color = if state.peeking() { PEEK } else { DIM };
-    Line::from(Span::styled(footer_rule(width, state), Style::default().fg(color)))
+    let blocked = state.hidden_blocked_count();
+    if blocked == 0 {
+        return Line::from(Span::styled(footer_rule(width, state), Style::default().fg(color)));
+    }
+    let (sessions, windows) = (state.hidden_dormant_count(), state.hidden_dormant_window_count());
+    let label = if sessions + windows == 0 { "─ ".to_string() } else { format!("─ {} · ", hidden_status(sessions, windows)) };
+    let callout = format!("{blocked} blocked ");
+    let rest = (width as usize).saturating_sub(label.chars().count() + callout.chars().count());
+    Line::from(vec![
+        Span::styled(label, Style::default().fg(DIM)),
+        Span::styled(callout, Style::default().fg(agent_color(AgentState::Waiting))),
+        Span::styled("─".repeat(rest), Style::default().fg(DIM)),
+    ])
 }
 
 fn footer_rule(width: u16, state: &PickerState) -> String {
@@ -1029,6 +1075,8 @@ fn shortcut_hint_line(state: &PickerState, text: &str) -> Line<'static> {
 struct MetaLayout {
     col: usize,
     count_width: usize,
+    /// Full row width, so agent badges can right-align to one shared column.
+    width: usize,
 }
 
 impl MetaLayout {
@@ -1057,7 +1105,7 @@ impl MetaLayout {
         }
         let target = META_COL.max(longest_prefix + META_GAP);
         let cap = (width as usize).saturating_sub(META_BUDGET).max(META_COL);
-        MetaLayout { col: target.min(cap), count_width }
+        MetaLayout { col: target.min(cap), count_width, width: width as usize }
     }
 }
 
@@ -1075,6 +1123,42 @@ fn jump_label(n: usize) -> String {
         11..=19 => format!("⌥{}", n - 10),
         _ => "⌥0".to_string(),
     }
+}
+
+const AGENT_GLYPH: &str = "✻";
+
+/// Badge glyph color for an agent state.
+fn agent_color(state: AgentState) -> Color {
+    match state {
+        AgentState::Waiting => Color::Red,
+        AgentState::Done => Color::Yellow,
+        AgentState::Working => Color::Green,
+    }
+}
+
+/// One glyph per agent state, colored by state and separated by single spaces.
+/// Foreground only, so a selected row's highlight background still shows.
+fn agent_badge_spans(agents: &[AgentState]) -> Vec<Span<'static>> {
+    let mut spans = Vec::new();
+    for (i, state) in agents.iter().enumerate() {
+        if i > 0 {
+            spans.push(Span::raw(" "));
+        }
+        spans.push(Span::styled(AGENT_GLYPH, Style::default().fg(agent_color(*state))));
+    }
+    spans
+}
+
+/// Appends `agents`' badges right-aligned to `row_width` (one cell of margin),
+/// so every row's badges end in the same column whatever precedes them.
+fn push_agent_badges(spans: &mut Vec<Span<'static>>, agents: &[AgentState], row_width: usize) {
+    if agents.is_empty() {
+        return;
+    }
+    let used: usize = spans.iter().map(Span::width).sum();
+    let badges_width = agents.len() * 2 - 1;
+    spans.push(Span::raw(" ".repeat(row_width.saturating_sub(used + badges_width + 1).max(2))));
+    spans.extend(agent_badge_spans(agents));
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1096,6 +1180,7 @@ fn session_item(
     swap_marker: Option<(SwapDirection, bool)>,
     wide_numbering: bool,
     caret: Option<&'static str>,
+    agents: &[AgentState],
 ) -> ListItem<'static> {
     let glyph = if expanded { "▾" } else { "▸" };
     let num = match number { Some(n) => jump_label(n), None => "  ".to_string() };
@@ -1187,6 +1272,7 @@ fn session_item(
         spans.push(Span::styled(" · ", secondary(selected)));
         spans.push(Span::styled(tag.to_uppercase(), Style::default().fg(color)));
     }
+    push_agent_badges(&mut spans, agents, meta.width);
     ListItem::new(Line::from(spans))
 }
 
@@ -1203,6 +1289,8 @@ fn window_item(
     swap_marker: Option<(SwapDirection, bool)>,
     wide_numbering: bool,
     caret: Option<&'static str>,
+    agents: &[AgentState],
+    row_width: usize,
 ) -> ListItem<'static> {
     // 4 leading spaces (not 2): the connector's tree glyph must land under the
     // parent session's expand glyph (issue #76), which itself shifted right by
@@ -1248,6 +1336,7 @@ fn window_item(
         spans.push(Span::raw("  "));
         spans.push(Span::styled(glyph, Style::default().fg(color)));
     }
+    push_agent_badges(&mut spans, agents, row_width);
     ListItem::new(Line::from(spans))
 }
 
@@ -1269,7 +1358,7 @@ mod tests {
     /// Freezes `now_unix()` at `now` for the lifetime of the returned guard,
     /// so a test's age-string assertions can't race the real wall clock.
     /// Restores the real clock on drop (including on assertion panic).
-    struct ClockGuard;
+    pub(super) struct ClockGuard;
 
     impl Drop for ClockGuard {
         fn drop(&mut self) {
@@ -1277,7 +1366,7 @@ mod tests {
         }
     }
 
-    fn freeze_clock(now: i64) -> ClockGuard {
+    pub(super) fn freeze_clock(now: i64) -> ClockGuard {
         TEST_CLOCK.with(|c| c.set(Some(now)));
         ClockGuard
     }
@@ -3543,6 +3632,23 @@ mod tests {
         terminal.backend().buffer().clone()
     }
 
+    #[test]
+    fn agent_view_title_appends_agents_in_the_border_color_without_bold() {
+        let sessions = vec![Session { id: String::new(), name: "a".into(), activity: 1, created: 1, attached: false,
+                                      windows: vec![Window { id: String::new(), index: 0, name: "w".into(), active: true }] }];
+        let mut state = PickerState::build(sessions, &Config::default());
+        assert!(render_to_string(&state).contains("‹ rolomux ›"));
+        state.enter_agents();
+        let buf = render_buf(&state);
+        let y = row_of(&buf, "‹ rolomux / agents ›");
+        let border = buf[(find_text_x(&buf, y, "‹").unwrap(), y)].fg;
+        let slash = find_text_x(&buf, y, "/").unwrap();
+        let word = find_text_x(&buf, y, "agents").unwrap();
+        assert_eq!(buf[(slash, y)].fg, border);
+        assert_eq!(buf[(word, y)].fg, border);
+        assert!(!buf[(word, y)].modifier.contains(Modifier::BOLD));
+    }
+
     fn row_of(buf: &ratatui::buffer::Buffer, needle: &str) -> u16 {
         (0..buf.area.height)
             .find(|&y| find_text_x(buf, y, needle).is_some())
@@ -4424,6 +4530,13 @@ mod tests {
     }
 
     #[test]
+    fn draw_settings_renders_background_badge_row_with_its_glyph() {
+        let text = render_to_string_sized(&settings_view(), 80, 40);
+        let line = text.lines().find(|l| l.contains("Background badge")).expect("row rendered");
+        assert!(line.contains('↻'));
+    }
+
+    #[test]
     fn draw_settings_section_headers_are_colored_by_section() {
         let state = settings_view();
         let backend = TestBackend::new(80, 31);
@@ -4998,5 +5111,110 @@ mod tests {
         assert!(text.contains("Settings Shortcuts"));
         assert!(text.contains("activate row"));
     }
+    fn badge_state(per_window: Vec<(&str, Vec<AgentState>)>) -> PickerState {
+        use crate::model::AgentPane;
+        let mut sess = Session {
+            id: "$1".into(), name: "alpha".into(), activity: 30, created: 1, attached: false, windows: vec![],
+        };
+        sess.windows = per_window
+            .iter()
+            .enumerate()
+            .map(|(i, (id, _))| Window { id: (*id).into(), index: i as u32, name: "shell".into(), active: false })
+            .collect();
+        let mut state = PickerState::build(vec![sess], &Config { groups: vec![], ..Default::default() });
+        state.set_agents(
+            per_window
+                .into_iter()
+                .map(|(id, sts)| {
+                    let panes = sts
+                        .into_iter()
+                        .enumerate()
+                        .map(|(i, st)| AgentPane { pane_id: format!("%{i}"), state: st, reported_state: st, path: String::new(), background: 0, since: 0, note: String::new() })
+                        .collect();
+                    (id.to_string(), panes)
+                })
+                .collect(),
+        );
+        state
+    }
+
+    fn render_buffer(state: &PickerState) -> ratatui::buffer::Buffer {
+        let mut terminal = Terminal::new(TestBackend::new(80, 20)).unwrap();
+        terminal.draw(|f| draw(f, state)).unwrap();
+        terminal.backend().buffer().clone()
+    }
+
+    fn glyph_cells(buf: &ratatui::buffer::Buffer, y: u16) -> Vec<(u16, Color)> {
+        (0..buf.area.width)
+            .filter(|x| buf[(*x, y)].symbol() == "✻")
+            .map(|x| (x, buf[(x, y)].fg))
+            .collect()
+    }
+
+    #[test]
+    fn agent_badges_show_on_session_and_window_rows() {
+        let mut state = badge_state(vec![("@1", vec![AgentState::Waiting])]);
+        state.expand_session("alpha");
+        let buf = render_buffer(&state);
+        let session_y = row_of(&buf, "alpha");
+        let window_y = row_of(&buf, "shell");
+        assert_eq!(glyph_cells(&buf, session_y).iter().map(|c| c.1).collect::<Vec<_>>(), vec![Color::Red]);
+        assert_eq!(glyph_cells(&buf, window_y).iter().map(|c| c.1).collect::<Vec<_>>(), vec![Color::Red]);
+    }
+
+    #[test]
+    fn two_agents_render_two_colored_glyphs_separated_by_a_space() {
+        let state = badge_state(vec![("@1", vec![AgentState::Done, AgentState::Working])]);
+        let buf = render_buffer(&state);
+        let y = row_of(&buf, "alpha");
+        let cells = glyph_cells(&buf, y);
+        assert_eq!(cells.len(), 2);
+        assert_eq!(cells[1].0, cells[0].0 + 2);
+        assert_eq!((cells[0].1, cells[1].1), (Color::Yellow, Color::Green));
+    }
+
+    #[test]
+    fn badges_right_align_to_one_column_across_rows_and_selection() {
+        let mut state = badge_state(vec![("@1", vec![AgentState::Done]), ("@2", vec![AgentState::Waiting, AgentState::Working])]);
+        state.expand_session("alpha");
+        let unselected = render_buffer(&state);
+        let last_x = |buf: &ratatui::buffer::Buffer, y| glyph_cells(buf, y).last().unwrap().0;
+        let rows: Vec<u16> = (0..unselected.area.height).filter(|y| !glyph_cells(&unselected, *y).is_empty()).collect();
+        assert_eq!(rows.len(), 3, "session row and both window rows carry badges");
+        let end = last_x(&unselected, rows[0]);
+        assert!(rows.iter().all(|y| last_x(&unselected, *y) == end), "every row's badges end in the same column");
+        state.move_cursor(1);
+        let selected = render_buffer(&state);
+        assert!(rows.iter().all(|y| last_x(&selected, *y) == end), "selection shifts nothing");
+    }
+
+    #[test]
+    fn badge_on_selected_row_keeps_highlight_background_and_state_color() {
+        let mut state = badge_state(vec![("@1", vec![AgentState::Waiting])]);
+        state.focus_session("alpha");
+        let buf = render_buffer(&state);
+        let y = row_of(&buf, "alpha");
+        let x = glyph_cells(&buf, y)[0].0;
+        assert_eq!(buf[(x, y)].bg, SEL_BG);
+        assert_eq!(buf[(x, y)].fg, Color::Red);
+    }
+
+    #[test]
+    fn agent_badges_setting_off_hides_badges_in_tree_and_search() {
+        let mut state = badge_state(vec![("@1", vec![AgentState::Waiting])]);
+        state.expand_session("alpha");
+        state.agent_badges = false;
+        assert!(!render_to_string(&state).contains('✻'));
+        state.enter_search();
+        assert!(!render_to_string(&state).contains('✻'));
+    }
+
+    #[test]
+    fn no_agents_renders_no_glyph() {
+        let mut state = badge_state(vec![("@1", vec![])]);
+        state.expand_session("alpha");
+        assert!(!render_to_string(&state).contains('✻'));
+    }
+
 }
 

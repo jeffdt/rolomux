@@ -6,6 +6,7 @@ pub enum DefaultMode {
     #[default]
     Picker,
     Search,
+    Agents,
 }
 
 impl DefaultMode {
@@ -14,6 +15,7 @@ impl DefaultMode {
             "search" => DefaultMode::Search,
             // "command" is the pre-rename spelling still sitting in older configs; keep it readable.
             "picker" | "command" => DefaultMode::Picker,
+            "agents" => DefaultMode::Agents,
             _ => DefaultMode::Picker,
         }
     }
@@ -22,23 +24,29 @@ impl DefaultMode {
         match self {
             DefaultMode::Picker => "picker",
             DefaultMode::Search => "search",
+            DefaultMode::Agents => "agents",
         }
     }
 
-    /// The other value. A 2-state cycle, so `h`, `l`, and `Enter`/`Space` on
-    /// the Default Mode settings row all call this: there is no distinct
-    /// "previous".
+    /// The next value, wrapping: Picker, Search, Agents.
     pub fn next(self) -> DefaultMode {
         match self {
             DefaultMode::Picker => DefaultMode::Search,
-            DefaultMode::Search => DefaultMode::Picker,
+            DefaultMode::Search => DefaultMode::Agents,
+            DefaultMode::Agents => DefaultMode::Picker,
         }
+    }
+
+    /// The previous value, wrapping.
+    pub fn prev(self) -> DefaultMode {
+        self.next().next()
     }
 
     pub fn as_mode(self) -> Mode {
         match self {
             DefaultMode::Picker => Mode::Picker,
             DefaultMode::Search => Mode::Search,
+            DefaultMode::Agents => Mode::Agents,
         }
     }
 }
@@ -333,6 +341,25 @@ pub enum Mode {
     Search,
     Groups,
     Settings,
+    Agents,
+}
+
+/// One agent pane as listed in the agent view.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentRow {
+    pub session: String,
+    pub window_index: u32,
+    pub window_name: String,
+    pub pane_id: String,
+    pub path: String,
+    pub state: AgentState,
+    pub background: u32,
+    pub since: i64,
+    pub note: String,
+    /// The session or window is dormant, so the row renders dimmed.
+    pub dormant: bool,
+    /// The window the popup was opened from, marked like the tree's attached dot.
+    pub here: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -385,6 +412,10 @@ pub const INBOX_ICONS: [&str; 21] = [
     "⊛", "☆", "❆", "❁", "❃", "❋", "❦", "⟡", "⌂", "⌖", "⍟", "⎈", "⦿", "∆",
     "⊕", "∅", "⧉", "♤", "♡", "♢", "♧",
 ];
+
+/// The glyphs a user can cycle the agent view's background-task badge through
+/// (`SettingsRow::BackgroundBadge`). Index 0 is the default.
+pub const BACKGROUND_BADGES: [&str; 3] = ["↻", "⧗", "◔"];
 
 /// A user-named, ordered collection of sessions that renders as its own
 /// section. One group is always the inbox (see `inbox` below), which
@@ -448,10 +479,55 @@ pub fn ensure_inbox_last(groups: &mut Vec<Group>) {
     }
 }
 
+/// State an agent reports for its own tmux pane via the `@rolomux_agent_state`
+/// pane option. Variant order is urgency order, so `min()` is the most
+/// urgent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum AgentState {
+    Waiting,
+    Done,
+    Working,
+}
+
+impl AgentState {
+    /// Parse an `@rolomux_agent_state` value; `None` for empty or unknown values.
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "waiting" => Some(Self::Waiting),
+            "done" => Some(Self::Done),
+            "working" => Some(Self::Working),
+            _ => None,
+        }
+    }
+}
+
+/// One pane whose agent has reported a state.
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentPane {
+    /// tmux `#{pane_id}`, e.g. `"%42"`.
+    pub pane_id: String,
+    /// State shown for the pane: the reported state, except `done` with
+    /// background work running counts as `Working`.
+    pub state: AgentState,
+    /// What the agent set via `@rolomux_agent_state`, before background work is counted.
+    pub reported_state: AgentState,
+    /// The pane's current working directory.
+    pub path: String,
+    /// Background tasks the agent reported running.
+    pub background: u32,
+    /// Unix time the agent entered its reported state; 0 when unknown.
+    pub since: i64,
+    /// Free-text note the agent reported.
+    pub note: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[allow(clippy::enum_variant_names)]
 pub enum Action {
     SwitchSession(String),
     SwitchWindow(String, u32),
+    /// (session name, window index, pane id)
+    SwitchPane(String, u32, String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -582,9 +658,14 @@ mod tests {
     }
 
     #[test]
-    fn default_mode_next_toggles_and_maps_to_mode() {
+    fn default_mode_cycles_both_ways_and_maps_to_mode() {
         assert_eq!(DefaultMode::Picker.next(), DefaultMode::Search);
-        assert_eq!(DefaultMode::Search.next(), DefaultMode::Picker);
+        assert_eq!(DefaultMode::Search.next(), DefaultMode::Agents);
+        assert_eq!(DefaultMode::Agents.next(), DefaultMode::Picker);
+        assert_eq!(DefaultMode::Picker.prev(), DefaultMode::Agents);
+        assert_eq!(DefaultMode::Agents.prev(), DefaultMode::Search);
+        assert_eq!(DefaultMode::Agents.as_mode(), Mode::Agents);
+        assert_eq!(DefaultMode::from_config_str(DefaultMode::Agents.as_config_str()), DefaultMode::Agents);
         assert_eq!(DefaultMode::Picker.as_mode(), Mode::Picker);
         assert_eq!(DefaultMode::Search.as_mode(), Mode::Search);
         assert_eq!(DefaultMode::Picker.as_config_str(), "picker");

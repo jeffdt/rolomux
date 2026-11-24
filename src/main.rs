@@ -17,7 +17,7 @@ use ratatui::Terminal;
 use std::io::{self, stdout};
 use std::time::Duration;
 use tmux::{apply_action, publish_target, RealTmux, Tmux};
-use input::{is_help_dismiss_key, map_altitude_key, map_key, map_search_key, map_settings_key, AltitudeInput, Input, SearchInput, SettingsInput};
+use input::{is_help_dismiss_key, map_agents_key, map_altitude_key, map_key, map_search_key, map_settings_key, AgentsInput, AltitudeInput, Input, SearchInput, SettingsInput};
 use ui::draw;
 
 const HELP: &str = "\
@@ -33,6 +33,7 @@ Usage:
   rolomux --next --target-only, --prev --target-only
                      Write the target to the @rolomux_target tmux option
                      instead of switching (for repeatable `bind -r` keys)
+  rolomux --agents   Open straight into the agent view
   rolomux --version  Print version and exit
   rolomux --help     Print this help and exit
 
@@ -60,6 +61,7 @@ fn main() -> io::Result<()> {
             "--prev" => cycle = Some(-1),
             "--picker" => launch_mode = Some(Mode::Picker),
             "--search" => launch_mode = Some(Mode::Search),
+            "--agents" => launch_mode = Some(Mode::Agents),
             "-V" | "--version" => {
                 println!("rolomux {}", env!("CARGO_PKG_VERSION"));
                 return Ok(());
@@ -95,6 +97,8 @@ fn main() -> io::Result<()> {
     }
 
     let mut state = PickerState::build(gathered.sessions, &config);
+    state.set_agents(gathered.agents);
+    state.current_session = gathered.current.clone();
     state.refocus_current(gathered.current.as_deref());
     if let Some(mode) = launch_mode {
         state.mode = mode;
@@ -186,6 +190,8 @@ fn commit_rename(
     }
 
     *state = PickerState::build_with_expanded(gathered.sessions, config, expanded_snapshot);
+    state.set_agents(gathered.agents);
+    state.current_session = gathered.current.clone();
     match &pending.target {
         RenameTarget::Session(_) => state.focus_session(&pending.new_name),
         RenameTarget::Window(session, index) => state.focus_window(session, *index),
@@ -299,6 +305,8 @@ fn commit_window_move(
     }
 
     *state = PickerState::build_with_expanded(gathered.sessions, config, expanded_snapshot);
+    state.set_agents(gathered.agents);
+    state.current_session = gathered.current.clone();
 
     match &mv {
         // swap-window exchanges the two indices, so the window that was
@@ -388,6 +396,8 @@ fn commit_kill(
     }
 
     *state = PickerState::build_with_expanded(gathered.sessions, config, expanded_snapshot);
+    state.set_agents(gathered.agents);
+    state.current_session = gathered.current.clone();
 }
 
 /// Attempt to create `pending`'s session via tmux. On success, writes its
@@ -538,6 +548,7 @@ fn event_loop(
                             Input::ToggleAll => state.toggle_all(),
                             Input::EnterGroups => state.enter_groups(),
                             Input::EnterSettings => state.enter_settings(),
+                            Input::EnterAgents => state.enter_agents(),
                             Input::MoveUp => handle_move(-1, state, tmux, config, path),
                             Input::MoveDown => handle_move(1, state, tmux, config, path),
                             Input::EnterSearch => state.enter_search(),
@@ -693,6 +704,28 @@ fn event_loop(
                     SettingsInput::Exit => state.exit_settings(),
                     SettingsInput::None => {}
                 },
+                Mode::Agents => match map_agents_key(key) {
+                    AgentsInput::Up => state.agent_move(-1),
+                    AgentsInput::Down => state.agent_move(1),
+                    AgentsInput::Select => {
+                        if let Some(action) = state.agent_selected_action() {
+                            return Ok(Some(action));
+                        }
+                    }
+                    AgentsInput::Jump(n) => {
+                        if let Some(action) = state.action_for_agent_number(n) {
+                            return Ok(Some(action));
+                        }
+                    }
+                    AgentsInput::ToggleTree => state.exit_agents(),
+                    AgentsInput::ToggleFocusMode => state.toggle_focus_mode(),
+                    AgentsInput::TogglePeek => state.toggle_peek(),
+                    AgentsInput::ToggleSort => state.toggle_agent_sort(),
+                    AgentsInput::ToggleLayout => state.toggle_agent_layout(),
+                    AgentsInput::Search => state.enter_search(),
+                    AgentsInput::Quit => return Ok(None),
+                    AgentsInput::None => {}
+                },
             }
         }
     }
@@ -795,6 +828,7 @@ mod tests {
         let tmux = FakeTmux::with_gather(Gathered {
             sessions: vec![sess_id("new-name", "$3")],
             current: None,
+            ..Default::default()
         });
 
         commit_rename(pending, &tmux, &mut config, &path, &mut state);
@@ -833,6 +867,7 @@ mod tests {
         let tmux = FakeTmux::with_gather(Gathered {
             sessions: vec![sess_id("new-name", "$3"), sess_id("kept", "$9")],
             current: None,
+            ..Default::default()
         });
 
         commit_rename(pending, &tmux, &mut config, &path, &mut state);
@@ -872,6 +907,7 @@ mod tests {
         let tmux = FakeTmux::with_gather(Gathered {
             sessions: vec![Session { id: String::new(), name: "host".into(), activity: 1, created: 1, attached: false, windows: windows_after }],
             current: None,
+            ..Default::default()
         });
 
         commit_rename(pending, &tmux, &mut config, &path, &mut state);
@@ -910,6 +946,7 @@ mod tests {
         let tmux = FakeTmux::with_gather(Gathered {
             sessions: vec![Session { id: String::new(), name: "work".into(), activity: 1, created: 1, attached: false, windows: windows_after }],
             current: None,
+            ..Default::default()
         });
 
         handle_move(-1, &mut state, &tmux, &mut config, &path);
@@ -957,6 +994,7 @@ mod tests {
         let tmux = FakeTmux::with_gather(Gathered {
             sessions: vec![Session { id: String::new(), name: "work".into(), activity: 1, created: 1, attached: true, windows: windows_after }],
             current: None,
+            ..Default::default()
         })
         .with_attached_window("work", "@9")
         .with_located_window("@9", "work", 2); // "c" is still at index 2, untouched by the swap
@@ -1014,6 +1052,7 @@ mod tests {
                 },
             ],
             current: None,
+            ..Default::default()
         })
         .with_attached_window("alpha", "@42") // the client was on "a2" before the move
         .with_located_window("@42", "beta", 0); // "a2" now lives in beta at index 0
@@ -1073,6 +1112,7 @@ mod tests {
                 },
             ],
             current: None,
+            ..Default::default()
         });
 
         handle_move(1, &mut state, &tmux, &mut config, &path);
@@ -1116,6 +1156,7 @@ mod tests {
                 ],
             }],
             current: None,
+            ..Default::default()
         });
 
         handle_move(-1, &mut state, &tmux, &mut config, &path);
@@ -1159,6 +1200,7 @@ mod tests {
                 },
             ],
             current: None,
+            ..Default::default()
         });
         // FakeTmux's detach_on_destroy_off defaults to false ("on" / risky).
 
@@ -1185,7 +1227,7 @@ mod tests {
         let mut state = PickerState::build(sessions, &config);
         state.focus_session("alpha");
 
-        let tmux = FakeTmux::with_gather(Gathered { sessions: vec![sess("beta")], current: None });
+        let tmux = FakeTmux::with_gather(Gathered { sessions: vec![sess("beta")], current: None, ..Default::default() });
 
         handle_kill(&mut state, &tmux, &mut config, &path);
         assert!(tmux.calls.borrow().is_empty(), "first press only arms, no tmux call yet");
@@ -1211,7 +1253,7 @@ mod tests {
         assert!(state.is_expanded("beta"), "sanity: beta starts expanded");
         state.focus_session("alpha");
 
-        let tmux = FakeTmux::with_gather(Gathered { sessions: vec![sess("beta")], current: None });
+        let tmux = FakeTmux::with_gather(Gathered { sessions: vec![sess("beta")], current: None, ..Default::default() });
 
         handle_kill(&mut state, &tmux, &mut config, &path); // arm
         handle_kill(&mut state, &tmux, &mut config, &path); // confirm
@@ -1243,6 +1285,7 @@ mod tests {
         let tmux = FakeTmux::with_gather(Gathered {
             sessions: vec![Session { id: String::new(), name: "alpha".into(), activity: 1, created: 1, attached: false, windows: windows_after }],
             current: None,
+            ..Default::default()
         });
 
         handle_kill(&mut state, &tmux, &mut config, &path); // arm
@@ -1262,7 +1305,7 @@ mod tests {
         let sessions = vec![Session { id: String::new(), name: "alpha".into(), activity: 1, created: 1, attached: true, windows: vec![Window { id: String::new(), index: 0, name: "w".into(), active: true }] }];
         let mut state = PickerState::build(sessions, &config);
 
-        let tmux = FakeTmux::with_gather(Gathered { sessions: vec![], current: None });
+        let tmux = FakeTmux::with_gather(Gathered { sessions: vec![], current: None, ..Default::default() });
         // FakeTmux's detach_on_destroy_off defaults to false ("on" / risky).
 
         handle_kill(&mut state, &tmux, &mut config, &path); // arm
@@ -1282,7 +1325,7 @@ mod tests {
         state.expand();
         state.move_cursor(1); // the only window in alpha
 
-        let tmux = FakeTmux::with_gather(Gathered { sessions: vec![], current: None });
+        let tmux = FakeTmux::with_gather(Gathered { sessions: vec![], current: None, ..Default::default() });
 
         handle_kill(&mut state, &tmux, &mut config, &path); // arm
         let warning = state.pending_kill_warning().expect("armed");
@@ -1387,7 +1430,7 @@ mod tests {
         let sessions = vec![sess("alpha")];
         let mut state = PickerState::build(sessions, &config);
 
-        let tmux = FakeTmux::with_gather(Gathered { sessions: vec![], current: None });
+        let tmux = FakeTmux::with_gather(Gathered { sessions: vec![], current: None, ..Default::default() });
 
         handle_kill(&mut state, &tmux, &mut config, &path); // arm
         let warning = state.pending_kill_warning().expect("armed");

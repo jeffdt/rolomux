@@ -195,6 +195,12 @@ pub(super) fn draw_settings(frame: &mut Frame, state: &PickerState, inner: Rect)
                 selected,
                 width,
             ),
+            SettingsRow::BackgroundBadge => {
+                settings_row_line(*row, "Background badge", value(&state.background_badge), changed, selected, width)
+            }
+            SettingsRow::AgentBadges => {
+                settings_row_line(*row, "Agent badges", value(caret_blink_label(state.agent_badges)), changed, selected, width)
+            }
         };
         let dim_unused_palette = match row {
             SettingsRow::BorderPalette | SettingsRow::BorderPaletteColor(_) => {
@@ -398,6 +404,7 @@ fn default_mode_label(m: DefaultMode) -> &'static str {
     match m {
         DefaultMode::Picker => "Picker",
         DefaultMode::Search => "Search",
+        DefaultMode::Agents => "Agents",
     }
 }
 

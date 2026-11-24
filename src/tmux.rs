@@ -1,8 +1,9 @@
-use crate::model::{Action, Session, Window};
+use crate::model::{Action, AgentPane, AgentState, Session, Window};
+use std::collections::HashMap;
 use std::io;
 use std::process::Command;
 
-pub const FMT: &str = "#{session_name}\x1f#{session_activity}\x1f#{session_created}\x1f#{session_attached}\x1f#{window_index}\x1f#{window_name}\x1f#{window_active}\x1f#{session_id}\x1f#{window_id}";
+pub const FMT: &str = "#{session_name}\x1f#{session_activity}\x1f#{session_created}\x1f#{session_attached}\x1f#{window_index}\x1f#{window_name}\x1f#{window_active}\x1f#{session_id}\x1f#{window_id}\x1f#{pane_id}\x1f#{@rolomux_agent_state}\x1f#{pane_current_path}\x1f#{@rolomux_agent_bg}\x1f#{@rolomux_agent_since}\x1f#{@rolomux_agent_note}";
 
 /// Result of a single gather: the sessions plus the name of the session the
 /// popup was launched from (when it can be resolved from `$TMUX`).
@@ -10,6 +11,8 @@ pub const FMT: &str = "#{session_name}\x1f#{session_activity}\x1f#{session_creat
 pub struct Gathered {
     pub sessions: Vec<Session>,
     pub current: Option<String>,
+    /// Agent panes that reported a state, keyed by tmux `#{window_id}`.
+    pub agents: HashMap<String, Vec<AgentPane>>,
 }
 
 impl Gathered {
@@ -38,6 +41,7 @@ pub trait Tmux {
     fn gather(&self) -> Gathered;
     fn switch_session(&self, name: &str) -> io::Result<()>;
     fn select_window(&self, name: &str, index: u32) -> io::Result<()>;
+    fn select_pane(&self, pane_id: &str) -> io::Result<()>;
     fn rename_session(&self, old: &str, new: &str) -> io::Result<()>;
     fn rename_window(&self, session: &str, index: u32, new: &str) -> io::Result<()>;
     fn swap_window(&self, session: &str, a: u32, b: u32) -> io::Result<()>;
@@ -103,7 +107,7 @@ impl Tmux for RealTmux {
     fn gather(&self) -> Gathered {
         let out = self
             .command()
-            .args(["list-windows", "-a", "-F", FMT])
+            .args(["list-panes", "-a", "-F", FMT])
             .output();
         match out {
             Ok(o) if o.status.success() => {
@@ -111,6 +115,7 @@ impl Tmux for RealTmux {
                 let raw = normalize_separators(&lossy);
                 let raw = raw.as_ref();
                 let sessions = parse_windows(raw);
+                let agents = parse_agents(raw);
                 let current = current_session(raw, std::env::var("TMUX").ok().as_deref());
                 crate::debug::log(|| {
                     format!(
@@ -124,7 +129,7 @@ impl Tmux for RealTmux {
                 });
                 // A running tmux server can't have zero sessions, so parsing
                 // zero out of non-empty stdout means the lines didn't match
-                // FMT's expected 8-field shape. Log a preview to diagnose
+                // FMT's expected 15-field shape. Log a preview to diagnose
                 // field-report crashes without needing raw output relayed by hand.
                 if sessions.is_empty() && !raw.trim().is_empty() {
                     crate::debug::log(|| {
@@ -132,7 +137,7 @@ impl Tmux for RealTmux {
                         format!("gather: parsed zero sessions from non-empty stdout, raw preview: {preview:?}")
                     });
                 }
-                Gathered { sessions, current }
+                Gathered { sessions, current, agents }
             }
             Ok(o) => {
                 crate::debug::log(|| {
@@ -143,11 +148,11 @@ impl Tmux for RealTmux {
                         String::from_utf8_lossy(&o.stderr).trim(),
                     )
                 });
-                Gathered { sessions: Vec::new(), current: None }
+                Gathered::default()
             }
             Err(e) => {
                 crate::debug::log(|| format!("gather: failed to spawn tmux: {e} (is tmux on PATH for this process?)"));
-                Gathered { sessions: Vec::new(), current: None }
+                Gathered::default()
             }
         }
     }
@@ -164,6 +169,13 @@ impl Tmux for RealTmux {
         let target = format!("{name}:{index}");
         self.command()
             .args(["select-window", "-t", &target])
+            .status()
+            .map(|_| ())
+    }
+
+    fn select_pane(&self, pane_id: &str) -> io::Result<()> {
+        self.command()
+            .args(["select-pane", "-t", pane_id])
             .status()
             .map(|_| ())
     }
@@ -393,6 +405,11 @@ pub fn apply_action(t: &dyn Tmux, action: &Action) -> io::Result<()> {
             t.switch_session(name)?;
             t.select_window(name, *index)
         }
+        Action::SwitchPane(name, index, pane) => {
+            t.switch_session(name)?;
+            t.select_window(name, *index)?;
+            t.select_pane(pane)
+        }
     }
 }
 
@@ -415,8 +432,8 @@ pub fn current_session(raw: &str, tmux_env: Option<&str>) -> Option<String> {
         return None;
     }
     for line in raw.lines() {
-        let f: Vec<&str> = line.split('\u{1f}').collect();
-        if f.len() == 9 && f[7].trim_start_matches('$') == id_num {
+        let f: Vec<&str> = line.splitn(15, '\u{1f}').collect();
+        if f.len() == 15 && f[7].trim_start_matches('$') == id_num {
             return Some(f[0].to_string());
         }
     }
@@ -443,8 +460,8 @@ pub fn parse_windows(raw: &str) -> Vec<Session> {
         if line.is_empty() {
             continue;
         }
-        let f: Vec<&str> = line.split('\u{1f}').collect();
-        if f.len() != 9 {
+        let f: Vec<&str> = line.splitn(15, '\u{1f}').collect();
+        if f.len() != 15 {
             continue;
         }
         let name = f[0].to_string();
@@ -455,7 +472,9 @@ pub fn parse_windows(raw: &str) -> Vec<Session> {
             active: f[6] == "1",
         };
         if let Some(s) = sessions.iter_mut().find(|s| s.name == name) {
-            s.windows.push(window);
+            if s.windows.last().map(|w| w.id.as_str()) != Some(f[8]) {
+                s.windows.push(window);
+            }
         } else {
             sessions.push(Session {
                 id: f[7].to_string(),
@@ -468,6 +487,32 @@ pub fn parse_windows(raw: &str) -> Vec<Session> {
         }
     }
     sessions
+}
+
+/// Collects panes whose `@rolomux_agent_state` parses, grouped by window id (field 8),
+/// in output order.
+pub fn parse_agents(raw: &str) -> HashMap<String, Vec<AgentPane>> {
+    let mut agents: HashMap<String, Vec<AgentPane>> = HashMap::new();
+    for line in raw.lines() {
+        let f: Vec<&str> = line.splitn(15, '\u{1f}').collect();
+        if f.len() != 15 {
+            continue;
+        }
+        if let Some(reported_state) = AgentState::parse(f[10]) {
+            let background: u32 = f[12].parse().unwrap_or(0);
+            let state = if reported_state == AgentState::Done && background > 0 { AgentState::Working } else { reported_state };
+            agents.entry(f[8].to_string()).or_default().push(AgentPane {
+                pane_id: f[9].to_string(),
+                state,
+                reported_state,
+                path: f[11].to_string(),
+                background,
+                since: f[13].parse().unwrap_or(0),
+                note: f[14].to_string(),
+            });
+        }
+    }
+    agents
 }
 
 #[cfg(test)]
@@ -530,6 +575,10 @@ impl Tmux for FakeTmux {
     }
     fn select_window(&self, name: &str, index: u32) -> std::io::Result<()> {
         self.calls.borrow_mut().push(format!("select:{name}:{index}"));
+        Ok(())
+    }
+    fn select_pane(&self, pane_id: &str) -> std::io::Result<()> {
+        self.calls.borrow_mut().push(format!("select_pane:{pane_id}"));
         Ok(())
     }
     fn rename_session(&self, old: &str, new: &str) -> std::io::Result<()> {
@@ -637,9 +686,9 @@ mod tests {
         // Fields separated by the unit separator \x1f; one line per window.
         // Trailing field is #{window_id}; #{session_id} is second-to-last.
         let raw = "\
-work\u{1f}100\u{1f}10\u{1f}1\u{1f}0\u{1f}editor\u{1f}1\u{1f}$3\u{1f}@1
-work\u{1f}100\u{1f}10\u{1f}1\u{1f}1\u{1f}my logs\u{1f}0\u{1f}$3\u{1f}@2
-scratch\u{1f}50\u{1f}5\u{1f}0\u{1f}0\u{1f}shell\u{1f}1\u{1f}$8\u{1f}@3
+work\u{1f}100\u{1f}10\u{1f}1\u{1f}0\u{1f}editor\u{1f}1\u{1f}$3\u{1f}@1\u{1f}%0\u{1f}\u{1f}/p\u{1f}\u{1f}\u{1f}
+work\u{1f}100\u{1f}10\u{1f}1\u{1f}1\u{1f}my logs\u{1f}0\u{1f}$3\u{1f}@2\u{1f}%0\u{1f}\u{1f}/p\u{1f}\u{1f}\u{1f}
+scratch\u{1f}50\u{1f}5\u{1f}0\u{1f}0\u{1f}shell\u{1f}1\u{1f}$8\u{1f}@3\u{1f}%0\u{1f}\u{1f}/p\u{1f}\u{1f}\u{1f}
 ";
         let sessions = parse_windows(raw);
         assert_eq!(
@@ -669,9 +718,9 @@ scratch\u{1f}50\u{1f}5\u{1f}0\u{1f}0\u{1f}shell\u{1f}1\u{1f}$8\u{1f}@3
     #[test]
     fn parse_windows_populates_one_session_id_per_session() {
         let raw = "\
-work\u{1f}100\u{1f}10\u{1f}1\u{1f}0\u{1f}editor\u{1f}1\u{1f}$3\u{1f}@1
-work\u{1f}100\u{1f}10\u{1f}1\u{1f}1\u{1f}my logs\u{1f}0\u{1f}$3\u{1f}@2
-scratch\u{1f}50\u{1f}5\u{1f}0\u{1f}0\u{1f}shell\u{1f}1\u{1f}$8\u{1f}@3
+work\u{1f}100\u{1f}10\u{1f}1\u{1f}0\u{1f}editor\u{1f}1\u{1f}$3\u{1f}@1\u{1f}%0\u{1f}\u{1f}/p\u{1f}\u{1f}\u{1f}
+work\u{1f}100\u{1f}10\u{1f}1\u{1f}1\u{1f}my logs\u{1f}0\u{1f}$3\u{1f}@2\u{1f}%0\u{1f}\u{1f}/p\u{1f}\u{1f}\u{1f}
+scratch\u{1f}50\u{1f}5\u{1f}0\u{1f}0\u{1f}shell\u{1f}1\u{1f}$8\u{1f}@3\u{1f}%0\u{1f}\u{1f}/p\u{1f}\u{1f}\u{1f}
 ";
         let sessions = parse_windows(raw);
         assert_eq!(sessions.len(), 2, "two sessions, ids collapse per-session not per-window");
@@ -694,6 +743,7 @@ scratch\u{1f}50\u{1f}5\u{1f}0\u{1f}0\u{1f}shell\u{1f}1\u{1f}$8\u{1f}@3
                 ],
             }],
             current: None,
+            ..Default::default()
         };
         assert_eq!(
             g.window_ids(),
@@ -705,8 +755,8 @@ scratch\u{1f}50\u{1f}5\u{1f}0\u{1f}0\u{1f}shell\u{1f}1\u{1f}$8\u{1f}@3
     }
 
     const SAMPLE: &str = "\
-work\u{1f}100\u{1f}10\u{1f}1\u{1f}0\u{1f}editor\u{1f}1\u{1f}$3\u{1f}@1
-scratch\u{1f}50\u{1f}5\u{1f}0\u{1f}0\u{1f}shell\u{1f}1\u{1f}$8\u{1f}@2
+work\u{1f}100\u{1f}10\u{1f}1\u{1f}0\u{1f}editor\u{1f}1\u{1f}$3\u{1f}@1\u{1f}%0\u{1f}\u{1f}/p\u{1f}\u{1f}\u{1f}
+scratch\u{1f}50\u{1f}5\u{1f}0\u{1f}0\u{1f}shell\u{1f}1\u{1f}$8\u{1f}@2\u{1f}%0\u{1f}\u{1f}/p\u{1f}\u{1f}\u{1f}
 ";
 
     #[test]
@@ -715,8 +765,8 @@ scratch\u{1f}50\u{1f}5\u{1f}0\u{1f}0\u{1f}shell\u{1f}1\u{1f}$8\u{1f}@2
         // (backslash-zero-three-seven), with records still newline-separated.
         // This is the exact shape from a real 3.5a field report.
         let escaped =
-            "0\\0371782948598\\0371782748885\\0371\\0371\\0372.1.198\\0371\\037$0\\037@1\n\
-             0\\0371782948598\\0371782748885\\0371\\0372\\037zsh\\0370\\037$0\\037@2\n";
+            "0\\0371782948598\\0371782748885\\0371\\0371\\0372.1.198\\0371\\037$0\\037@1\\037%0\\037\\037/p\\037\\037\\037\n\
+             0\\0371782948598\\0371782748885\\0371\\0372\\037zsh\\0370\\037$0\\037@2\\037%1\\037\\037/p\\037\\037\\037\n";
         let normalized = normalize_separators(escaped);
         assert!(normalized.contains('\u{1f}'), "escape converted to real separator");
         assert!(!normalized.contains("\\037"), "no literal escape remains");
@@ -733,7 +783,7 @@ scratch\u{1f}50\u{1f}5\u{1f}0\u{1f}0\u{1f}shell\u{1f}1\u{1f}$8\u{1f}@2
     #[test]
     fn normalize_separators_passes_raw_byte_form_through_unallocated() {
         // tmux versions that emit the raw 0x1F byte are borrowed, not copied.
-        let raw = "work\u{1f}100\u{1f}10\u{1f}1\u{1f}0\u{1f}editor\u{1f}1\u{1f}$3\u{1f}@1";
+        let raw = "work\u{1f}100\u{1f}10\u{1f}1\u{1f}0\u{1f}editor\u{1f}1\u{1f}$3\u{1f}@1\u{1f}%0\u{1f}\u{1f}/p\u{1f}\u{1f}\u{1f}";
         assert!(matches!(normalize_separators(raw), std::borrow::Cow::Borrowed(_)));
         let sessions = parse_windows(&normalize_separators(raw));
         assert_eq!(sessions.len(), 1);
@@ -788,6 +838,105 @@ scratch\u{1f}50\u{1f}5\u{1f}0\u{1f}0\u{1f}shell\u{1f}1\u{1f}$8\u{1f}@2
     }
 
     #[test]
+    fn pane_rows_of_one_window_yield_one_window() {
+        let raw = "\
+work\u{1f}100\u{1f}10\u{1f}1\u{1f}0\u{1f}editor\u{1f}1\u{1f}$3\u{1f}@1\u{1f}%1\u{1f}\u{1f}/p\u{1f}\u{1f}\u{1f}
+work\u{1f}100\u{1f}10\u{1f}1\u{1f}0\u{1f}editor\u{1f}1\u{1f}$3\u{1f}@1\u{1f}%2\u{1f}\u{1f}/p\u{1f}\u{1f}\u{1f}
+";
+        let sessions = parse_windows(raw);
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].windows.len(), 1);
+    }
+
+    #[test]
+    fn agent_state_containing_separator_keeps_window_and_is_not_an_agent() {
+        let raw = "work\u{1f}100\u{1f}10\u{1f}1\u{1f}0\u{1f}editor\u{1f}1\u{1f}$3\u{1f}@1\u{1f}%1\u{1f}wait\u{1f}ing\u{1f}/p\u{1f}\u{1f}\u{1f}\n";
+        let sessions = parse_windows(raw);
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].windows.len(), 1);
+        assert!(parse_agents(raw).is_empty());
+        assert_eq!(current_session(raw, Some("/tmp/x,1,3")), Some("work".to_string()));
+    }
+
+    #[test]
+    fn parse_agents_keeps_only_panes_with_a_known_state() {
+        let raw = "\
+work\u{1f}100\u{1f}10\u{1f}1\u{1f}0\u{1f}editor\u{1f}1\u{1f}$3\u{1f}@1\u{1f}%1\u{1f}waiting\u{1f}/p\u{1f}\u{1f}\u{1f}
+work\u{1f}100\u{1f}10\u{1f}1\u{1f}0\u{1f}editor\u{1f}1\u{1f}$3\u{1f}@1\u{1f}%2\u{1f}working\u{1f}/p\u{1f}\u{1f}\u{1f}
+work\u{1f}100\u{1f}10\u{1f}1\u{1f}0\u{1f}editor\u{1f}1\u{1f}$3\u{1f}@1\u{1f}%3\u{1f}\u{1f}/p\u{1f}\u{1f}\u{1f}
+work\u{1f}100\u{1f}10\u{1f}1\u{1f}0\u{1f}editor\u{1f}1\u{1f}$3\u{1f}@1\u{1f}%4\u{1f}bogus\u{1f}/p\u{1f}\u{1f}\u{1f}
+work\u{1f}100\u{1f}10\u{1f}1\u{1f}1\u{1f}logs\u{1f}0\u{1f}$3\u{1f}@2\u{1f}%5\u{1f}\u{1f}/p\u{1f}\u{1f}\u{1f}
+";
+        let agents = parse_agents(raw);
+        assert_eq!(
+            agents["@1"],
+            vec![
+                AgentPane { pane_id: "%1".into(), state: AgentState::Waiting, reported_state: AgentState::Waiting, path: "/p".into(), background: 0, since: 0, note: String::new() },
+                AgentPane { pane_id: "%2".into(), state: AgentState::Working, reported_state: AgentState::Working, path: "/p".into(), background: 0, since: 0, note: String::new() },
+            ]
+        );
+        assert!(!agents.contains_key("@2"));
+        assert_eq!(agents["@1"][0].path, "/p");
+    }
+
+    fn agent_line(pane: &str, state: &str, bg: &str, note: &str) -> String {
+        format!("work\u{1f}100\u{1f}10\u{1f}1\u{1f}0\u{1f}editor\u{1f}1\u{1f}$3\u{1f}@1\u{1f}{pane}\u{1f}{state}\u{1f}/p\u{1f}{bg}\u{1f}\u{1f}{note}\n")
+    }
+
+    #[test]
+    fn parse_agents_reads_since_and_treats_bad_values_as_unknown() {
+        let line = |since: &str| agent_line("%1", "waiting", "", "n").replace("\u{1f}\u{1f}n", &format!("\u{1f}{since}\u{1f}n"));
+        assert_eq!(parse_agents(&line("1700000000"))["@1"][0].since, 1_700_000_000);
+        assert_eq!(parse_agents(&line("soon"))["@1"][0].since, 0);
+    }
+
+    #[test]
+    fn parse_agents_reads_note_and_background() {
+        let p = &parse_agents(&agent_line("%1", "working", "3", "fixing tests"))["@1"][0];
+        assert_eq!((p.background, p.note.as_str(), p.state), (3, "fixing tests", AgentState::Working));
+    }
+
+    #[test]
+    fn parse_agents_treats_bad_background_as_zero() {
+        for bg in ["", "abc", "-1"] {
+            assert_eq!(parse_agents(&agent_line("%1", "waiting", bg, ""))["@1"][0].background, 0);
+        }
+    }
+
+    #[test]
+    fn done_with_background_counts_as_working_but_keeps_reported_state() {
+        let p = &parse_agents(&agent_line("%1", "done", "2", ""))["@1"][0];
+        assert_eq!((p.state, p.reported_state), (AgentState::Working, AgentState::Done));
+        let idle = &parse_agents(&agent_line("%1", "done", "0", ""))["@1"][0];
+        assert_eq!(idle.state, AgentState::Done);
+    }
+
+    #[test]
+    fn note_with_raw_newline_is_truncated_without_bogus_rows() {
+        let raw = format!("{}the rest of the note\n{}", agent_line("%1", "working", "0", "first line\n"), agent_line("%2", "done", "0", "ok"));
+        let agents = parse_agents(&raw);
+        assert_eq!(agents["@1"].len(), 2);
+        assert_eq!(agents["@1"][0].note, "first line");
+        assert_eq!(parse_windows(&raw)[0].windows.len(), 1);
+    }
+
+    #[test]
+    fn agent_state_parse_round_trips_and_rejects_unknown() {
+        assert_eq!(AgentState::parse("waiting"), Some(AgentState::Waiting));
+        assert_eq!(AgentState::parse("done"), Some(AgentState::Done));
+        assert_eq!(AgentState::parse("working"), Some(AgentState::Working));
+        assert_eq!(AgentState::parse(""), None);
+        assert_eq!(AgentState::parse("Waiting"), None);
+    }
+
+    #[test]
+    fn apply_switch_pane_switches_selects_window_then_pane() {
+        let t = FakeTmux::default();
+        apply_action(&t, &Action::SwitchPane("work".into(), 2, "%7".into())).unwrap();
+        assert_eq!(*t.calls.borrow(), vec!["switch:work", "select:work:2", "select_pane:%7"]);
+    }
+
+    #[test]
     fn publish_target_sets_option_instead_of_switching() {
         let t = FakeTmux::default();
         publish_target(&t, "jeffdt.com").unwrap();
@@ -820,6 +969,7 @@ scratch\u{1f}50\u{1f}5\u{1f}0\u{1f}0\u{1f}shell\u{1f}1\u{1f}$8\u{1f}@2
                 windows: vec![],
             }],
             current: Some("work".to_string()),
+            ..Default::default()
         });
         let g = t.gather();
         assert_eq!(g.current.as_deref(), Some("work"));

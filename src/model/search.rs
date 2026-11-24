@@ -174,7 +174,7 @@ impl PickerState {
             Row::Session(si) => Some(Action::SwitchSession(results[*si].name.clone())),
             Row::Window(si, wi) => {
                 let sess = results[*si];
-                Some(Action::SwitchWindow(sess.name.clone(), sess.windows[*wi].index))
+                Some(self.window_action(sess, &sess.windows[*wi]))
             }
         }
     }

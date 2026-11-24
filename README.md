@@ -73,6 +73,7 @@ bind C new-session \; command-prompt -I "" "rename-session '%%'" \; command-prom
 | `⇧J` / `⇧K` | Move the selected session or window up/down (also `⇧↓` / `⇧↑`): a session row reorders within its group or crosses into the neighboring group; a window row reorders within its session or crosses into the neighboring session. Both wrap around at the top/bottom of the list. |
 | `r` | Rename the selected session or window |
 | `x` | Kill the selected session or window (press again to confirm) |
+| `a` | Open the agent view: every CLI agent pane grouped by state; `1`-`9` or `↵` jumps to its pane, `s` flips newest/oldest first, `g` flips grouped/flat, `f`/`⇧F` and `/` work as in the tree, `a` returns |
 | `g` | Raise the cursor to group altitude |
 | `n` | Create a new session and switch to it |
 | `b` | Break the selected window out into a new session (placed above its old one) and switch to it |
@@ -186,6 +187,44 @@ bind -r C-p set -gu @rolomux_target \; run-shell "rolomux --prev --target-only" 
 
 If the repeat window closes before your next tap, raise tmux's `repeat-time` (500ms by default), e.g. `set -g repeat-time 800`.
 
+### Agent status
+
+![rolomux agent view: every agent grouped by state with what each one asks or said, then a jump straight to the one waiting on you](docs/images/agents.gif)
+
+rolomux shows a `✻` for each CLI agent on its window and session rows: red when the agent is waiting on you, yellow when it's done and it's your move, and green while it's working.
+Selecting a window jumps to its most urgent agent pane. Turn the badges off with the **Agent badges** setting.
+
+Press `a` for the agent view, which lists every agent pane grouped by state, newest in its state first, or open it directly with a tmux bind such as `bind a display-popup -E -B -w 84 -h 60% "exec rolomux --agents"`. `s` sorts oldest first instead, and `g` drops the grouping for one list in that order; both are remembered. A `●` marks the window you opened it from.
+Focus mode works there the same as in the tree: `f` hides agents in dormant sessions and windows, which are otherwise listed dimmed, and `⇧F` peeks. If focus mode is hiding an agent that's waiting on you, the footer says so in red, for example `1 blocked`.
+
+| Grouped by state (default) | Flat, `g` |
+|---|---|
+| ![agent view grouped into BLOCKED, DONE and WORKING sections](docs/images/agents-grouped.png) | ![agent view as one list, newest first, with a state-colored glyph per row](docs/images/agents-flat.png) |
+
+Any agent can opt in by setting a tmux pane option from its hooks, which requires tmux 3.1+: `tmux set -p -t "$TMUX_PANE" @rolomux_agent_state waiting|done|working`. Clear it with `tmux set -pu -t "$TMUX_PANE" @rolomux_agent_state`. Optionally set `@rolomux_agent_since` to the Unix time the state began, `@rolomux_agent_note` to a one-line note, and `@rolomux_agent_bg` to a count of running background tasks.
+
+For Claude Code, the agent view also shows a short note for the selected agent (what it asks, what it said, or your last prompt), how long each agent has been in its state, and marks agents with background tasks running. Install the hook script and merge its hooks into `~/.claude/settings.json` (needs `jq`; your other hooks are kept, a backup is saved as `settings.json.bak`, nothing changes if a step fails, and rerunning it upgrades in place):
+
+```sh
+base=https://raw.githubusercontent.com/jeffdt/rolomux/main/contrib/claude-code
+mkdir -p ~/.claude/hooks
+curl -fsSL "$base/rolomux-agent-state.sh" -o ~/.claude/hooks/rolomux-agent-state.sh
+chmod +x ~/.claude/hooks/rolomux-agent-state.sh
+s=~/.claude/settings.json
+[ -s "$s" ] || echo '{}' > "$s"
+curl -fsSL "$base/hooks.json" -o "$s.rolomux-hooks" &&
+  jq --slurpfile add "$s.rolomux-hooks" '
+    .hooks = reduce ($add[0].hooks | to_entries[]) as $e (.hooks // {};
+      .[$e.key] = [(.[$e.key] // [])[]
+        | .hooks |= map(select(.command | tostring | contains("rolomux-agent-state") | not))
+        | select(.hooks | length > 0)] + $e.value)' "$s" > "$s.new" &&
+  cp "$s" "$s.bak" && mv "$s.new" "$s"
+rm -f "$s.rolomux-hooks" "$s.new"
+```
+
+The script and hooks live in [`contrib/claude-code`](contrib/claude-code).
+Agents already running appear after their next hook fires, for example the next time you send them a prompt.
+
 ### Settings
 
 ![rolomux settings: behavior, color, and appearance preferences, with a changed setting marked](docs/images/settings.png)
@@ -195,7 +234,7 @@ Each row shows a jump number in its gutter; pressing it jumps straight to that r
 
 **Behavior**
 
-- **Default mode.** Whether the picker opens in Picker mode or straight into Search, when launched without `--picker` or `--search`.
+- **Default mode.** Whether the picker opens in Picker mode, straight into Search, or straight into the agent view, when launched without `--picker`, `--search` or `--agents`.
 - **Number dormant sessions.** Whether visible dormant sessions are included in jump numbering (sessions 1-20).
 - **Remember expanded sessions.** Off by default (every popup starts fully collapsed). When on, expanding or collapsing a session's window tree (`l`/`h`/`z`) persists across popups, so the sessions you're actively jumping between stay expanded.
 - **Clear dormant on attach.** Off by default. When on, attaching to a dormant session automatically clears its dormant flag, so you don't have to remember to press `d` yourself.
@@ -219,6 +258,8 @@ Each row shows a jump number in its gutter; pressing it jumps straight to that r
 - **Inbox icon.** The glyph shown before the inbox group's header. Cycle through a curated set with `h`/`l`.
 - **Caret style.** The glyph used for the inline text caret when renaming, creating, or searching: a thin bar (default), an underline, or a solid block.
 - **Caret blink.** Off by default (the caret stays solid). When on, the caret blinks.
+- **Background badge.** The glyph that marks agents with background tasks still running in the agent view. Cycle through ↻, ⧗ and ◔ with `h`/`l`.
+- **Agent badges.** On by default. Whether session and window rows show agent badges, in the tree and in search. The agent view is unaffected.
 
 | Key | Action |
 | --- | --- |

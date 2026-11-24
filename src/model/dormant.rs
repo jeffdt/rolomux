@@ -57,6 +57,21 @@ impl PickerState {
         self.all.iter().filter(|s| self.is_dormant(&s.name) && !s.attached).count()
     }
 
+    /// Blocked (waiting) agents that focus mode currently hides, in hidden
+    /// sessions or hidden windows, so the footer can say something needs you.
+    pub fn hidden_blocked_count(&self) -> usize {
+        if !self.focus_mode() {
+            return 0;
+        }
+        self.all
+            .iter()
+            .flat_map(|s| s.windows.iter().map(move |w| (s, w)))
+            .filter(|(s, w)| !self.session_visible(&s.name) || !self.window_visible(&s.name, w.index, w.active))
+            .flat_map(|(_, w)| self.window_agents(w))
+            .filter(|a| a.state == AgentState::Waiting)
+            .count()
+    }
+
     /// Count of dormant, non-active windows hidden by focus mode --
     /// scoped to sessions that are currently *expanded*, so this reflects
     /// what's actually elided from the current view rather than a global
@@ -110,7 +125,12 @@ impl PickerState {
     fn refilter(&mut self, change: impl FnOnce(&mut Self)) {
         let command_focus = self.cursor_session_name();
         let search_focus = self.search_cursor_name();
+        let agent_focus = self.agent_rows().into_iter().nth(self.agent_cursor).map(|r| r.pane_id);
         change(self);
+        let rows = self.agent_rows();
+        self.agent_cursor = agent_focus
+            .and_then(|id| rows.iter().position(|r| r.pane_id == id))
+            .unwrap_or(self.agent_cursor.min(rows.len().saturating_sub(1)));
         if let Some(name) = command_focus.as_deref().filter(|name| self.session_visible(name)) {
             self.focus_session(name);
         } else {
