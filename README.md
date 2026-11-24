@@ -28,6 +28,15 @@ Reload tmux and press `prefix + s`.
 
 You can use other popup dimensions, but these work well to start. `-h` also accepts a fixed line count (e.g. `-h 30`) instead of a percentage.
 
+tmux 3.8 and later give popups a grey background by default, which makes rolomux's dimmed hints and footer hard to read. Reset popups to your terminal background:
+
+```tmux
+set -g popup-style "bg=default"
+set -g popup-border-style "bg=default"
+```
+
+This affects every popup. To change only rolomux's, add `-s "bg=default"` to its `display-popup` bind instead.
+
 ## Quick start
 1. Press `prefix + s` to open rolomux. All of your sessions start out in a group called `INBOX`.
 2. Move a few sessions around with `⇧J` and `⇧K`.
