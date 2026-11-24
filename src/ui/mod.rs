@@ -4638,17 +4638,7 @@ mod tests {
 
     #[test]
     fn draw_search_window_match_renders_as_the_sessions_last_branch() {
-        let sessions = vec![Session {
-            id: String::new(),
-            name: "web".into(),
-            activity: 30,
-            created: 1,
-            attached: false,
-            windows: vec![
-                Window { id: String::new(), index: 0, name: "logs".into(), active: true },
-                Window { id: String::new(), index: 1, name: "zsh".into(), active: false },
-            ],
-        }];
+        let sessions = vec![session_with_windows("web", 30, vec![win_active(0, "logs"), win(1, "zsh")])];
         let cfg = Config { search_window_names: true, ..Default::default() };
         let mut state = PickerState::build(sessions, &cfg);
         state.enter_search();

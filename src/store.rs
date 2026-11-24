@@ -1124,10 +1124,12 @@ inbox = true
             active_palette: vec!["magenta".to_string(), "white".to_string()],
             attached_color: "lightgreen".to_string(),
             border_color: "yellow".to_string(),
+            search_window_names: true,
             ..Default::default()
         };
         cfg.save_to(&path).unwrap();
         let reloaded = Config::load_from(&path);
+        assert!(reloaded.search_window_names);
         assert_eq!(reloaded.default_mode, DefaultMode::Search);
         assert!(!reloaded.number_dormant_sessions);
         assert_eq!(reloaded.new_group_color_policy, ColorPolicy::Static);
@@ -1183,6 +1185,7 @@ inbox = true
     fn default_config_has_clear_dormant_on_attach_off() {
         let cfg = Config::default();
         assert!(!cfg.clear_dormant_on_attach);
+        assert!(!cfg.search_window_names);
     }
 
     #[test]
@@ -1194,17 +1197,6 @@ inbox = true
         cfg.save_to(&path).unwrap();
         let reloaded = Config::load_from(&path);
         assert!(reloaded.clear_dormant_on_attach);
-        std::fs::remove_dir_all(&dir).ok();
-    }
-
-    #[test]
-    fn search_window_names_defaults_off_and_round_trips() {
-        assert!(!Config::default().search_window_names);
-        let dir = std::env::temp_dir().join(format!("rolomux-search-windows-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("config.toml");
-        Config { search_window_names: true, ..Default::default() }.save_to(&path).unwrap();
-        assert!(Config::load_from(&path).search_window_names);
         std::fs::remove_dir_all(&dir).ok();
     }
 

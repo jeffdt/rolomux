@@ -97,15 +97,6 @@ mod tests {
     }
 
     #[test]
-    fn a_window_name_match_brings_its_session_in() {
-        let candidates = vec![Candidate { name: "web", windows: vec![(0, "zsh"), (1, "logs")] }];
-        assert_eq!(
-            rank("logs", &candidates),
-            vec![Hit { index: 0, name_matched: false, windows: vec![1] }]
-        );
-    }
-
-    #[test]
     fn query_letters_never_span_the_name_and_a_window() {
         let candidates = vec![Candidate { name: "ab", windows: vec![(0, "cd")] }];
         assert!(rank("bc", &candidates).is_empty());

@@ -29,13 +29,13 @@ impl PickerState {
                 })
                 .collect()
         };
-        let expanded_rows = |sess: &Session| -> Vec<usize> {
-            if self.expanded.contains(&sess.name) { visible_windows(sess) } else { Vec::new() }
+        let window_rows = |sess: &Session, matched: Vec<usize>| -> Vec<usize> {
+            if self.expanded.contains(&sess.name) { visible_windows(sess) } else { matched }
         };
         if self.query.is_empty() {
             return base
                 .into_iter()
-                .map(|session| SearchEntry { session, window_rows: expanded_rows(session), window_hit: None })
+                .map(|session| SearchEntry { session, window_rows: window_rows(session, Vec::new()), window_hit: None })
                 .collect();
         }
         let candidates: Vec<crate::search::Candidate> = base
@@ -53,13 +53,8 @@ impl PickerState {
             .into_iter()
             .map(|hit| {
                 let session = base[hit.index];
-                let window_rows = if self.expanded.contains(&session.name) {
-                    visible_windows(session)
-                } else {
-                    hit.windows.clone()
-                };
                 let window_hit = if hit.name_matched { None } else { hit.windows.first().copied() };
-                SearchEntry { session, window_rows, window_hit }
+                SearchEntry { session, window_rows: window_rows(session, hit.windows), window_hit }
             })
             .collect()
     }
@@ -551,30 +546,32 @@ mod tests {
         );
     }
 
-    fn window_search_state(on: bool) -> PickerState {
-        let mut sessions = vec![s("api", 1, 1), s("web", 1, 2)];
-        sessions[1].windows = vec![win(0, "zsh"), win(2, "logs"), win(4, "build")];
-        let cfg = Config { groups: vec![], search_window_names: on, ..Default::default() };
+    fn searched(sessions: Vec<Session>, cfg: Config, query: &str) -> PickerState {
         let mut state = PickerState::build(sessions, &cfg);
         state.enter_search();
+        for c in query.chars() {
+            state.search_push(c);
+        }
         state
+    }
+
+    fn api_and_web() -> Vec<Session> {
+        vec![s("api", 1, 1), session_with_windows("web", 2, vec![win(0, "zsh"), win(2, "logs"), win(4, "build")])]
+    }
+
+    fn windows_on() -> Config {
+        Config { search_window_names: true, ..Default::default() }
     }
 
     #[test]
     fn window_names_are_ignored_when_the_setting_is_off() {
-        let mut state = window_search_state(false);
-        for c in "logs".chars() {
-            state.search_push(c);
-        }
+        let state = searched(api_and_web(), Config::default(), "logs");
         assert!(state.search_results().is_empty());
     }
 
     #[test]
     fn a_window_only_match_shows_just_that_window_and_selects_it() {
-        let mut state = window_search_state(true);
-        for c in "logs".chars() {
-            state.search_push(c);
-        }
+        let state = searched(api_and_web(), windows_on(), "logs");
         assert_eq!(state.search_rows(), vec![Row::Session(0), Row::Window(0, 1)]);
         assert_eq!(state.search_cursor(), 1, "cursor lands on the matching window, not its session");
         assert_eq!(state.search_selected_action(), Some(Action::SwitchWindow("web".into(), 2)));
@@ -582,45 +579,27 @@ mod tests {
 
     #[test]
     fn a_window_match_in_an_expanded_session_shows_all_windows_and_selects_the_match() {
-        let mut state = window_search_state(true);
-        state.expand_session("web");
-        for c in "build".chars() {
-            state.search_push(c);
-        }
+        let cfg = Config { expanded: vec!["web".into()], remember_expanded_sessions: true, ..windows_on() };
+        let state = searched(api_and_web(), cfg, "build");
         assert_eq!(state.search_rows().len(), 4, "session row plus all three windows");
         assert_eq!(state.search_selected_action(), Some(Action::SwitchWindow("web".into(), 4)));
     }
 
     #[test]
     fn a_session_name_match_keeps_the_cursor_on_the_session_row() {
-        let mut sessions = vec![s("logs", 1, 1)];
-        sessions[0].windows = vec![win(0, "logs")];
-        let cfg = Config { groups: vec![], search_window_names: true, ..Default::default() };
-        let mut state = PickerState::build(sessions, &cfg);
-        state.enter_search();
-        for c in "logs".chars() {
-            state.search_push(c);
-        }
+        let state = searched(vec![session_with_windows("logs", 1, vec![win(0, "logs")])], windows_on(), "logs");
         assert_eq!(state.search_rows(), vec![Row::Session(0), Row::Window(0, 0)]);
         assert_eq!(state.search_selected_action(), Some(Action::SwitchSession("logs".into())));
     }
 
     #[test]
     fn hidden_dormant_windows_never_match() {
-        let mut sessions = vec![s("web", 1, 1)];
-        sessions[0].windows = vec![win_active(0, "zsh"), win(1, "logs")];
         let cfg = Config {
-            groups: vec![],
             focus_mode: true,
-            search_window_names: true,
             dormant_windows: vec![crate::store::DormantWindow { session: "web".into(), index: 1, id: String::new() }],
-            ..Default::default()
+            ..windows_on()
         };
-        let mut state = PickerState::build(sessions, &cfg);
-        state.enter_search();
-        for c in "logs".chars() {
-            state.search_push(c);
-        }
+        let state = searched(vec![session_with_windows("web", 1, vec![win_active(0, "zsh"), win(1, "logs")])], cfg, "logs");
         assert!(state.search_results().is_empty());
     }
 }
