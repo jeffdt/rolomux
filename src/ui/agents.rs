@@ -138,7 +138,7 @@ fn draw_agents_with_home(frame: &mut Frame, state: &PickerState, inner: Rect, ho
     let mut items: Vec<ListItem> = Vec::new();
     let mut selected_line: Option<usize> = None;
     if rows.is_empty() {
-        for text in [" no agents reporting state", " agents appear once their hooks set @agent_state (see README)"] {
+        for text in [" no agents reporting state", " agents appear once their hooks set @rolomux_agent_state (see README)"] {
             items.push(ListItem::new(Line::from(Span::styled(text, Style::default().fg(DIM)))));
         }
     } else {
@@ -331,7 +331,7 @@ mod tests {
         let st = state_with(vec![("alpha", vec![])]);
         let buf = render(&st, None);
         let y = row_with(&buf, "no agents reporting state");
-        assert!(text_of(&buf)[y as usize + 1].contains("agents appear once their hooks set @agent_state (see README)"));
+        assert!(text_of(&buf)[y as usize + 1].contains("agents appear once their hooks set @rolomux_agent_state (see README)"));
         let x = (0..buf.area.width).find(|x| buf[(*x, y)].symbol() == "n").unwrap();
         assert_eq!(buf[(x, y)].fg, DIM);
     }

@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::io;
 use std::process::Command;
 
-pub const FMT: &str = "#{session_name}\x1f#{session_activity}\x1f#{session_created}\x1f#{session_attached}\x1f#{window_index}\x1f#{window_name}\x1f#{window_active}\x1f#{session_id}\x1f#{window_id}\x1f#{pane_id}\x1f#{@agent_state}\x1f#{pane_current_path}\x1f#{@agent_bg}\x1f#{@agent_since}\x1f#{@agent_note}";
+pub const FMT: &str = "#{session_name}\x1f#{session_activity}\x1f#{session_created}\x1f#{session_attached}\x1f#{window_index}\x1f#{window_name}\x1f#{window_active}\x1f#{session_id}\x1f#{window_id}\x1f#{pane_id}\x1f#{@rolomux_agent_state}\x1f#{pane_current_path}\x1f#{@rolomux_agent_bg}\x1f#{@rolomux_agent_since}\x1f#{@rolomux_agent_note}";
 
 /// Result of a single gather: the sessions plus the name of the session the
 /// popup was launched from (when it can be resolved from `$TMUX`).
@@ -489,7 +489,7 @@ pub fn parse_windows(raw: &str) -> Vec<Session> {
     sessions
 }
 
-/// Collects panes whose `@agent_state` parses, grouped by window id (field 8),
+/// Collects panes whose `@rolomux_agent_state` parses, grouped by window id (field 8),
 /// in output order.
 pub fn parse_agents(raw: &str) -> HashMap<String, Vec<AgentPane>> {
     let mut agents: HashMap<String, Vec<AgentPane>> = HashMap::new();

@@ -477,7 +477,7 @@ pub fn ensure_inbox_last(groups: &mut Vec<Group>) {
     }
 }
 
-/// State an agent reports for its own tmux pane via the `@agent_state`
+/// State an agent reports for its own tmux pane via the `@rolomux_agent_state`
 /// pane option. Variant order is urgency order, so `min()` is the most
 /// urgent.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -488,7 +488,7 @@ pub enum AgentState {
 }
 
 impl AgentState {
-    /// Parse an `@agent_state` value; `None` for empty or unknown values.
+    /// Parse an `@rolomux_agent_state` value; `None` for empty or unknown values.
     pub fn parse(value: &str) -> Option<Self> {
         match value {
             "waiting" => Some(Self::Waiting),
@@ -507,7 +507,7 @@ pub struct AgentPane {
     /// State shown for the pane: the reported state, except `done` with
     /// background work running counts as `Working`.
     pub state: AgentState,
-    /// What the agent set via `@agent_state`, before background work is counted.
+    /// What the agent set via `@rolomux_agent_state`, before background work is counted.
     pub reported_state: AgentState,
     /// The pane's current working directory.
     pub path: String,
