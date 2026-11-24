@@ -374,6 +374,19 @@ mod tests {
     }
 
     #[test]
+    fn blocked_callout_stands_alone_when_nothing_else_counts_as_hidden() {
+        let mut st = state_with(vec![("alpha", vec![pane("%1", AgentState::Waiting, "/a")])]);
+        st.expand_session("alpha");
+        st.focus_session("alpha");
+        st.move_cursor(1);
+        st.toggle_dormant();
+        st.collapse_session("alpha");
+        st.toggle_focus_mode();
+        let text = text_of(&render(&st, None)).join("\n");
+        assert!(text.contains("─ 1 blocked ─") && !text.contains("0 sessions"));
+    }
+
+    #[test]
     fn footer_lists_agent_view_keys() {
         let text = text_of(&render(&mixed(), None)).join("\n");
         assert!(text.contains("1-9 jump · ↵ switch · f focus · a tree · q quit"));

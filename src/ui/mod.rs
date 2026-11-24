@@ -922,16 +922,17 @@ fn hidden_status(sessions: usize, windows: usize) -> String {
 
 /// The footer divider, tinted `PEEK` while peeking so the temporary
 /// suspension of focus mode is hard to miss.
-/// While focus mode hides blocked agents, a red `· N blocked` follows the
-/// hidden count so an agent waiting on you is never silently out of view.
+/// While focus mode hides blocked agents, a red `N blocked` follows the
+/// hidden count (alone when that count is zero) so an agent waiting on you is never silently out of view.
 fn footer_rule_line(width: u16, state: &PickerState) -> Line<'static> {
     let color = if state.peeking() { PEEK } else { DIM };
     let blocked = state.hidden_blocked_count();
     if blocked == 0 {
         return Line::from(Span::styled(footer_rule(width, state), Style::default().fg(color)));
     }
-    let label = format!("─ {} ", hidden_status(state.hidden_dormant_count(), state.hidden_dormant_window_count()));
-    let callout = format!("· {blocked} blocked ");
+    let (sessions, windows) = (state.hidden_dormant_count(), state.hidden_dormant_window_count());
+    let label = if sessions + windows == 0 { "─ ".to_string() } else { format!("─ {} · ", hidden_status(sessions, windows)) };
+    let callout = format!("{blocked} blocked ");
     let rest = (width as usize).saturating_sub(label.chars().count() + callout.chars().count());
     Line::from(vec![
         Span::styled(label, Style::default().fg(DIM)),
