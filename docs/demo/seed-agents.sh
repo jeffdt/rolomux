@@ -27,6 +27,7 @@ agent() {
   if [ "$bg" -gt 0 ]; then tmux -L "$sock" set -p -t "$target" @rolomux_agent_bg "$bg"; fi
 }
 
+agent web:dev web waiting 60 0 "wants Bash"
 agent spike-auth:main admin-app waiting 190 0 "Which session store should the auth spike use? Redis · Signed cookies"
 agent pr-reviews:main platform 'done' 720 0 "Reviewed all three PRs and drafted comments on each. Want me to post them?"
 agent db-migration:alembic billing 'done' 1500 0 "The migration ran cleanly against a copy of prod."

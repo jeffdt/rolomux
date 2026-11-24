@@ -10,11 +10,12 @@
 #
 # Story: opens in api's server window, where an agent is working. `prefix +
 # a` opens straight into the agent view (`rolomux --agents`), where the dot
-# marks the api row you came from and the first row, a blocked agent, shows
-# its question below the list. Moving down shows the note for a done agent,
-# then for a done agent that still has background tasks (listed under
-# WORKING with ↻2). `1` jumps to the blocked agent, which is asking the same
-# question. The flat layout is shown as a still instead (agents-layouts.tape).
+# marks the api row you came from. Two agents are blocked; the newest, a
+# permission prompt, is selected first. One step down selects the other,
+# whose question shows below the list, and `↵` switches to it, where it is
+# asking that same question. The cursor only moves forward, so it never
+# looks like the popup was opened from the row it lands on. The flat
+# layout is shown as a still instead (agents-layouts.tape).
 
 Output "docs/images/agents.gif"
 
@@ -36,15 +37,9 @@ Type "a"
 Sleep 2500ms
 
 Down
-Sleep 1800ms
-Down
-Sleep 400ms
-Down
-Sleep 400ms
-Down
-Sleep 2200ms
+Sleep 2500ms
 
-Type "1"
+Enter
 Sleep 3000ms
 
 Hide
