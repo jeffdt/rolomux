@@ -262,6 +262,7 @@ fn commit_window_move(
     state: &mut PickerState,
 ) {
     let expanded_snapshot = state.expanded_list();
+    let passed_through = std::mem::take(&mut state.passed_through);
     let attached = tmux.attached_window();
 
     if state.dirty {
@@ -307,6 +308,7 @@ fn commit_window_move(
     *state = PickerState::build_with_expanded(gathered.sessions, config, expanded_snapshot);
     state.set_agents(gathered.agents);
     state.current_session = gathered.current.clone();
+    state.passed_through = passed_through;
 
     match &mv {
         // swap-window exchanges the two indices, so the window that was
@@ -318,9 +320,9 @@ fn commit_window_move(
         // move-window -b/-a place the incoming window at the anchor's own
         // index (before) or one past it (after); it never keeps its
         // original source index.
-        WindowMove::CrossSession { dst_session, dst_anchor_index, before, .. } => {
+        WindowMove::CrossSession { src_session, dst_session, dst_anchor_index, before, .. } => {
             let new_index = if *before { *dst_anchor_index } else { dst_anchor_index + 1 };
-            state.expand_session(dst_session);
+            state.window_crossed(src_session, dst_session);
             state.focus_window(dst_session, new_index);
             state.set_window_cross(dst_session, new_index, delta);
         }
