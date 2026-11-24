@@ -55,6 +55,8 @@ pub struct Config {
     pub agents_oldest_first: bool,
     /// Agent view shows one list instead of a section per state.
     pub agents_flat: bool,
+    /// Agent view leaves out agents that are working.
+    pub agents_hide_working: bool,
     pub default_mode: DefaultMode,
     pub number_dormant_sessions: bool,
     pub clear_dormant_on_attach: bool,
@@ -112,6 +114,7 @@ impl Default for Config {
             focus_mode: false,
             agents_oldest_first: false,
             agents_flat: false,
+            agents_hide_working: false,
             default_mode: DefaultMode::default(),
             number_dormant_sessions: true,
             clear_dormant_on_attach: false,
@@ -261,6 +264,8 @@ struct RawConfig {
     #[serde(default)]
     agents_flat: bool,
     #[serde(default)]
+    agents_hide_working: bool,
+    #[serde(default)]
     settings: RawSettings,
     #[serde(default)]
     expanded: Vec<String>,
@@ -290,6 +295,8 @@ struct OutConfig {
     agents_oldest_first: bool,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     agents_flat: bool,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    agents_hide_working: bool,
     settings: OutSettings,
     expanded: Vec<String>,
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
@@ -407,6 +414,7 @@ impl Config {
             focus_mode,
             agents_oldest_first: raw.agents_oldest_first,
             agents_flat: raw.agents_flat,
+            agents_hide_working: raw.agents_hide_working,
             default_mode,
             number_dormant_sessions: raw.settings.number_dormant_sessions.unwrap_or(true),
             clear_dormant_on_attach: raw.settings.clear_dormant_on_attach.unwrap_or(false),
@@ -465,6 +473,7 @@ impl Config {
             focus_mode: self.focus_mode,
             agents_oldest_first: self.agents_oldest_first,
             agents_flat: self.agents_flat,
+            agents_hide_working: self.agents_hide_working,
             settings: OutSettings {
                 default_mode: self.default_mode.as_config_str().to_string(),
                 number_dormant_sessions: self.number_dormant_sessions,

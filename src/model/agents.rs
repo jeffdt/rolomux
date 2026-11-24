@@ -3,7 +3,7 @@
 //! `window_agents` data the tree badges use; the cursor is independent of
 //! the tree cursor so leaving the view returns to the exact tree row.
 
-use super::{move_index_with_edge_wrap, Action, AgentRow, Mode, PickerState};
+use super::{move_index_with_edge_wrap, Action, AgentRow, AgentState, Mode, PickerState};
 
 impl PickerState {
     /// Agent panes the tree would show (focus mode hides dormant sessions and
@@ -32,6 +32,9 @@ impl PickerState {
                 })
             })
             .collect();
+        if self.agents_hide_working {
+            rows.retain(|r| r.state != AgentState::Working);
+        }
         let sign = if self.agents_oldest_first { 1 } else { -1 };
         rows.sort_by_key(|r| (if self.agents_flat { None } else { Some(r.state) }, r.since == 0, sign * r.since));
         rows
@@ -47,13 +50,17 @@ impl PickerState {
         self.keep_agent_selected(|st| st.agents_flat = !st.agents_flat);
     }
 
+    /// Hides or shows working agents, keeping the selected agent selected while it stays listed.
+    pub fn toggle_agent_hide_working(&mut self) {
+        self.keep_agent_selected(|st| st.agents_hide_working = !st.agents_hide_working);
+    }
+
     fn keep_agent_selected(&mut self, change: impl FnOnce(&mut Self)) {
         let pane = self.agent_rows().into_iter().nth(self.agent_cursor).map(|r| r.pane_id);
         change(self);
         self.dirty = true;
-        if let Some(i) = pane.and_then(|id| self.agent_rows().iter().position(|r| r.pane_id == id)) {
-            self.agent_cursor = i;
-        }
+        let rows = self.agent_rows();
+        self.agent_cursor = pane.and_then(|id| rows.iter().position(|r| r.pane_id == id)).unwrap_or(self.agent_cursor.min(rows.len().saturating_sub(1)));
     }
 
     /// Enter the agent view with the cursor on the first row.
@@ -221,14 +228,29 @@ mod tests {
     }
 
     #[test]
-    fn sort_and_layout_persist_through_config() {
+    fn sort_layout_and_hide_working_persist_through_config() {
         let mut st = mixed();
         st.toggle_agent_sort();
         st.toggle_agent_layout();
+        st.toggle_agent_hide_working();
         let mut cfg = Config::default();
         st.apply_to_config(&mut cfg);
         let reloaded = PickerState::build(vec![s("a", 1, 1)], &cfg);
-        assert!(reloaded.agents_oldest_first && reloaded.agents_flat);
+        assert!(reloaded.agents_oldest_first && reloaded.agents_flat && reloaded.agents_hide_working);
+    }
+
+    #[test]
+    fn hide_working_drops_working_rows_and_keeps_the_cursor_in_range() {
+        let at = |id, state, since| AgentPane { since, ..pane(id, state) };
+        let mut st = two_sessions(vec![at("%1", AgentState::Working, 300), at("%2", AgentState::Waiting, 100)], vec![at("%3", AgentState::Done, 200)]);
+        let ids = |st: &PickerState| st.agent_rows().into_iter().map(|r| r.pane_id).collect::<Vec<_>>();
+        st.enter_agents();
+        st.agent_move(2);
+        st.toggle_agent_hide_working();
+        assert_eq!(ids(&st), ["%2", "%3"]);
+        assert_eq!(st.agent_cursor(), 1);
+        st.toggle_agent_hide_working();
+        assert_eq!(ids(&st), ["%2", "%3", "%1"]);
     }
 
     #[test]

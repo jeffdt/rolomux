@@ -63,6 +63,8 @@ pub struct PickerState {
     pub agents_oldest_first: bool,
     /// Agent view shows one list instead of a section per state.
     pub agents_flat: bool,
+    /// Agent view leaves out agents that are working.
+    pub agents_hide_working: bool,
     pub start_focus_mode: StartFocusMode,
     pub cursor: usize,
     pub dirty: bool,
@@ -194,6 +196,7 @@ impl PickerState {
             current_session: None,
             agents_oldest_first: config.agents_oldest_first,
             agents_flat: config.agents_flat,
+            agents_hide_working: config.agents_hide_working,
             cursor: 0,
             dirty: false,
             mode: config.default_mode.as_mode(),
@@ -481,6 +484,7 @@ impl PickerState {
         config.focus_mode = self.focus_mode;
         config.agents_oldest_first = self.agents_oldest_first;
         config.agents_flat = self.agents_flat;
+        config.agents_hide_working = self.agents_hide_working;
         config.start_focus_mode = self.start_focus_mode;
         config.default_mode = self.default_mode;
         config.number_dormant_sessions = self.number_dormant_sessions;

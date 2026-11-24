@@ -120,7 +120,7 @@ fn detail_lines(row: Option<&AgentRow>, width: usize) -> Vec<Line<'static>> {
         AgentState::Waiting => "asks",
         AgentState::Done => "said",
         AgentState::Working if row.background > 0 => "said",
-        AgentState::Working => "asked",
+        AgentState::Working => "you",
     };
     let mut lines = wrapped.into_iter();
     let first = match lines.next() {
@@ -133,12 +133,13 @@ fn detail_lines(row: Option<&AgentRow>, width: usize) -> Vec<Line<'static>> {
 
 /// The footer hint. Toggle keys name what pressing them does: `f` reads `show`
 /// while focus mode hides agents (as in the tree), `s` the other sort order,
-/// `g` the other layout.
+/// `g` the other layout, `w` whether working agents are hidden or shown.
 fn agents_footer_hint(state: &PickerState) -> String {
     let focus = if state.focus_mode() { "show" } else { "focus" };
     let sort = if state.agents_oldest_first { "newest" } else { "oldest" };
     let layout = if state.agents_flat { "group" } else { "flat" };
-    format!("1-9 jump · ↵ switch · f {focus} · s {sort} · g {layout} · a tree · q quit")
+    let working = if state.agents_hide_working { "show" } else { "hide" };
+    format!("1-9 jump · ↵ switch · f {focus} · s {sort} · g {layout} · w {working} · a tree · q quit")
 }
 
 /// Draws the agent view: rows under per-state headers (or one flat list), plus the footer.
@@ -156,7 +157,12 @@ fn draw_agents_with_home(frame: &mut Frame, state: &PickerState, inner: Rect, ho
     let mut items: Vec<ListItem> = Vec::new();
     let mut selected_line: Option<usize> = None;
     if rows.is_empty() {
-        for text in [" no agents reporting state", " agents appear once their hooks set @rolomux_agent_state (see README)"] {
+        let empty: &[&str] = if state.agents_hide_working {
+            &[" no blocked or done agents", " working agents are hidden"]
+        } else {
+            &[" no agents reporting state", " agents appear once their hooks set @rolomux_agent_state (see README)"]
+        };
+        for &text in empty {
             items.push(ListItem::new(Line::from(Span::styled(text, Style::default().fg(DIM)))));
         }
     } else {
@@ -466,16 +472,25 @@ mod tests {
     #[test]
     fn footer_lists_agent_view_keys() {
         let text = text_of(&render(&mixed(), None)).join("\n");
-        assert!(text.contains("1-9 jump · ↵ switch · f focus · s oldest · g flat · a tree · q quit"));
+        assert!(text.contains("1-9 jump · ↵ switch · f focus · s oldest · g flat · w hide · a tree · q quit"));
     }
 
     #[test]
-    fn footer_names_the_other_sort_and_layout() {
+    fn footer_names_the_other_sort_layout_and_working_visibility() {
         let mut st = mixed();
         st.toggle_agent_sort();
         st.toggle_agent_layout();
+        st.toggle_agent_hide_working();
         let text = text_of(&render(&st, None)).join("\n");
-        assert!(text.contains("s newest · g group"));
+        assert!(text.contains("s newest · g group · w show"));
+    }
+
+    #[test]
+    fn empty_state_says_working_agents_are_hidden() {
+        let mut st = state_with(vec![("alpha", vec![pane("%1", AgentState::Working, "/a")])]);
+        st.toggle_agent_hide_working();
+        let text = text_of(&render(&st, None)).join("\n");
+        assert!(text.contains("no blocked or done agents") && text.contains("working agents are hidden"));
     }
 
     #[test]
@@ -512,9 +527,9 @@ mod tests {
     }
 
     #[test]
-    fn working_label_is_asked_or_said_with_background() {
+    fn working_label_is_you_or_said_with_background() {
         let st = state_with(vec![("alpha", vec![noted("%1", AgentState::Working, "/a", 0, "Do it.")])]);
-        assert_eq!(detail_lines(&render(&st, None)).0, "asked  Do it.");
+        assert_eq!(detail_lines(&render(&st, None)).0, "you    Do it.");
         let st = state_with(vec![("alpha", vec![noted("%1", AgentState::Working, "/a", 2, "Do it.")])]);
         assert_eq!(detail_lines(&render(&st, None)).0, "said   Do it.");
     }
