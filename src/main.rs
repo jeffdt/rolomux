@@ -98,6 +98,7 @@ fn main() -> io::Result<()> {
 
     let mut state = PickerState::build(gathered.sessions, &config);
     state.set_agents(gathered.agents);
+    state.current_session = gathered.current.clone();
     state.refocus_current(gathered.current.as_deref());
     if let Some(mode) = launch_mode {
         state.mode = mode;
@@ -190,6 +191,7 @@ fn commit_rename(
 
     *state = PickerState::build_with_expanded(gathered.sessions, config, expanded_snapshot);
     state.set_agents(gathered.agents);
+    state.current_session = gathered.current.clone();
     match &pending.target {
         RenameTarget::Session(_) => state.focus_session(&pending.new_name),
         RenameTarget::Window(session, index) => state.focus_window(session, *index),
@@ -304,6 +306,7 @@ fn commit_window_move(
 
     *state = PickerState::build_with_expanded(gathered.sessions, config, expanded_snapshot);
     state.set_agents(gathered.agents);
+    state.current_session = gathered.current.clone();
 
     match &mv {
         // swap-window exchanges the two indices, so the window that was
@@ -394,6 +397,7 @@ fn commit_kill(
 
     *state = PickerState::build_with_expanded(gathered.sessions, config, expanded_snapshot);
     state.set_agents(gathered.agents);
+    state.current_session = gathered.current.clone();
 }
 
 /// Attempt to create `pending`'s session via tmux. On success, writes its

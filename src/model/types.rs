@@ -358,6 +358,8 @@ pub struct AgentRow {
     pub note: String,
     /// The session or window is dormant, so the row renders dimmed.
     pub dormant: bool,
+    /// The window the popup was opened from, marked like the tree's attached dot.
+    pub here: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

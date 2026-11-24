@@ -27,6 +27,7 @@ impl PickerState {
                         since: p.since,
                         note: p.note.clone(),
                         dormant: self.is_dormant(&sess.name) || self.is_window_dormant(&sess.name, win.index),
+                        here: win.active && self.current_session.as_deref() == Some(sess.name.as_str()),
                     })
                 })
             })

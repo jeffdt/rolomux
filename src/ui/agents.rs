@@ -57,10 +57,20 @@ fn state_age(row: &AgentRow) -> String {
     if row.since > 0 { activity_age(row.since) } else { String::new() }
 }
 
+/// Which optional leading columns every row reserves.
+#[derive(Clone, Copy)]
+struct LeadColumns {
+    /// The state glyph; only the flat list needs it, sections already say the state.
+    glyph: bool,
+    /// The `●` slot marking the window the popup was opened from.
+    here: bool,
+}
+
 #[allow(clippy::too_many_arguments)]
-/// One agent row: jump number, state glyph, session, window, path, and the
-/// time in state right-aligned at the end.
-fn agent_item(row: &AgentRow, number: usize, selected: bool, name_width: usize, window_width: usize, badge_width: usize, badge_glyph: &str, age_width: usize, width: usize, home: Option<&str>) -> ListItem<'static> {
+/// One agent row: jump number, state glyph (flat list only), the `●` for the
+/// window you came from, session, window, path, and the time in state
+/// right-aligned at the end.
+fn agent_item(row: &AgentRow, number: usize, selected: bool, lead: LeadColumns, name_width: usize, window_width: usize, badge_width: usize, badge_glyph: &str, age_width: usize, width: usize, home: Option<&str>) -> ListItem<'static> {
     let color = agent_color(row.state);
     let label = if number <= 9 { jump_label(number) } else { "  ".to_string() };
     let name = format!("{:<name_width$}", truncate_end(&row.session, name_width));
@@ -72,25 +82,32 @@ fn agent_item(row: &AgentRow, number: usize, selected: bool, name_width: usize, 
     } else {
         " ".repeat(badge_width + 1)
     };
-    let prefix_width = 1 + 2 + 1 + 1 + name_width + 3 + window_width + badge_cell.chars().count() + 1;
+    let lead_width = 2 * (lead.glyph as usize + lead.here as usize);
+    let prefix_width = 1 + 2 + lead_width + name_width + 3 + window_width + badge_cell.chars().count() + 1;
     let age_cell = if age_width == 0 { 0 } else { age_width + 2 };
     let path_room = width.saturating_sub(prefix_width + age_cell);
     let path = truncate_end(&tilde_home(&row.path, home), path_room);
     let path = if age_cell == 0 { path } else { format!("{path:<path_room$}  {:>age_width$}", state_age(row)) };
     let dim = secondary(selected);
     let name_style = if row.dormant { dormant_session(selected) } else { Style::default() };
-    ListItem::new(Line::from(vec![
-        Span::styled("│", Style::default().fg(color)),
-        Span::styled(label, dim),
-        Span::styled(AGENT_GLYPH, Style::default().fg(color)),
-        Span::raw(" "),
+    let name_style = if row.here { name_style.add_modifier(Modifier::BOLD) } else { name_style };
+    let mut spans = vec![Span::styled("│", Style::default().fg(color)), Span::styled(label, dim)];
+    if lead.glyph {
+        spans.push(Span::styled(AGENT_GLYPH, Style::default().fg(color)));
+        spans.push(Span::raw(" "));
+    }
+    if lead.here {
+        spans.push(Span::styled(if row.here { "● " } else { "  " }, Style::default().fg(color)));
+    }
+    spans.extend([
         Span::styled(name, name_style),
         Span::styled(" › ", dim),
         Span::styled(window, name_style),
         Span::styled(badge_cell, Style::default().fg(color)),
         Span::raw(" "),
         Span::styled(path, dim),
-    ]))
+    ]);
+    ListItem::new(Line::from(spans))
 }
 
 /// The two-line detail block for the selected row: its condensed note under a
@@ -151,6 +168,7 @@ fn draw_agents_with_home(frame: &mut Frame, state: &PickerState, inner: Rect, ho
             .max()
             .unwrap_or(0);
         let age_width = rows.iter().map(|r| state_age(r).chars().count()).max().unwrap_or(0);
+        let lead = LeadColumns { glyph: state.agents_flat, here: rows.iter().any(|r| r.here) };
         let mut current: Option<AgentState> = None;
         for (i, row) in rows.iter().enumerate() {
             if !state.agents_flat && current != Some(row.state) {
@@ -164,7 +182,7 @@ fn draw_agents_with_home(frame: &mut Frame, state: &PickerState, inner: Rect, ho
             if selected {
                 selected_line = Some(items.len());
             }
-            items.push(agent_item(row, i + 1, selected, name_width, window_width, badge_width, &state.background_badge, age_width, chunks[0].width as usize, home));
+            items.push(agent_item(row, i + 1, selected, lead, name_width, window_width, badge_width, &state.background_badge, age_width, chunks[0].width as usize, home));
         }
     }
     let list = List::new(items).highlight_style(Style::default().bg(SEL_BG).add_modifier(Modifier::BOLD));
@@ -195,6 +213,11 @@ mod tests {
     }
 
     fn state_with(agents: Vec<(&str, Vec<AgentPane>)>) -> PickerState {
+        state_with_active(agents, false)
+    }
+
+    /// Like `state_with`; `active` sets whether each session's one window is its active window.
+    fn state_with_active(agents: Vec<(&str, Vec<AgentPane>)>, active: bool) -> PickerState {
         let sessions = agents
             .iter()
             .enumerate()
@@ -204,7 +227,7 @@ mod tests {
                 activity: 30,
                 created: 1,
                 attached: false,
-                windows: vec![Window { id: format!("@{i}"), index: 0, name: format!("win-{name}"), active: false }],
+                windows: vec![Window { id: format!("@{i}"), index: 0, name: format!("win-{name}"), active }],
             })
             .collect();
         let mut st = PickerState::build(sessions, &Config { groups: vec![], ..Default::default() });
@@ -242,6 +265,17 @@ mod tests {
         ])
     }
 
+    /// `mixed`, opened from gamma's window.
+    fn mixed_from_gamma() -> PickerState {
+        let mut st = state_with_active(vec![
+            ("alpha", vec![pane("%1", AgentState::Working, "/w/alpha")]),
+            ("beta", vec![pane("%2", AgentState::Waiting, "/home/me/code/beta")]),
+            ("gamma", vec![pane("%3", AgentState::Done, "/g")]),
+        ], true);
+        st.current_session = Some("gamma".into());
+        st
+    }
+
     #[test]
     fn headers_appear_in_urgency_order_and_empty_sections_are_hidden() {
         let buf = render(&mixed(), None);
@@ -255,13 +289,13 @@ mod tests {
     #[test]
     fn rows_are_numbered_in_display_order_and_overflow_is_blank() {
         let buf = render(&mixed(), None);
-        assert!(text_of(&buf)[row_with(&buf, "beta") as usize].contains("│1 ✻ beta"));
-        assert!(text_of(&buf)[row_with(&buf, "gamma") as usize].contains("│2 ✻ gamma"));
-        assert!(text_of(&buf)[row_with(&buf, "alpha") as usize].contains("│3 ✻ alpha"));
+        assert!(text_of(&buf)[row_with(&buf, "beta") as usize].contains("│1 beta"));
+        assert!(text_of(&buf)[row_with(&buf, "gamma") as usize].contains("│2 gamma"));
+        assert!(text_of(&buf)[row_with(&buf, "alpha") as usize].contains("│3 alpha"));
         let many = state_with((0..11).map(|i| (Box::leak(format!("s{i:02}").into_boxed_str()) as &str, vec![pane("%1", AgentState::Working, "/p")])).collect());
         let buf = render_sized(&many, 40);
-        assert!(text_of(&buf)[row_with(&buf, "s08") as usize].contains("│9 ✻"));
-        assert!(text_of(&buf)[row_with(&buf, "s09") as usize].contains("│  ✻"));
+        assert!(text_of(&buf)[row_with(&buf, "s08") as usize].contains("│9 s08"));
+        assert!(text_of(&buf)[row_with(&buf, "s09") as usize].contains("│  s09"));
     }
 
     fn render_sized(st: &PickerState, height: u16) -> Buffer {
@@ -280,10 +314,44 @@ mod tests {
             assert!(buf[(x, y)].modifier.contains(Modifier::BOLD));
         }
         let y = row_with(&buf, "gamma");
-        for symbol in ["│", "✻"] {
-            let x = (0..buf.area.width).find(|x| buf[(*x, y)].symbol() == symbol).unwrap();
-            assert_eq!(buf[(x, y)].fg, Color::Yellow, "{symbol}");
-        }
+        let x = (0..buf.area.width).find(|x| buf[(*x, y)].symbol() == "│").unwrap();
+        assert_eq!(buf[(x, y)].fg, Color::Yellow);
+    }
+
+    #[test]
+    fn state_glyph_shows_only_in_the_flat_list() {
+        let mut st = mixed();
+        assert!(!text_of(&render(&st, None)).join("\n").contains(AGENT_GLYPH));
+        st.toggle_agent_layout();
+        let buf = render(&st, None);
+        let y = row_with(&buf, "gamma");
+        assert!(text_of(&buf)[y as usize].contains(&format!("{AGENT_GLYPH} gamma")));
+        let x = (0..buf.area.width).find(|x| buf[(*x, y)].symbol() == AGENT_GLYPH).unwrap();
+        assert_eq!(buf[(x, y)].fg, Color::Yellow);
+    }
+
+    #[test]
+    fn window_you_came_from_gets_a_dot_in_its_state_color_and_bold_names() {
+        let mut st = mixed_from_gamma();
+        let buf = render(&st, None);
+        let y = row_with(&buf, "gamma");
+        assert!(text_of(&buf)[y as usize].contains("● gamma"));
+        let dot = (0..buf.area.width).find(|x| buf[(*x, y)].symbol() == "●").unwrap();
+        assert_eq!(buf[(dot, y)].fg, Color::Yellow, "the row's state color, not the attached color");
+        let name = text_of(&buf)[y as usize].chars().position(|c| c == 'g').unwrap() as u16;
+        assert!(buf[(name, y)].modifier.contains(Modifier::BOLD));
+        assert!(text_of(&buf)[row_with(&buf, "beta") as usize].contains("│1   beta"), "other rows reserve the dot slot");
+        st.toggle_agent_layout();
+        let buf = render(&st, None);
+        assert!(text_of(&buf)[row_with(&buf, "gamma") as usize].contains(&format!("{AGENT_GLYPH} ● gamma")));
+    }
+
+    #[test]
+    fn no_dot_slot_when_the_popup_was_opened_elsewhere() {
+        let mut st = mixed_from_gamma();
+        st.current_session = Some("elsewhere".into());
+        let buf = render(&st, None);
+        assert!(text_of(&buf)[row_with(&buf, "beta") as usize].contains("│1 beta"));
     }
 
     #[test]

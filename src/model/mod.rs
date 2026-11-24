@@ -57,6 +57,8 @@ pub struct PickerState {
     focus_mode: bool,
     /// Session-only suspension of focus mode; never persisted.
     peeking: bool,
+    /// Session the popup was opened from, as resolved from `$TMUX`.
+    pub current_session: Option<String>,
     /// Agent view lists the longest-waiting agent first instead of the newest.
     pub agents_oldest_first: bool,
     /// Agent view shows one list instead of a section per state.
@@ -188,6 +190,7 @@ impl PickerState {
                 StartFocusMode::Never => false,
             },
             peeking: false,
+            current_session: None,
             agents_oldest_first: config.agents_oldest_first,
             agents_flat: config.agents_flat,
             cursor: 0,
