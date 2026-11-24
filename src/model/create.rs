@@ -17,7 +17,7 @@ pub enum CreatePlacement {
     /// `n` at session altitude: joins `group`, inserted immediately above
     /// the selected session's position in that group's effective order.
     AboveSelected { group: usize, member_index: usize },
-    /// `⇧N` at group altitude: appended to the end of `group`'s block.
+    /// `n` at group altitude: appended to the end of `group`'s block.
     EndOfGroup { group: usize },
 }
 
@@ -141,7 +141,7 @@ impl PickerState {
         self.break_out_blocked = false;
     }
 
-    /// `⇧N` at group altitude: begin naming a session appended to the end
+    /// `n` at group altitude: begin naming a session appended to the end
     /// of the highlighted group's block (identically the only slot for an
     /// empty group). A no-op if the group cursor is somehow out of range.
     pub fn start_create_in_group(&mut self) {

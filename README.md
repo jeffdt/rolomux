@@ -106,8 +106,8 @@ Press `g` to raise the cursor to group altitude: the cursor moves up onto group 
 | `j` / `k` | Navigate between group headers, wrapping between the first and last group (also `↓` / `↑`) |
 | `⇧J` / `⇧K` | Reorder the selected group down / up (also `⇧↓` / `⇧↑`) |
 | `r` | Rename the selected group |
-| `n` | Create a new group above the selected one and name it |
-| `⇧N` | Create a new session in the selected group and switch to it |
+| `n` | Create a new session in the selected group and switch to it |
+| `⇧N` | Create a new group above the selected one and name it |
 | `c` | Cycle the selected group's header color |
 | `x` | Delete the selected group (press again to confirm; its sessions fall back to the inbox group) |
 | `↵` | Descend into the selected group, landing on its first session |
@@ -121,7 +121,7 @@ The inbox can be renamed and recolored like any other group, but it always stays
 
 You don't have to raise to group altitude just to add a group: at session altitude, `⇧N` names a new empty group and drops it in above whichever session the cursor is on, without leaving the session list or touching that session's membership.
 
-Press `n` at session altitude to create a brand new tmux session, or `⇧N` at group altitude to create one directly inside the selected group. Either way you're prompted first for a session name, then optionally for a window name (leave it blank and press `↵` to skip and let tmux name it), and rolomux switches you straight to the new session once it's created.
+Press `n` at session altitude to create a brand new tmux session, or `n` at group altitude to create one directly inside the selected group. Either way you're prompted first for a session name, then optionally for a window name (leave it blank and press `↵` to skip and let tmux name it), and rolomux switches you straight to the new session once it's created.
 
 ### Search
 

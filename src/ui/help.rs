@@ -34,8 +34,8 @@ const COMMAND_SHORTCUTS: &[(&str, &str)] = &[
 const ALTITUDE_SHORTCUTS: &[(&str, &str)] = &[
     ("j/k, ↑/↓", "move cursor"),
     ("⇧J/⇧K", "reorder group"),
-    ("n", "new group"),
-    ("⇧N", "new session in group"),
+    ("n", "new session in group"),
+    ("⇧N", "new group"),
     ("r", "rename group"),
     ("c", "cycle color"),
     ("x", "delete group (press twice)"),
@@ -208,8 +208,8 @@ mod tests {
         state.mode = Mode::Groups;
         let rendered = render_help_to_string(&state);
         assert!(
-            rendered.contains("⇧N") && rendered.contains("new session in group"),
-            "Group altitude help should describe ⇧N as 'new session in group'"
+            rendered.contains("new session in group"),
+            "Group altitude help should describe n as 'new session in group'"
         );
     }
 

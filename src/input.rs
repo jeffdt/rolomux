@@ -76,10 +76,9 @@ pub enum AltitudeInput {
 /// sessions (`DescendInto`) rather than renaming, `x` deletes a group (same
 /// key as session-mode Kill) leaving `d` reserved/unmapped, and `g`/`Esc`
 /// descend back to session mode while `q` quits the picker outright -- the
-/// same digit-decoding as `map_key` reaches groups 1-20. `⇧N` starts a
-/// session-create prompt appended to the highlighted group (mirroring `n`'s
-/// session-altitude counterpart), distinct from plain `n`'s existing
-/// "new group" command.
+/// same digit-decoding as `map_key` reaches groups 1-20. `n` and `⇧N` mean
+/// the same thing at both altitudes: `n` creates a session (here, appended to
+/// the highlighted group) and `⇧N` creates a group.
 pub fn map_altitude_key(key: KeyEvent) -> AltitudeInput {
     let shift = key.modifiers.contains(KeyModifiers::SHIFT);
     let alt = key.modifiers.contains(KeyModifiers::ALT);
@@ -88,8 +87,8 @@ pub fn map_altitude_key(key: KeyEvent) -> AltitudeInput {
         KeyCode::Char('K') | KeyCode::Up if shift => AltitudeInput::MoveUp,
         KeyCode::Char('j') | KeyCode::Down => AltitudeInput::Down,
         KeyCode::Char('k') | KeyCode::Up => AltitudeInput::Up,
-        KeyCode::Char('N') if shift => AltitudeInput::NewSessionInGroup,
-        KeyCode::Char('n') => AltitudeInput::New,
+        KeyCode::Char('N') if shift => AltitudeInput::New,
+        KeyCode::Char('n') => AltitudeInput::NewSessionInGroup,
         KeyCode::Char('r') => AltitudeInput::Rename,
         KeyCode::Enter => AltitudeInput::DescendInto,
         KeyCode::Char('c') => AltitudeInput::CycleColor,
@@ -268,7 +267,7 @@ mod tests {
         assert_eq!(map_altitude_key(key(KeyCode::Char('/'))), AltitudeInput::EnterSearch);
         assert_eq!(map_altitude_key(key(KeyCode::Char('3'))), AltitudeInput::Switch(3));
         assert_eq!(map_altitude_key(alt(KeyCode::Char('1'))), AltitudeInput::Switch(11));
-        assert_eq!(map_altitude_key(key(KeyCode::Char('n'))), AltitudeInput::New);
+        assert_eq!(map_altitude_key(key(KeyCode::Char('n'))), AltitudeInput::NewSessionInGroup);
         assert_eq!(map_altitude_key(key(KeyCode::Char('c'))), AltitudeInput::CycleColor);
         assert_eq!(map_altitude_key(shift(KeyCode::Char('J'))), AltitudeInput::MoveDown);
         assert_eq!(map_altitude_key(shift(KeyCode::Char('K'))), AltitudeInput::MoveUp);
@@ -355,9 +354,9 @@ mod tests {
     }
 
     #[test]
-    fn shift_n_at_group_altitude_starts_a_session_create_prompt_in_the_group() {
-        assert_eq!(map_altitude_key(shift(KeyCode::Char('N'))), AltitudeInput::NewSessionInGroup);
-        assert_eq!(map_altitude_key(key(KeyCode::Char('n'))), AltitudeInput::New, "plain n is still the existing new-group command");
+    fn n_creates_a_session_and_shift_n_creates_a_group_at_group_altitude() {
+        assert_eq!(map_altitude_key(key(KeyCode::Char('n'))), AltitudeInput::NewSessionInGroup);
+        assert_eq!(map_altitude_key(shift(KeyCode::Char('N'))), AltitudeInput::New);
     }
 
     #[test]
