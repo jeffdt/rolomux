@@ -25,6 +25,9 @@ rolomux - a fast tmux session picker
 
 Usage:
   rolomux            Launch the picker (intended via `tmux popup -E`)
+                     in the mode chosen by the Default mode setting
+  rolomux --picker   Launch the picker in Picker mode
+  rolomux --search   Launch the picker straight into fuzzy search
   rolomux --next     Switch to the next visible non-dormant session, no UI
   rolomux --prev     Switch to the previous visible non-dormant session, no UI
   rolomux --next --target-only, --prev --target-only
@@ -50,13 +53,15 @@ const BLINK_TICK: Duration = Duration::from_millis(100);
 
 fn main() -> io::Result<()> {
     let mut cycle: Option<i32> = None;
-    let mut open_agents = false;
+    let mut launch_mode: Option<Mode> = None;
     let target_only = std::env::args().nth(2).as_deref() == Some("--target-only");
     if let Some(arg) = std::env::args().nth(1) {
         match arg.as_str() {
             "--next" => cycle = Some(1),
             "--prev" => cycle = Some(-1),
-            "--agents" => open_agents = true,
+            "--picker" => launch_mode = Some(Mode::Picker),
+            "--search" => launch_mode = Some(Mode::Search),
+            "--agents" => launch_mode = Some(Mode::Agents),
             "-V" | "--version" => {
                 println!("rolomux {}", env!("CARGO_PKG_VERSION"));
                 return Ok(());
@@ -94,8 +99,8 @@ fn main() -> io::Result<()> {
     let mut state = PickerState::build(gathered.sessions, &config);
     state.set_agents(gathered.agents);
     state.refocus_current(gathered.current.as_deref());
-    if open_agents {
-        state.enter_agents();
+    if let Some(mode) = launch_mode {
+        state.mode = mode;
     }
     if live.is_empty() {
         debug::log(|| "exit: no live sessions -> returning immediately".into());
@@ -403,7 +408,10 @@ fn commit_create(
     path: &std::path::Path,
     state: &mut PickerState,
 ) -> Option<Action> {
-    tmux.new_session(&pending.session_name, pending.window_name.as_deref()).ok()?;
+    match &pending.source {
+        Some(src) => tmux.break_out_window(&src.session, src.index, &pending.session_name).ok()?,
+        None => tmux.new_session(&pending.session_name, pending.window_name.as_deref()).ok()?,
+    }
     state.apply_create(pending);
     if state.dirty {
         state.apply_to_config(config);
@@ -471,7 +479,7 @@ fn event_loop(
                 continue;
             }
             match state.mode {
-                Mode::Command => {
+                Mode::Picker => {
                     if state.creating() {
                         match map_search_key(key) {
                             SearchInput::Char(c) => state.create_push(c),
@@ -524,6 +532,7 @@ fn event_loop(
                         if !matches!(input, Input::MoveUp | Input::MoveDown) {
                             state.clear_pending_window_move();
                         }
+                        state.clear_break_out_warning();
                         if !matches!(input, Input::Kill) {
                             state.clear_pending_kill();
                         }
@@ -548,6 +557,7 @@ fn event_loop(
                             Input::Rename => state.start_rename(),
                             Input::QuickCreate => state.start_quick_create(),
                             Input::NewSession => state.start_create_here(),
+                            Input::BreakOut => state.start_break_out(),
                             Input::Kill => handle_kill(state, tmux, config, path),
                             Input::Select => return Ok(state.selected_action()),
                             Input::Switch(n) => {
@@ -556,7 +566,7 @@ fn event_loop(
                                 }
                             }
                             // A pending window-move confirm absorbs Quit as
-                            // a cancel-back-to-command-mode instead of
+                            // a cancel-back-to-picker-mode instead of
                             // closing the picker -- matches the existing
                             // Esc/q "back out one level" convention already
                             // used by Search/Groups/Settings mode, rather
@@ -649,7 +659,7 @@ fn event_loop(
                             // A pending delete confirm absorbs Descend
                             // (`g`/Esc) as just a cancel-the-arm instead of
                             // also dropping back to session altitude --
-                            // matches Command mode's had_pending_kill/Quit
+                            // matches Picker mode's had_pending_kill/Quit
                             // absorption above.
                             AltitudeInput::Descend => {
                                 if !had_pending_group_delete {
@@ -1333,6 +1343,7 @@ mod tests {
             session_name: "newsess".into(),
             window_name: Some("editor".into()),
             placement: crate::model::CreatePlacement::AboveSelected { group: 0, member_index: 0 },
+            source: None,
         };
 
         let tmux = FakeTmux::default();
@@ -1344,6 +1355,31 @@ mod tests {
         assert_eq!(config.groups[0].members, vec!["newsess".to_string(), "alpha".to_string()]);
         assert!(std::fs::metadata(&path).is_ok(), "config should be written to disk on success");
 
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn commit_break_out_moves_the_window_instead_of_creating_a_blank_session() {
+        let dir = std::env::temp_dir().join(format!("rolomux-commit-break-out-{}", std::process::id()));
+        let path = dir.join("config.toml");
+        let mut config = Config {
+            groups: vec![Group { name: "WORK".into(), members: vec!["alpha".into()], ..Default::default() }],
+            ..Default::default()
+        };
+        let mut state = PickerState::build(vec![sess("alpha")], &config);
+        let pending = crate::model::PendingCreate {
+            session_name: "split".into(),
+            window_name: None,
+            placement: crate::model::CreatePlacement::AboveSelected { group: 0, member_index: 0 },
+            source: Some(crate::model::BreakOutSource { session: "alpha".into(), index: 2, window_name: "logs".into() }),
+        };
+        let tmux = FakeTmux::default();
+
+        let action = commit_create(&pending, &tmux, &mut config, &path, &mut state);
+
+        assert_eq!(*tmux.calls.borrow(), vec!["break-out:alpha:2:split".to_string()]);
+        assert_eq!(action, Some(crate::model::Action::SwitchSession("split".to_string())));
+        assert_eq!(config.groups[0].members, vec!["split".to_string(), "alpha".to_string()]);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -1363,6 +1399,7 @@ mod tests {
             session_name: "newsess".into(),
             window_name: None,
             placement: crate::model::CreatePlacement::AboveSelected { group: 0, member_index: 0 },
+            source: None,
         };
 
         let tmux = FakeTmux::default().with_new_session_fails(true);

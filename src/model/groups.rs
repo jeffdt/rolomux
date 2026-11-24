@@ -56,7 +56,7 @@ impl PickerState {
             .or_else(|| self.first_visible_session_row(self.group_cursor))
             .unwrap_or(0);
         self.altitude_origin = None;
-        self.mode = Mode::Command;
+        self.mode = Mode::Picker;
     }
 
     /// `Enter` on a group header: descend directly into that group, landing
@@ -66,7 +66,7 @@ impl PickerState {
         if let Some(row) = self.first_visible_session_row(self.group_cursor) {
             self.cursor = row;
             self.altitude_origin = None;
-            self.mode = Mode::Command;
+            self.mode = Mode::Picker;
         }
     }
 
@@ -362,11 +362,11 @@ mod tests {
     #[test]
     fn enter_and_exit_groups_toggles_mode() {
         let mut st = grouped_state();
-        assert_eq!(st.mode, Mode::Command);
+        assert_eq!(st.mode, Mode::Picker);
         st.enter_groups();
         assert_eq!(st.mode, Mode::Groups);
         st.exit_groups();
-        assert_eq!(st.mode, Mode::Command);
+        assert_eq!(st.mode, Mode::Picker);
     }
 
     #[test]
@@ -386,7 +386,7 @@ mod tests {
         st.enter_groups();
         st.group_move_cursor(1); // wander off to a different group header
         st.exit_groups();
-        assert_eq!(st.mode, Mode::Command);
+        assert_eq!(st.mode, Mode::Picker);
         assert_eq!(st.cursor, 1, "lands back on the exact row it was raised from");
     }
 
@@ -404,7 +404,7 @@ mod tests {
         assert_eq!(st.groups[0].name, "G2");
         assert_eq!(st.ordered()[0].name, "b", "b now renders first");
         st.exit_groups();
-        assert_eq!(st.mode, Mode::Command);
+        assert_eq!(st.mode, Mode::Picker);
         assert_eq!(
             st.selected_action(),
             Some(Action::SwitchSession("b".into())),
@@ -431,7 +431,7 @@ mod tests {
         st.group_move_cursor(-1); // highlight G1, which renders before G2
         st.group_delete(); // removes G1; G2 (and session b) shift up a row
         st.exit_groups();
-        assert_eq!(st.mode, Mode::Command);
+        assert_eq!(st.mode, Mode::Picker);
         assert_eq!(
             st.selected_action(),
             Some(Action::SwitchSession("b".into())),
@@ -446,7 +446,7 @@ mod tests {
         st.enter_groups();
         st.group_move_cursor(1); // highlight G2
         st.descend_into();
-        assert_eq!(st.mode, Mode::Command);
+        assert_eq!(st.mode, Mode::Picker);
         assert_eq!(st.cursor, 1, "lands on session b, G2's first visible session");
     }
 

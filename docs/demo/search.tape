@@ -25,7 +25,7 @@
 #
 # The query is then cleared (`⌃U`) and retyped as "db" to bring up
 # `db-migration` -- issue #105's payoff. `→` expands its window tree in
-# place (the same three windows organize.tape's command-mode demo shows:
+# place (the same three windows organize.tape's picker-mode demo shows:
 # `alembic`, `docker-config`, `pgsql`), `↓` twice moves off the session
 # row past `alembic` (seed-demo.sh's active window) onto `docker-config`,
 # and `↵` switches directly to that specific window -- a real

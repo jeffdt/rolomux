@@ -42,7 +42,7 @@ impl PickerState {
 
     /// Leave the agent view; the tree cursor is untouched.
     pub fn exit_agents(&mut self) {
-        self.mode = Mode::Command;
+        self.mode = Mode::Picker;
     }
 
     /// Index of the selected row in `agent_rows`.
@@ -179,7 +179,7 @@ mod tests {
         st.enter_agents();
         assert_eq!(st.mode, Mode::Agents);
         st.exit_agents();
-        assert_eq!(st.mode, Mode::Command);
+        assert_eq!(st.mode, Mode::Picker);
     }
 
     #[test]

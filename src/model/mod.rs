@@ -27,7 +27,7 @@ pub use create::{CreateStage, PendingCreate};
 // (which construct PendingCreate values with explicit CreatePlacement::AboveSelected),
 // even though no non-test production code path reads it directly.
 #[allow(unused_imports)]
-pub use create::CreatePlacement;
+pub use create::{BreakOutSource, CreatePlacement};
 use create::CreatePrompt;
 
 mod search;
@@ -100,6 +100,8 @@ pub struct PickerState {
     /// cleared by any other group-mode input, mirroring
     /// `pending_window_move`'s clear-on-any-other-key lifecycle.
     group_reorder_blocked: bool,
+    /// One-shot: `b` was pressed on a session's only window.
+    break_out_blocked: bool,
     /// In-flight group-delete confirmation, armed when `x` targets a
     /// non-inbox group; `Some` until a second `x` confirms it or any other
     /// key clears it. See `src/model/groups.rs`.
@@ -197,6 +199,7 @@ impl PickerState {
             pending_kill: None,
             swap_indicator: None,
             group_reorder_blocked: false,
+            break_out_blocked: false,
             pending_group_delete: None,
             default_mode: config.default_mode,
             start_focus_mode: config.start_focus_mode,
@@ -242,7 +245,7 @@ impl PickerState {
     pub fn build_with_expanded(sessions: Vec<Session>, config: &Config, expanded: Vec<String>) -> PickerState {
         let mut state = Self::build_with_focus(sessions, config, INITIAL_FOCUS, None);
         state.expanded = expanded.into_iter().collect();
-        state.mode = Mode::Command;
+        state.mode = Mode::Picker;
         state
     }
 
@@ -504,7 +507,7 @@ impl PickerState {
         self.help_visible
     }
 
-    /// `?` from Command/Groups/Settings mode: open the full-shortcut overlay.
+    /// `?` from Picker/Groups/Settings mode: open the full-shortcut overlay.
     /// Not persisted and not `dirty` -- like the search query or an
     /// in-flight rename buffer, this is per-popup UI state.
     pub fn open_help(&mut self) {
@@ -559,7 +562,7 @@ impl PickerState {
     /// Remove `name` from the expanded set regardless of prior state -- the
     /// name-based counterpart to `expand_session`, used by search mode's
     /// collapse (`search_collapse`), which re-focuses within its own row
-    /// list rather than command mode's `visible_rows`.
+    /// list rather than picker mode's `visible_rows`.
     pub fn collapse_session(&mut self, name: &str) {
         self.expanded.remove(name);
         if self.remember_expanded_sessions {
@@ -1171,11 +1174,11 @@ mod tests {
     }
 
     #[test]
-    fn default_mode_is_command() {
+    fn default_mode_is_picker() {
         let sessions = vec![s("a", 30, 1)];
         let cfg = Config { groups: vec![], ..Default::default() };
         let state = PickerState::build(sessions, &cfg);
-        assert_eq!(state.mode, Mode::Command);
+        assert_eq!(state.mode, Mode::Picker);
         assert!(state.query.is_empty());
     }
 
@@ -1451,7 +1454,7 @@ mod tests {
         for default_mode in [DefaultMode::Search, DefaultMode::Agents] {
             let cfg = Config { default_mode, ..Default::default() };
             assert_eq!(PickerState::build(vec![s("alpha", 1, 1)], &cfg).mode, default_mode.as_mode());
-            assert_eq!(PickerState::build_with_expanded(vec![s("alpha", 1, 1)], &cfg, vec![]).mode, Mode::Command);
+            assert_eq!(PickerState::build_with_expanded(vec![s("alpha", 1, 1)], &cfg, vec![]).mode, Mode::Picker);
         }
     }
 

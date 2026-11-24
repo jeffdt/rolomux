@@ -76,6 +76,7 @@ bind C new-session \; command-prompt -I "" "rename-session '%%'" \; command-prom
 | `a` | Open the agent view: every CLI agent pane grouped by state; `1`-`9` or `↵` jumps to its pane, `f`/`⇧F` work as in the tree, `a` returns |
 | `g` | Raise the cursor to group altitude |
 | `n` | Create a new session and switch to it |
+| `b` | Break the selected window out into a new session (placed above its old one) and switch to it |
 | `⇧N` | Create a new empty group above the selected session's group |
 | `,` | Open settings |
 | `d` | Toggle dormant (dim) on the selected session, or the selected window if the cursor is on one |
@@ -106,8 +107,8 @@ Press `g` to raise the cursor to group altitude: the cursor moves up onto group 
 | `j` / `k` | Navigate between group headers, wrapping between the first and last group (also `↓` / `↑`) |
 | `⇧J` / `⇧K` | Reorder the selected group down / up (also `⇧↓` / `⇧↑`) |
 | `r` | Rename the selected group |
-| `n` | Create a new group above the selected one and name it |
-| `⇧N` | Create a new session in the selected group and switch to it |
+| `n` | Create a new session in the selected group and switch to it |
+| `⇧N` | Create a new group above the selected one and name it |
 | `c` | Cycle the selected group's header color |
 | `x` | Delete the selected group (press again to confirm; its sessions fall back to the inbox group) |
 | `↵` | Descend into the selected group, landing on its first session |
@@ -121,7 +122,7 @@ The inbox can be renamed and recolored like any other group, but it always stays
 
 You don't have to raise to group altitude just to add a group: at session altitude, `⇧N` names a new empty group and drops it in above whichever session the cursor is on, without leaving the session list or touching that session's membership.
 
-Press `n` at session altitude to create a brand new tmux session, or `⇧N` at group altitude to create one directly inside the selected group. Either way you're prompted first for a session name, then optionally for a window name (leave it blank and press `↵` to skip and let tmux name it), and rolomux switches you straight to the new session once it's created.
+Press `n` at session altitude to create a brand new tmux session, or `n` at group altitude to create one directly inside the selected group. Either way you're prompted first for a session name, then optionally for a window name (leave it blank and press `↵` to skip and let tmux name it), and rolomux switches you straight to the new session once it's created.
 
 ### Search
 
@@ -129,13 +130,20 @@ Press `n` at session altitude to create a brand new tmux session, or `⇧N` at g
 
 Press `/` to enter search mode.
 Type any part of a session name; results are ranked best-match-first, with the top result auto-selected as you type.
-`Enter` switches to the highlighted session or window; `Esc` returns to command mode with the cursor left on the same match.
+`Enter` switches to the highlighted session or window; `Esc` returns to picker mode with the cursor left on the same match.
 Move within results with `↑`/`↓` (or `Ctrl-n`/`Ctrl-p`, `Ctrl-j`/`Ctrl-k`), wrapping between the first and last match.
 `Backspace` deletes the last character, `Ctrl-W` (or `Option/Alt` + `Backspace`) deletes the last word, and `Ctrl-U` clears the query.
 `→` (or `Ctrl-L`) expands the highlighted session's window tree and `←` (or `Ctrl-H`) collapses it -- `h`/`l` themselves still just type into the query, since search never wants to steal an ordinary filter character.
 
-While searching, section headers and jump numbers (sessions 1-20) are still hidden, but the tree otherwise behaves like command mode: expand a session to select and switch to one of its windows directly.
+While searching, section headers and jump numbers (sessions 1-20) are still hidden, but the tree otherwise behaves like picker mode: expand a session to select and switch to one of its windows directly.
 If focus mode is on, search results exclude dormant sessions, and the footer shows how many are currently hidden.
+
+`rolomux --search` opens the popup straight into search, and `rolomux --picker` opens it in picker mode; either flag overrides the Default mode setting, so two binds can open different modes:
+
+```tmux
+bind s display-popup -E -B -w 84 -h 60% "exec rolomux --picker"
+bind / display-popup -E -B -w 84 -h 60% "exec rolomux --search"
+```
 
 ### Dormant sessions and focus mode
 
@@ -219,7 +227,7 @@ Each row shows a jump number in its gutter; pressing it jumps straight to that r
 
 **Behavior**
 
-- **Default mode.** Whether the picker opens in Command mode, straight into Search, or straight into the agent view.
+- **Default mode.** Whether the picker opens in Picker mode, straight into Search, or straight into the agent view, when launched without `--picker`, `--search` or `--agents`.
 - **Number dormant sessions.** Whether visible dormant sessions are included in jump numbering (sessions 1-20).
 - **Remember expanded sessions.** Off by default (every popup starts fully collapsed). When on, expanding or collapsing a session's window tree (`l`/`h`/`z`) persists across popups, so the sessions you're actively jumping between stay expanded.
 - **Clear dormant on attach.** Off by default. When on, attaching to a dormant session automatically clears its dormant flag, so you don't have to remember to press `d` yourself.

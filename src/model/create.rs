@@ -4,7 +4,7 @@
 //! should ask tmux to create and where the session should land in the
 //! group model.
 
-use super::PickerState;
+use super::{PickerState, Row};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CreateStage {
@@ -17,8 +17,16 @@ pub enum CreatePlacement {
     /// `n` at session altitude: joins `group`, inserted immediately above
     /// the selected session's position in that group's effective order.
     AboveSelected { group: usize, member_index: usize },
-    /// `⇧N` at group altitude: appended to the end of `group`'s block.
+    /// `n` at group altitude: appended to the end of `group`'s block.
     EndOfGroup { group: usize },
+}
+
+/// The existing window a `b` break-out moves into the new session.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BreakOutSource {
+    pub session: String,
+    pub index: u32,
+    pub window_name: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -26,6 +34,9 @@ pub struct PendingCreate {
     pub session_name: String,
     pub window_name: Option<String>,
     pub placement: CreatePlacement,
+    /// `Some` for a `b` break-out: the new session is built from this
+    /// window instead of a fresh one, and `window_name` is unused.
+    pub source: Option<BreakOutSource>,
 }
 
 /// In-flight two-stage create buffer. `session_buffer` survives stepping
@@ -36,6 +47,7 @@ pub(super) struct CreatePrompt {
     session_buffer: String,
     window_buffer: String,
     placement: CreatePlacement,
+    source: Option<BreakOutSource>,
 }
 
 impl PickerState {
@@ -86,10 +98,50 @@ impl PickerState {
             session_buffer: String::new(),
             window_buffer: String::new(),
             placement,
+            source: None,
         });
     }
 
-    /// `⇧N` at group altitude: begin naming a session appended to the end
+    /// `b` on a window row: begin naming a new session that will be built
+    /// from that window, placed exactly where `n` would place a fresh one
+    /// (directly above the window's parent session, in its group). A no-op
+    /// on a session row. If the window is its session's only window, moving
+    /// it would destroy that session, so instead of opening the prompt this
+    /// arms a one-shot footer warning.
+    pub fn start_break_out(&mut self) {
+        let Some(Row::Window(si, wi)) = self.visible_rows().get(self.cursor).cloned() else {
+            return;
+        };
+        let ordered = self.ordered();
+        let sess = ordered[si];
+        if sess.windows.len() < 2 {
+            self.break_out_blocked = true;
+            return;
+        }
+        let win = &sess.windows[wi];
+        let source = BreakOutSource { session: sess.name.clone(), index: win.index, window_name: win.name.clone() };
+        self.start_create_here();
+        if let Some(p) = self.create_prompt.as_mut() {
+            p.source = Some(source);
+        }
+    }
+
+    /// The window an in-flight `b` break-out prompt will move, if any.
+    pub fn break_out_source(&self) -> Option<&BreakOutSource> {
+        self.create_prompt.as_ref()?.source.as_ref()
+    }
+
+    /// The footer warning after `b` on a session's only window, or `None`.
+    pub fn break_out_blocked_warning(&self) -> Option<&'static str> {
+        self.break_out_blocked.then_some("Only window in its session \u{b7} r to rename instead")
+    }
+
+    /// Drop the one-shot blocked-break-out warning (any other key).
+    pub fn clear_break_out_warning(&mut self) {
+        self.break_out_blocked = false;
+    }
+
+    /// `n` at group altitude: begin naming a session appended to the end
     /// of the highlighted group's block (identically the only slot for an
     /// empty group). A no-op if the group cursor is somehow out of range.
     pub fn start_create_in_group(&mut self) {
@@ -101,6 +153,7 @@ impl PickerState {
             session_buffer: String::new(),
             window_buffer: String::new(),
             placement: CreatePlacement::EndOfGroup { group: self.group_cursor },
+            source: None,
         });
     }
 
@@ -181,6 +234,17 @@ impl PickerState {
                     self.create_prompt = None;
                     return None;
                 }
+                // A break-out's window already has a name, so there is no
+                // second stage: the session name alone finishes the prompt.
+                if p.source.is_some() {
+                    let p = self.create_prompt.take()?;
+                    return Some(PendingCreate {
+                        session_name: p.session_buffer.trim().to_string(),
+                        window_name: None,
+                        placement: p.placement,
+                        source: p.source,
+                    });
+                }
                 p.stage = CreateStage::WindowName;
                 None
             }
@@ -191,7 +255,7 @@ impl PickerState {
                     let trimmed = p.window_buffer.trim();
                     if trimmed.is_empty() { None } else { Some(trimmed.to_string()) }
                 };
-                Some(PendingCreate { session_name, window_name, placement: p.placement })
+                Some(PendingCreate { session_name, window_name, placement: p.placement, source: None })
             }
         }
     }
@@ -225,10 +289,57 @@ impl PickerState {
 
 #[cfg(test)]
 mod tests {
-    use super::CreatePlacement;
+    use super::{BreakOutSource, CreatePlacement};
     use crate::model::*;
     use crate::model::test_support::*;
     use crate::store::Config;
+
+    /// G1=[a, b]; `a` has windows editor/logs/tests, `b` only one window.
+    fn break_out_state() -> PickerState {
+        let sessions = vec![
+            session_with_windows("a", 1, vec![win_active(0, "editor"), win(1, "logs"), win(2, "tests")]),
+            s("b", 1, 2),
+        ];
+        let cfg = Config {
+            groups: vec![Group { name: "G1".into(), members: vec!["a".into(), "b".into()], ..Default::default() }],
+            ..Default::default()
+        };
+        let mut st = PickerState::build(sessions, &cfg);
+        st.expand_session("a");
+        st.focus_window("a", 1);
+        st
+    }
+
+    #[test]
+    fn b_on_a_window_finishes_in_one_stage_with_the_window_as_source() {
+        let mut st = break_out_state();
+        st.start_break_out();
+        assert!(st.creating());
+        assert_eq!(st.break_out_source().map(|s| s.window_name.as_str()), Some("logs"));
+        for c in " split ".chars() { st.create_push(c); }
+        let pending = st.create_commit().expect("session name alone finishes a break-out");
+        assert_eq!(pending.session_name, "split");
+        assert_eq!(pending.source, Some(BreakOutSource { session: "a".into(), index: 1, window_name: "logs".into() }));
+        assert_eq!(pending.placement, CreatePlacement::AboveSelected { group: 0, member_index: 0 }, "above the source session, in its group");
+        assert!(!st.creating());
+    }
+
+    #[test]
+    fn b_does_nothing_on_a_session_row_and_is_blocked_on_a_sessions_only_window() {
+        let mut st = break_out_state();
+        st.focus_session("a");
+        st.start_break_out();
+        assert!(!st.creating());
+        assert!(st.break_out_blocked_warning().is_none(), "session rows are a silent no-op");
+
+        st.focus_session("b");
+        st.expand();
+        st.move_cursor(1);
+        assert!(matches!(st.visible_rows()[st.cursor], Row::Window(_, _)), "precondition: on b's only window");
+        st.start_break_out();
+        assert!(!st.creating(), "no prompt opens");
+        assert!(st.break_out_blocked_warning().is_some());
+    }
 
     #[test]
     fn session_name_commit_advances_to_window_stage() {
@@ -322,6 +433,7 @@ mod tests {
         assert!(matches!(st.visible_rows()[st.cursor], Row::Window(_, _)), "precondition: cursor is on a window row");
 
         st.start_create_here();
+        assert!(st.break_out_source().is_none(), "n stays a blank create even on a window row");
         for c in "x".chars() { st.create_push(c); }
         assert_eq!(st.create_commit(), None);
         let pending = st.create_commit().unwrap();
@@ -443,6 +555,7 @@ mod tests {
             session_name: "newsess".into(),
             window_name: None,
             placement: CreatePlacement::AboveSelected { group: 0, member_index: 1 },
+            source: None,
         };
         st.apply_create(&pending);
         assert_eq!(
@@ -457,6 +570,7 @@ mod tests {
             session_name: "second".into(),
             window_name: Some("logs".into()),
             placement: CreatePlacement::EndOfGroup { group: 1 },
+            source: None,
         };
         st2.apply_create(&pending2);
         assert_eq!(st2.groups[1].members, vec!["b".to_string(), "second".to_string()]);

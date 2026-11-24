@@ -952,7 +952,7 @@ mod tests {
     #[test]
     fn default_config_seeds_settings_from_header_colors() {
         let cfg = Config::default();
-        assert_eq!(cfg.default_mode, DefaultMode::Command);
+        assert_eq!(cfg.default_mode, DefaultMode::Picker);
         assert!(cfg.number_dormant_sessions);
         assert_eq!(cfg.new_group_color_policy, ColorPolicy::Rotate);
         assert_eq!(cfg.static_color, "cyan");
@@ -972,7 +972,7 @@ mod tests {
         // A config_version=1 file from before [settings] existed.
         std::fs::write(&path, "config_version = 1\nsort = \"activity\"\n").unwrap();
         let cfg = Config::load_from(&path);
-        assert_eq!(cfg.default_mode, DefaultMode::Command);
+        assert_eq!(cfg.default_mode, DefaultMode::Picker);
         assert!(cfg.number_dormant_sessions);
         assert_eq!(cfg.new_group_color_policy, ColorPolicy::Rotate);
         assert_eq!(cfg.static_color, "cyan");
