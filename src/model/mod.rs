@@ -444,11 +444,7 @@ impl PickerState {
 
     pub fn expand(&mut self) {
         if let Some(name) = self.cursor_session_name() {
-            self.passed_through.remove(&name);
-            self.expanded.insert(name);
-            if self.remember_expanded_sessions {
-                self.dirty = true;
-            }
+            self.expand_session(&name);
         }
     }
 
@@ -572,10 +568,11 @@ impl PickerState {
         }
     }
 
-    /// Force `name` into the expanded set regardless of its prior state --
-    /// used after a cross-session window move lands in a session that may
-    /// not already be expanded.
+    /// Force `name` into the expanded set regardless of its prior state. An
+    /// explicit expand makes it the user's, so a later window move won't
+    /// collapse it.
     pub fn expand_session(&mut self, name: &str) {
+        self.passed_through.remove(name);
         self.expanded.insert(name.to_string());
         if self.remember_expanded_sessions {
             self.dirty = true;
@@ -591,8 +588,8 @@ impl PickerState {
             self.collapse_session(src);
         }
         if !self.is_expanded(dst) {
-            self.passed_through.insert(dst.to_string());
             self.expand_session(dst);
+            self.passed_through.insert(dst.to_string());
         }
     }
 
@@ -704,6 +701,7 @@ impl PickerState {
         } else {
             self.expanded = self.all.iter().map(|s| s.name.clone()).collect();
         }
+        self.passed_through.clear();
         if self.remember_expanded_sessions {
             self.dirty = true;
         }
@@ -855,16 +853,15 @@ mod tests {
         st.window_crossed("b", "c");
         assert!(!st.is_expanded("b"), "passed-through session collapses");
         assert!(st.is_expanded("c"), "landing session stays open");
-    }
-
-    #[test]
-    fn window_crossed_leaves_a_manually_reexpanded_session_open() {
-        let sessions = vec![s("a", 1, 1), s("b", 1, 1)];
-        let mut st = PickerState::build(sessions, &Config::default());
+        st.focus_session("c");
+        st.expand();
+        st.window_crossed("c", "a");
+        assert!(st.is_expanded("c"), "manual expand claims the session");
         st.window_crossed("a", "b");
-        st.passed_through.remove("b");
-        st.window_crossed("b", "a");
-        assert!(st.is_expanded("b"));
+        st.toggle_all();
+        st.toggle_all();
+        st.window_crossed("b", "c");
+        assert!(st.is_expanded("b"), "toggle-all claims every session");
     }
 
     #[test]
