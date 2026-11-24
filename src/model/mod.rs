@@ -122,6 +122,8 @@ pub struct PickerState {
     pub shortcut_color: String,
     /// Glyph shown in the agent view for agents with background tasks.
     pub background_badge: String,
+    /// Whether tree and search rows show agent badges.
+    pub agent_badges: bool,
     pub always_show_shortcuts: bool,
     pub caret_style: CaretStyle,
     pub caret_blink: bool,
@@ -214,6 +216,7 @@ impl PickerState {
             dot_color: config.dot_color.clone(),
             shortcut_color: config.shortcut_color.clone(),
             background_badge: config.background_badge.clone(),
+            agent_badges: config.agent_badges,
             always_show_shortcuts: config.always_show_shortcuts,
             caret_style: config.caret_style,
             caret_blink: config.caret_blink,
@@ -472,6 +475,7 @@ impl PickerState {
         config.border_color_policy = self.border_color_policy;
         config.inbox_icon = self.inbox_icon.clone();
         config.background_badge = self.background_badge.clone();
+        config.agent_badges = self.agent_badges;
         config.remember_expanded_sessions = self.remember_expanded_sessions;
         config.clear_dormant_on_attach = self.clear_dormant_on_attach;
         config.session_metric = self.session_metric;

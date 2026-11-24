@@ -190,6 +190,9 @@ pub(super) fn draw_settings(frame: &mut Frame, state: &PickerState, inner: Rect)
             SettingsRow::BackgroundBadge => {
                 settings_row_line(*row, "Background badge", value(&state.background_badge), changed, selected, width)
             }
+            SettingsRow::AgentBadges => {
+                settings_row_line(*row, "Agent badges", value(caret_blink_label(state.agent_badges)), changed, selected, width)
+            }
         };
         let dim_unused_palette = match row {
             SettingsRow::BorderPalette | SettingsRow::BorderPaletteColor(_) => {

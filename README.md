@@ -73,7 +73,7 @@ bind C new-session \; command-prompt -I "" "rename-session '%%'" \; command-prom
 | `⇧J` / `⇧K` | Move the selected session or window up/down (also `⇧↓` / `⇧↑`): a session row reorders within its group or crosses into the neighboring group; a window row reorders within its session or crosses into the neighboring session. Both wrap around at the top/bottom of the list. |
 | `r` | Rename the selected session or window |
 | `x` | Kill the selected session or window (press again to confirm) |
-| `a` | Open the agent view: every CLI agent pane grouped by state; `1`-`9` or `↵` jumps to its pane, `a` returns |
+| `a` | Open the agent view: every CLI agent pane grouped by state; `1`-`9` or `↵` jumps to its pane, `f`/`⇧F` work as in the tree, `a` returns |
 | `g` | Raise the cursor to group altitude |
 | `n` | Create a new session and switch to it |
 | `⇧N` | Create a new empty group above the selected session's group |
@@ -181,9 +181,10 @@ If the repeat window closes before your next tap, raise tmux's `repeat-time` (50
 ### Agent status
 
 rolomux shows a `✻` for each CLI agent on its window and session rows: red when the agent is waiting on you, yellow when it's done and it's your move, and green while it's working.
-Selecting a window jumps to its most urgent agent pane.
+Selecting a window jumps to its most urgent agent pane. Turn the badges off with the **Agent badges** setting.
 
 Press `a` for the agent view, which lists every agent pane grouped by state, longest in its state first, or open it directly with a tmux bind such as `bind a display-popup -E -B -w 84 -h 60% "exec rolomux --agents"`.
+Focus mode works there the same as in the tree: `f` hides agents in dormant sessions and windows, which are otherwise listed dimmed, and `⇧F` peeks. If focus mode is hiding an agent that's waiting on you, the footer says so in red, for example `1 blocked`.
 
 Any agent can opt in by setting a tmux pane option from its hooks, which requires tmux 3.1+: `tmux set -p -t "$TMUX_PANE" @agent_state waiting|done|working`. Clear it with `tmux set -pu -t "$TMUX_PANE" @agent_state`. Optionally set `@agent_since` to the Unix time the state began, `@agent_note` to a one-line note, and `@agent_bg` to a count of running background tasks.
 
@@ -242,6 +243,7 @@ Each row shows a jump number in its gutter; pressing it jumps straight to that r
 - **Caret style.** The glyph used for the inline text caret when renaming, creating, or searching: a thin bar (default), an underline, or a solid block.
 - **Caret blink.** Off by default (the caret stays solid). When on, the caret blinks.
 - **Background badge.** The glyph that marks agents with background tasks still running in the agent view. Cycle through ↻, ⧗ and ◔ with `h`/`l`.
+- **Agent badges.** On by default. Whether session and window rows show agent badges, in the tree and in search. The agent view is unaffected.
 
 | Key | Action |
 | --- | --- |

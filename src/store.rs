@@ -64,6 +64,8 @@ pub struct Config {
     pub border_color_policy: ColorPolicy,
     pub inbox_icon: String,
     pub background_badge: String,
+    /// Whether the tree shows agent badges on session and window rows.
+    pub agent_badges: bool,
     pub remember_expanded_sessions: bool,
     pub expanded: Vec<String>,
     pub session_metric: SessionMetric,
@@ -116,6 +118,7 @@ impl Default for Config {
             border_color_policy: ColorPolicy::Static,
             inbox_icon: "⊛".to_string(),
             background_badge: "↻".to_string(),
+            agent_badges: true,
             remember_expanded_sessions: false,
             expanded: Vec::new(),
             session_metric: SessionMetric::default(),
@@ -170,6 +173,7 @@ struct RawSettings {
     inbox_icon: Option<String>,
     #[serde(default)]
     background_badge: Option<String>,
+    agent_badges: Option<bool>,
     #[serde(default)]
     remember_expanded_sessions: Option<bool>,
     #[serde(default)]
@@ -205,6 +209,7 @@ struct OutSettings {
     border_color_policy: String,
     inbox_icon: String,
     background_badge: String,
+    agent_badges: bool,
     remember_expanded_sessions: bool,
     session_metric: String,
     start_focus_mode: String,
@@ -336,6 +341,7 @@ impl Config {
             .unwrap_or(ColorPolicy::Static);
         let inbox_icon = raw.settings.inbox_icon.unwrap_or_else(|| "⊛".to_string());
         let background_badge = raw.settings.background_badge.unwrap_or_else(|| "↻".to_string());
+        let agent_badges = raw.settings.agent_badges.unwrap_or(true);
         let active_palette = raw
             .settings
             .active_palette
@@ -393,6 +399,7 @@ impl Config {
             border_color_policy,
             inbox_icon,
             background_badge,
+            agent_badges,
             remember_expanded_sessions: raw.settings.remember_expanded_sessions.unwrap_or(false),
             expanded: raw.expanded,
             session_metric,
@@ -448,6 +455,7 @@ impl Config {
                 border_color_policy: self.border_color_policy.as_config_str().to_string(),
                 inbox_icon: self.inbox_icon.clone(),
                 background_badge: self.background_badge.clone(),
+                agent_badges: self.agent_badges,
                 remember_expanded_sessions: self.remember_expanded_sessions,
                 session_metric: self.session_metric.as_config_str().to_string(),
                 start_focus_mode: self.start_focus_mode.as_config_str().to_string(),
@@ -1229,6 +1237,19 @@ inbox = true
         let cfg = Config { background_badge: "◔".to_string(), ..Default::default() };
         cfg.save_to(&path).unwrap();
         assert_eq!(Config::load_from(&path).background_badge, "◔");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn agent_badges_default_on_round_trip_and_absent_key_loads_on() {
+        assert!(Config::default().agent_badges);
+        let dir = std::env::temp_dir().join(format!("rolomux-agent-badges-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.toml");
+        Config { agent_badges: false, ..Default::default() }.save_to(&path).unwrap();
+        assert!(!Config::load_from(&path).agent_badges);
+        std::fs::write(&path, "[settings]\ninbox_icon = \"♧\"\n").unwrap();
+        assert!(Config::load_from(&path).agent_badges);
         std::fs::remove_dir_all(&dir).ok();
     }
 

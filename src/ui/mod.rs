@@ -404,7 +404,7 @@ fn draw_command(frame: &mut Frame, state: &PickerState, inner: Rect) {
                     state.session_swap_marker(&sess.name),
                     wide_numbering,
                     caret,
-                    &state.session_agent_states(sess),
+                    &session_badges(state, sess),
                 ), raised));
             }
             Row::Window(si, wi) => {
@@ -579,7 +579,7 @@ fn draw_search(frame: &mut Frame, state: &PickerState, inner: Rect) {
                             .unwrap_or(attached_static_color),
                         AttachedColorMode::Static => attached_static_color,
                     };
-                    items.push(session_item(sess, state.is_expanded(&sess.name), selected, None, meta, state.is_dormant(&sess.name), attached_color, group_tag, None, state.session_metric, None, None, false, false, None, false, caret, &state.session_agent_states(sess)));
+                    items.push(session_item(sess, state.is_expanded(&sess.name), selected, None, meta, state.is_dormant(&sess.name), attached_color, group_tag, None, state.session_metric, None, None, false, false, None, false, caret, &session_badges(state, sess)));
                 }
                 Row::Window(si, wi) => {
                     let sess = results[*si];
@@ -900,9 +900,18 @@ fn header_item(state: &PickerState, gi: usize, width: u16, color: Color) -> List
     ListItem::new(Line::from(spans))
 }
 
-/// States of the agent panes in `win`, in pane order.
+/// Badges for a window row: its agents' states in pane order, or none when
+/// the agent badges setting is off.
 fn window_agent_states(state: &PickerState, win: &Window) -> Vec<AgentState> {
+    if !state.agent_badges {
+        return Vec::new();
+    }
     state.window_agents(win).iter().map(|a| a.state).collect()
+}
+
+/// Badges for a session row, or none when the agent badges setting is off.
+fn session_badges(state: &PickerState, sess: &Session) -> Vec<AgentState> {
+    if state.agent_badges { state.session_agent_states(sess) } else { Vec::new() }
 }
 
 /// The "{n} window(s)" count token for a session, singular for exactly one.
@@ -5094,6 +5103,16 @@ mod tests {
         let x = glyph_cells(&buf, y)[0].0;
         assert_eq!(buf[(x, y)].bg, SEL_BG);
         assert_eq!(buf[(x, y)].fg, Color::Red);
+    }
+
+    #[test]
+    fn agent_badges_setting_off_hides_badges_in_tree_and_search() {
+        let mut state = badge_state(vec![("@1", vec![AgentState::Waiting])]);
+        state.expand_session("alpha");
+        state.agent_badges = false;
+        assert!(!render_to_string(&state).contains('✻'));
+        state.enter_search();
+        assert!(!render_to_string(&state).contains('✻'));
     }
 
     #[test]
