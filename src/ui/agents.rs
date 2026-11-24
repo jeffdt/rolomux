@@ -68,7 +68,8 @@ struct LeadColumns {
 
 #[allow(clippy::too_many_arguments)]
 /// One agent row: jump number, state glyph (flat list only), the `●` for the
-/// window you came from, session, window, path, and the time in state
+/// window you came from (whose names also take the state color), session,
+/// window, path, and the time in state
 /// right-aligned at the end.
 fn agent_item(row: &AgentRow, number: usize, selected: bool, lead: LeadColumns, name_width: usize, window_width: usize, badge_width: usize, badge_glyph: &str, age_width: usize, width: usize, home: Option<&str>) -> ListItem<'static> {
     let color = agent_color(row.state);
@@ -90,7 +91,7 @@ fn agent_item(row: &AgentRow, number: usize, selected: bool, lead: LeadColumns, 
     let path = if age_cell == 0 { path } else { format!("{path:<path_room$}  {:>age_width$}", state_age(row)) };
     let dim = secondary(selected);
     let name_style = if row.dormant { dormant_session(selected) } else { Style::default() };
-    let name_style = if row.here { name_style.add_modifier(Modifier::BOLD) } else { name_style };
+    let name_style = if row.here && !row.dormant { Style::default().fg(color).add_modifier(Modifier::BOLD) } else { name_style };
     let mut spans = vec![Span::styled("│", Style::default().fg(color)), Span::styled(label, dim)];
     if lead.glyph {
         spans.push(Span::styled(AGENT_GLYPH, Style::default().fg(color)));
@@ -331,7 +332,7 @@ mod tests {
     }
 
     #[test]
-    fn window_you_came_from_gets_a_dot_in_its_state_color_and_bold_names() {
+    fn window_you_came_from_gets_a_dot_and_bold_names_in_its_state_color() {
         let mut st = mixed_from_gamma();
         let buf = render(&st, None);
         let y = row_with(&buf, "gamma");
@@ -340,6 +341,9 @@ mod tests {
         assert_eq!(buf[(dot, y)].fg, Color::Yellow, "the row's state color, not the attached color");
         let name = text_of(&buf)[y as usize].chars().position(|c| c == 'g').unwrap() as u16;
         assert!(buf[(name, y)].modifier.contains(Modifier::BOLD));
+        assert_eq!(buf[(name, y)].fg, Color::Yellow);
+        let window = name + text_of(&buf)[y as usize].chars().skip(name as usize).collect::<String>().find("win-gamma").unwrap() as u16;
+        assert_eq!(buf[(window, y)].fg, Color::Yellow);
         assert!(text_of(&buf)[row_with(&buf, "beta") as usize].contains("│1   beta"), "other rows reserve the dot slot");
         st.toggle_agent_layout();
         let buf = render(&st, None);
