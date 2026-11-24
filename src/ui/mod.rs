@@ -184,6 +184,21 @@ fn inset(area: Rect, margin: u16) -> Rect {
     }
 }
 
+/// The card's title. The agent view appends `/ agents` inside the brackets,
+/// with only the view name stepping out of the border color.
+fn card_title(mode: Mode, border_style: Style) -> Vec<Span<'static>> {
+    let title_style = border_style.add_modifier(Modifier::BOLD | Modifier::ITALIC);
+    let mut spans = vec![Span::styled("─", border_style)];
+    if mode == Mode::Agents {
+        spans.push(Span::styled("‹ rolomux / ", title_style));
+        spans.push(Span::styled("agents", Style::default().fg(Color::Reset).add_modifier(Modifier::ITALIC)));
+        spans.push(Span::styled(" ›", title_style));
+    } else {
+        spans.push(Span::styled("‹ rolomux ›", title_style));
+    }
+    spans
+}
+
 pub fn draw(frame: &mut Frame, state: &PickerState) {
     let area = inset(frame.area(), POPUP_MARGIN);
     let border_color = color_from_name(&state.border_color);
@@ -192,10 +207,7 @@ pub fn draw(frame: &mut Frame, state: &PickerState) {
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
         .border_style(border_style)
-        .title(Line::from(vec![
-            Span::styled("─", border_style),
-            Span::styled("‹ rolomux ›", border_style.add_modifier(Modifier::BOLD | Modifier::ITALIC)),
-        ]));
+        .title(Line::from(card_title(state.mode, border_style)));
     if state.mode == Mode::Settings {
         block = block.title_bottom(
             Line::from(vec![
@@ -3615,6 +3627,23 @@ mod tests {
         let mut terminal = Terminal::new(backend).unwrap();
         terminal.draw(|f| draw(f, state)).unwrap();
         terminal.backend().buffer().clone()
+    }
+
+    #[test]
+    fn agent_view_title_appends_agents_in_the_default_color() {
+        let sessions = vec![Session { id: String::new(), name: "a".into(), activity: 1, created: 1, attached: false,
+                                      windows: vec![Window { id: String::new(), index: 0, name: "w".into(), active: true }] }];
+        let mut state = PickerState::build(sessions, &Config::default());
+        assert!(render_to_string(&state).contains("‹ rolomux ›"));
+        state.enter_agents();
+        let buf = render_buf(&state);
+        let y = row_of(&buf, "‹ rolomux / agents ›");
+        let border = buf[(find_text_x(&buf, y, "‹").unwrap(), y)].fg;
+        let slash = find_text_x(&buf, y, "/").unwrap();
+        let word = find_text_x(&buf, y, "agents").unwrap();
+        assert_eq!(buf[(slash, y)].fg, border);
+        assert_eq!(buf[(word, y)].fg, Color::Reset);
+        assert!(!buf[(word, y)].modifier.contains(Modifier::BOLD));
     }
 
     fn row_of(buf: &ratatui::buffer::Buffer, needle: &str) -> u16 {
