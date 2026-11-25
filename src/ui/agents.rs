@@ -8,6 +8,8 @@ use crate::model::AgentRow;
 const MAX_WINDOW_WIDTH: usize = 24;
 const MAX_SESSION_WIDTH: usize = 24;
 const DETAIL_INDENT: usize = 7;
+/// Wide enough that the path reads as its own column, apart from the dim session name.
+const PATH_GAP: &str = "   ";
 
 
 /// Header text for a state's section.
@@ -68,8 +70,8 @@ struct LeadColumns {
 
 #[allow(clippy::too_many_arguments)]
 /// One agent row: jump number, state glyph (flat list only), the `●` for the
-/// window you came from (whose names also take the state color), session,
-/// window, path, and the time in state
+/// window you came from (whose agent name also takes the state color), the
+/// agent's window name, its session dimmed, path, and the time in state
 /// right-aligned at the end.
 fn agent_item(row: &AgentRow, number: usize, selected: bool, lead: LeadColumns, name_width: usize, window_width: usize, badge_width: usize, badge_glyph: &str, age_width: usize, width: usize, home: Option<&str>) -> ListItem<'static> {
     let color = agent_color(row.state);
@@ -84,14 +86,14 @@ fn agent_item(row: &AgentRow, number: usize, selected: bool, lead: LeadColumns, 
         " ".repeat(badge_width + 1)
     };
     let lead_width = 2 * (lead.glyph as usize + lead.here as usize);
-    let prefix_width = 1 + 2 + lead_width + name_width + 3 + window_width + badge_cell.chars().count() + 1;
+    let prefix_width = 1 + 2 + lead_width + name_width + 3 + window_width + badge_cell.chars().count() + PATH_GAP.len();
     let age_cell = if age_width == 0 { 0 } else { age_width + 2 };
     let path_room = width.saturating_sub(prefix_width + age_cell);
     let path = truncate_end(&tilde_home(&row.path, home), path_room);
-    let path = if age_cell == 0 { path } else { format!("{path:<path_room$}  {:>age_width$}", state_age(row)) };
+    let (path, age) = if age_cell == 0 { (path, String::new()) } else { (format!("{path:<path_room$}"), format!("  {:>age_width$}", state_age(row))) };
     let dim = secondary(selected);
-    let name_style = if row.dormant { dormant_session(selected) } else { Style::default() };
-    let name_style = if row.here && !row.dormant { Style::default().fg(color).add_modifier(Modifier::BOLD) } else { name_style };
+    let session_style = if row.dormant { dormant_session(selected) } else { dim };
+    let window_style = if row.dormant { session_style } else if row.here { Style::default().fg(color).add_modifier(Modifier::BOLD) } else { Style::default() };
     let mut spans = vec![Span::styled("│", Style::default().fg(color)), Span::styled(label, dim)];
     if lead.glyph {
         spans.push(Span::styled(AGENT_GLYPH, Style::default().fg(color)));
@@ -101,12 +103,13 @@ fn agent_item(row: &AgentRow, number: usize, selected: bool, lead: LeadColumns, 
         spans.push(Span::styled(if row.here { "● " } else { "  " }, Style::default().fg(color)));
     }
     spans.extend([
-        Span::styled(name, name_style),
-        Span::styled(" › ", dim),
-        Span::styled(window, name_style),
+        Span::styled(window, window_style),
+        Span::styled(" ‹ ", dim),
+        Span::styled(name, session_style),
         Span::styled(badge_cell, Style::default().fg(color)),
-        Span::raw(" "),
-        Span::styled(path, dim),
+        Span::raw(PATH_GAP),
+        Span::styled(path, dim.add_modifier(Modifier::ITALIC)),
+        Span::styled(age, dim),
     ]);
     ListItem::new(Line::from(spans))
 }
@@ -296,13 +299,13 @@ mod tests {
     #[test]
     fn rows_are_numbered_in_display_order_and_overflow_is_blank() {
         let buf = render(&mixed(), None);
-        assert!(text_of(&buf)[row_with(&buf, "beta") as usize].contains("│1 beta"));
-        assert!(text_of(&buf)[row_with(&buf, "gamma") as usize].contains("│2 gamma"));
-        assert!(text_of(&buf)[row_with(&buf, "alpha") as usize].contains("│3 alpha"));
+        assert!(text_of(&buf)[row_with(&buf, "beta") as usize].contains("│1 win-beta"));
+        assert!(text_of(&buf)[row_with(&buf, "gamma") as usize].contains("│2 win-gamma"));
+        assert!(text_of(&buf)[row_with(&buf, "alpha") as usize].contains("│3 win-alpha"));
         let many = state_with((0..11).map(|i| (Box::leak(format!("s{i:02}").into_boxed_str()) as &str, vec![pane("%1", AgentState::Working, "/p")])).collect());
         let buf = render_sized(&many, 40);
-        assert!(text_of(&buf)[row_with(&buf, "s08") as usize].contains("│9 s08"));
-        assert!(text_of(&buf)[row_with(&buf, "s09") as usize].contains("│  s09"));
+        assert!(text_of(&buf)[row_with(&buf, "s08") as usize].contains("│9 win-s08"));
+        assert!(text_of(&buf)[row_with(&buf, "s09") as usize].contains("│  win-s09"));
     }
 
     fn render_sized(st: &PickerState, height: u16) -> Buffer {
@@ -332,28 +335,30 @@ mod tests {
         st.toggle_agent_layout();
         let buf = render(&st, None);
         let y = row_with(&buf, "gamma");
-        assert!(text_of(&buf)[y as usize].contains(&format!("{AGENT_GLYPH} gamma")));
+        assert!(text_of(&buf)[y as usize].contains(&format!("{AGENT_GLYPH} win-gamma")));
         let x = (0..buf.area.width).find(|x| buf[(*x, y)].symbol() == AGENT_GLYPH).unwrap();
         assert_eq!(buf[(x, y)].fg, Color::Yellow);
     }
 
     #[test]
-    fn window_you_came_from_gets_a_dot_and_bold_names_in_its_state_color() {
+    fn window_you_came_from_gets_a_dot_and_its_agent_name_in_its_state_color() {
         let mut st = mixed_from_gamma();
         let buf = render(&st, None);
         let y = row_with(&buf, "gamma");
-        assert!(text_of(&buf)[y as usize].contains("● gamma"));
+        let line = &text_of(&buf)[y as usize];
+        assert!(line.contains("● win-gamma ‹ gamma"));
         let dot = (0..buf.area.width).find(|x| buf[(*x, y)].symbol() == "●").unwrap();
         assert_eq!(buf[(dot, y)].fg, Color::Yellow, "the row's state color, not the attached color");
-        let name = text_of(&buf)[y as usize].chars().position(|c| c == 'g').unwrap() as u16;
-        assert!(buf[(name, y)].modifier.contains(Modifier::BOLD));
-        assert_eq!(buf[(name, y)].fg, Color::Yellow);
-        let window = name + text_of(&buf)[y as usize].chars().skip(name as usize).collect::<String>().find("win-gamma").unwrap() as u16;
+        let window = line.chars().position(|c| c == 'w').unwrap() as u16;
+        assert!(buf[(window, y)].modifier.contains(Modifier::BOLD));
         assert_eq!(buf[(window, y)].fg, Color::Yellow);
-        assert!(text_of(&buf)[row_with(&buf, "beta") as usize].contains("│1   beta"), "other rows reserve the dot slot");
+        let session = window + line.chars().skip(window as usize).collect::<String>().find("‹ gamma").unwrap() as u16 + 2;
+        assert_ne!(buf[(session, y)].fg, Color::Yellow, "the session stays dim");
+        assert!(!buf[(session, y)].modifier.contains(Modifier::BOLD));
+        assert!(text_of(&buf)[row_with(&buf, "beta") as usize].contains("│1   win-beta"), "other rows reserve the dot slot");
         st.toggle_agent_layout();
         let buf = render(&st, None);
-        assert!(text_of(&buf)[row_with(&buf, "gamma") as usize].contains(&format!("{AGENT_GLYPH} ● gamma")));
+        assert!(text_of(&buf)[row_with(&buf, "gamma") as usize].contains(&format!("{AGENT_GLYPH} ● win-gamma")));
     }
 
     #[test]
@@ -361,7 +366,7 @@ mod tests {
         let mut st = mixed_from_gamma();
         st.current_session = Some("elsewhere".into());
         let buf = render(&st, None);
-        assert!(text_of(&buf)[row_with(&buf, "beta") as usize].contains("│1 beta"));
+        assert!(text_of(&buf)[row_with(&buf, "beta") as usize].contains("│1 win-beta"));
     }
 
     #[test]
@@ -373,6 +378,19 @@ mod tests {
         assert_eq!(header_x, gutter_x, "header starts in the gutter column");
         assert!(text_of(&buf)[y as usize].contains("DONE ───"));
         assert_eq!(buf[(header_x + 5, y)].fg, Color::Yellow);
+    }
+
+    #[test]
+    fn path_is_italic_but_the_age_is_not() {
+        let _clock = crate::ui::tests::freeze_clock(10_000);
+        let st = state_with(vec![("alpha", vec![AgentPane { since: 10_000 - 720, ..pane("%1", AgentState::Done, "/pa") }])]);
+        let buf = render(&st, None);
+        let y = row_with(&buf, "alpha");
+        let line = &text_of(&buf)[y as usize];
+        let at = |needle: &str| line[..line.find(needle).unwrap()].chars().count() as u16;
+        assert!(buf[(at("/pa"), y)].modifier.contains(Modifier::ITALIC));
+        assert!(!buf[(at("12m"), y)].modifier.contains(Modifier::ITALIC));
+        assert!(!buf[(at("alpha"), y)].modifier.contains(Modifier::ITALIC));
     }
 
     #[test]
@@ -589,7 +607,7 @@ mod tests {
         let long = "s".repeat(60);
         let st = state_with(vec![(long.as_str(), vec![pane("%1", AgentState::Done, "/the/path")])]);
         let text = text_of(&render(&st, None)).join("\n");
-        assert!(text.contains(&format!("{}… ›", "s".repeat(MAX_SESSION_WIDTH - 1))));
+        assert!(text.contains(&format!("‹ {}… ", "s".repeat(MAX_SESSION_WIDTH - 1))));
         assert!(text.contains("/the/path"));
     }
 
@@ -605,6 +623,6 @@ mod tests {
     #[test]
     fn no_badge_column_when_no_row_has_background_work() {
         let buf = render(&mixed(), None);
-        assert!(text_of(&buf)[row_with(&buf, "alpha") as usize].contains("win-alpha /w/alpha"));
+        assert!(text_of(&buf)[row_with(&buf, "alpha") as usize].contains("win-alpha ‹ alpha   /w/alpha"));
     }
 }
