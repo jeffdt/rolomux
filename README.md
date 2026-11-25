@@ -210,9 +210,9 @@ Focus mode works there the same as in the tree: `f` hides agents in dormant sess
 |---|---|
 | ![agent view grouped into BLOCKED, DONE and WORKING sections](docs/images/agents-grouped.png) | ![agent view as one list, newest first, with a state-colored glyph per row](docs/images/agents-flat.png) |
 
-Any agent can opt in by setting a tmux pane option from its hooks, which requires tmux 3.1+: `tmux set -p -t "$TMUX_PANE" @rolomux_agent_state waiting|done|working`. Clear it with `tmux set -pu -t "$TMUX_PANE" @rolomux_agent_state`. Optionally set `@rolomux_agent_since` to the Unix time the state began, `@rolomux_agent_note` to a one-line note, and `@rolomux_agent_bg` to a count of running background tasks.
+Any agent can opt in by setting a tmux pane option from its hooks, which requires tmux 3.1+: `tmux set -p -t "$TMUX_PANE" @rolomux_agent_state waiting|done|working`. Clear it with `tmux set -pu -t "$TMUX_PANE" @rolomux_agent_state`. Optionally set `@rolomux_agent_since` to the Unix time the state began, `@rolomux_agent_note` to a one-line note, `@rolomux_agent_bg` to a count of running background tasks, and `@rolomux_agent_title` to a name shown in place of the window name.
 
-For Claude Code, the agent view also shows a short note for the selected agent (what it asks, what it said, or your last prompt), how long each agent has been in its state, and marks agents with background tasks running. Install the hook script and merge its hooks into `~/.claude/settings.json` (needs `jq`; your other hooks are kept, a backup is saved as `settings.json.bak`, nothing changes if a step fails, and rerunning it upgrades in place):
+For Claude Code, the agent view also shows a short note for the selected agent (what it asks, what it said, or your last prompt), how long each agent has been in its state, marks agents with background tasks running, and names a session you renamed with `/rename` by that title (it updates on your next prompt). Install the hook script and merge its hooks into `~/.claude/settings.json` (needs `jq`; your other hooks are kept, a backup is saved as `settings.json.bak`, nothing changes if a step fails, and rerunning it upgrades in place):
 
 ```sh
 base=https://raw.githubusercontent.com/jeffdt/rolomux/main/contrib/claude-code

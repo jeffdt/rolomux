@@ -19,7 +19,7 @@ impl PickerState {
                     self.window_agents(win).iter().map(move |p| AgentRow {
                         session: sess.name.clone(),
                         window_index: win.index,
-                        window_name: win.name.clone(),
+                        window_name: if p.title.is_empty() { win.name.clone() } else { p.title.clone() },
                         pane_id: p.pane_id.clone(),
                         path: p.path.clone(),
                         state: p.state,
@@ -111,7 +111,7 @@ mod tests {
     use crate::store::Config;
 
     fn pane(id: &str, state: AgentState) -> AgentPane {
-        AgentPane { pane_id: id.into(), state, reported_state: state, path: format!("/p/{id}"), background: 0, since: 0, note: String::new() }
+        AgentPane { pane_id: id.into(), state, reported_state: state, path: format!("/p/{id}"), background: 0, since: 0, note: String::new(), title: String::new() }
     }
 
     /// Sessions `a` (window @1) and `b` (window @2), in that order.
@@ -134,6 +134,14 @@ mod tests {
             vec![pane("%1", AgentState::Working), pane("%2", AgentState::Waiting)],
             vec![pane("%3", AgentState::Waiting), pane("%4", AgentState::Done)],
         )
+    }
+
+    #[test]
+    fn reported_title_replaces_the_window_name() {
+        let titled = AgentPane { title: "fix-login".into(), ..pane("%1", AgentState::Waiting) };
+        let st = two_sessions(vec![titled], vec![pane("%2", AgentState::Waiting)]);
+        let names: Vec<_> = st.agent_rows().into_iter().map(|r| (r.session, r.window_name)).collect();
+        assert!(names.contains(&("a".into(), "fix-login".into())) && names.contains(&("b".into(), "wb".into())));
     }
 
     #[test]

@@ -519,6 +519,8 @@ pub struct AgentPane {
     pub since: i64,
     /// Free-text note the agent reported.
     pub note: String,
+    /// Session title the agent reported (e.g. a Claude Code `/rename`); empty when unset.
+    pub title: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

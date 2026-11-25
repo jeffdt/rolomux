@@ -11,17 +11,20 @@ unset_opt() { tmux set -pu -t "$TMUX_PANE" "$1"; }
 text='gsub("\\s+"; " ") | if length > 3000 then .[:1500] + " … " + .[-1500:] else . end'
 # What rolomux shows: the state, plus whether background tasks are running.
 shown() { tmux display -p -t "$TMUX_PANE" '#{@rolomux_agent_state}#{?@rolomux_agent_bg,+,}'; }
+# A /rename title rides on SessionStart and UserPromptSubmit; no hook fires on the rename itself.
+title() { t=$(field ".session_title // empty | $text"); if [ -n "$t" ]; then opt @rolomux_agent_title "$t"; else unset_opt @rolomux_agent_title; fi; }
 questions() { field "[.tool_input.questions[]?.question] | join(\" · \") | $text"; }
 before=$(shown)
 case "$1" in
   start|end)
     # Compaction (even mid-turn) also fires SessionStart; it is not a new session.
     [ "$(field .source)" = compact ] && exit 0
-    for o in @rolomux_agent_state @rolomux_agent_note @rolomux_agent_bg @rolomux_agent_since @rolomux_agent_prompt; do unset_opt "$o"; done
+    for o in @rolomux_agent_state @rolomux_agent_note @rolomux_agent_bg @rolomux_agent_since @rolomux_agent_prompt @rolomux_agent_title; do unset_opt "$o"; done
+    [ "$1" = start ] && title
     exit 0 ;;
   prompt)
     p=$(field ".prompt | $text")
-    opt @rolomux_agent_state working; unset_opt @rolomux_agent_bg
+    opt @rolomux_agent_state working; unset_opt @rolomux_agent_bg; title
     # A subagent's report arrives as a prompt; keep showing what you asked.
     case "$p" in '<agent-message'*|'<task-notification'*) ;; *) opt @rolomux_agent_note "$p"; opt @rolomux_agent_prompt "$p" ;; esac ;;
   tool)
