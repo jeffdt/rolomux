@@ -12,7 +12,7 @@ text='gsub("\\s+"; " ") | if length > 3000 then .[:1500] + " … " + .[-1500:] e
 # What rolomux shows: the state, plus whether background tasks are running.
 shown() { tmux display -p -t "$TMUX_PANE" '#{@rolomux_agent_state}#{?@rolomux_agent_bg,+,}'; }
 # A /rename title rides on SessionStart and UserPromptSubmit; no hook fires on the rename itself.
-title() { t=$(field '.session_title // empty'); if [ -n "$t" ]; then opt @rolomux_agent_title "$t"; else unset_opt @rolomux_agent_title; fi; }
+title() { t=$(field ".session_title // empty | $text"); if [ -n "$t" ]; then opt @rolomux_agent_title "$t"; else unset_opt @rolomux_agent_title; fi; }
 questions() { field "[.tool_input.questions[]?.question] | join(\" · \") | $text"; }
 before=$(shown)
 case "$1" in
