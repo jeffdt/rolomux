@@ -26,10 +26,10 @@ case "$1" in
     p=$(field ".prompt | $text")
     opt @rolomux_agent_state working; unset_opt @rolomux_agent_bg; title
     # A subagent's report arrives as a prompt; keep showing what you asked.
-    case "$p" in '<agent-message'*|'<task-notification'*) ;; *) opt @rolomux_agent_note "$p"; opt @rolomux_agent_prompt "$p" ;; esac ;;
+    case "$p" in '<agent-message'*|'<task-notification'*) opt @rolomux_agent_note "$(tmux show -pqv -t "$TMUX_PANE" @rolomux_agent_prompt)" ;; *) opt @rolomux_agent_note "$p"; opt @rolomux_agent_prompt "$p" ;; esac ;;
   tool)
-    # Back to work after a question or permission: show your prompt again.
-    case "$before" in waiting*) opt @rolomux_agent_note "$(tmux show -pqv -t "$TMUX_PANE" @rolomux_agent_prompt)" ;; esac
+    # Back to work after a question, a permission, or a Stop that fired mid-turn: show your prompt again.
+    case "$before" in working*) ;; *) opt @rolomux_agent_note "$(tmux show -pqv -t "$TMUX_PANE" @rolomux_agent_prompt)" ;; esac
     opt @rolomux_agent_state working ;;
   ask) opt @rolomux_agent_state waiting; opt @rolomux_agent_note "$(questions)" ;;
   permission)
