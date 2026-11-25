@@ -3,7 +3,9 @@ use std::collections::HashMap;
 use std::io;
 use std::process::Command;
 
-pub const FMT: &str = "#{session_name}\x1f#{session_activity}\x1f#{session_created}\x1f#{session_attached}\x1f#{window_index}\x1f#{window_name}\x1f#{window_active}\x1f#{session_id}\x1f#{window_id}\x1f#{pane_id}\x1f#{@rolomux_agent_state}\x1f#{pane_current_path}\x1f#{@rolomux_agent_bg}\x1f#{@rolomux_agent_since}\x1f#{@rolomux_agent_note}";
+pub const FMT: &str = "#{session_name}\x1f#{session_activity}\x1f#{session_created}\x1f#{session_attached}\x1f#{window_index}\x1f#{window_name}\x1f#{window_active}\x1f#{session_id}\x1f#{window_id}\x1f#{pane_id}\x1f#{@rolomux_agent_state}\x1f#{pane_current_path}\x1f#{@rolomux_agent_bg}\x1f#{@rolomux_agent_since}\x1f#{@rolomux_agent_title}\x1f#{@rolomux_agent_note}";
+/// Fields per `FMT` line; the free-text note is last so it can absorb stray separators.
+const FIELDS: usize = 16;
 
 /// Result of a single gather: the sessions plus the name of the session the
 /// popup was launched from (when it can be resolved from `$TMUX`).
@@ -129,7 +131,7 @@ impl Tmux for RealTmux {
                 });
                 // A running tmux server can't have zero sessions, so parsing
                 // zero out of non-empty stdout means the lines didn't match
-                // FMT's expected 15-field shape. Log a preview to diagnose
+                // FMT's expected `FIELDS`-field shape. Log a preview to diagnose
                 // field-report crashes without needing raw output relayed by hand.
                 if sessions.is_empty() && !raw.trim().is_empty() {
                     crate::debug::log(|| {
@@ -432,8 +434,8 @@ pub fn current_session(raw: &str, tmux_env: Option<&str>) -> Option<String> {
         return None;
     }
     for line in raw.lines() {
-        let f: Vec<&str> = line.splitn(15, '\u{1f}').collect();
-        if f.len() == 15 && f[7].trim_start_matches('$') == id_num {
+        let f: Vec<&str> = line.splitn(FIELDS, '\u{1f}').collect();
+        if f.len() == FIELDS && f[7].trim_start_matches('$') == id_num {
             return Some(f[0].to_string());
         }
     }
@@ -460,8 +462,8 @@ pub fn parse_windows(raw: &str) -> Vec<Session> {
         if line.is_empty() {
             continue;
         }
-        let f: Vec<&str> = line.splitn(15, '\u{1f}').collect();
-        if f.len() != 15 {
+        let f: Vec<&str> = line.splitn(FIELDS, '\u{1f}').collect();
+        if f.len() != FIELDS {
             continue;
         }
         let name = f[0].to_string();
@@ -494,8 +496,8 @@ pub fn parse_windows(raw: &str) -> Vec<Session> {
 pub fn parse_agents(raw: &str) -> HashMap<String, Vec<AgentPane>> {
     let mut agents: HashMap<String, Vec<AgentPane>> = HashMap::new();
     for line in raw.lines() {
-        let f: Vec<&str> = line.splitn(15, '\u{1f}').collect();
-        if f.len() != 15 {
+        let f: Vec<&str> = line.splitn(FIELDS, '\u{1f}').collect();
+        if f.len() != FIELDS {
             continue;
         }
         if let Some(reported_state) = AgentState::parse(f[10]) {
@@ -508,7 +510,8 @@ pub fn parse_agents(raw: &str) -> HashMap<String, Vec<AgentPane>> {
                 path: f[11].to_string(),
                 background,
                 since: f[13].parse().unwrap_or(0),
-                note: f[14].to_string(),
+                title: f[14].to_string(),
+                note: f[15].to_string(),
             });
         }
     }
@@ -686,9 +689,9 @@ mod tests {
         // Fields separated by the unit separator \x1f; one line per window.
         // Trailing field is #{window_id}; #{session_id} is second-to-last.
         let raw = "\
-work\u{1f}100\u{1f}10\u{1f}1\u{1f}0\u{1f}editor\u{1f}1\u{1f}$3\u{1f}@1\u{1f}%0\u{1f}\u{1f}/p\u{1f}\u{1f}\u{1f}
-work\u{1f}100\u{1f}10\u{1f}1\u{1f}1\u{1f}my logs\u{1f}0\u{1f}$3\u{1f}@2\u{1f}%0\u{1f}\u{1f}/p\u{1f}\u{1f}\u{1f}
-scratch\u{1f}50\u{1f}5\u{1f}0\u{1f}0\u{1f}shell\u{1f}1\u{1f}$8\u{1f}@3\u{1f}%0\u{1f}\u{1f}/p\u{1f}\u{1f}\u{1f}
+work\u{1f}100\u{1f}10\u{1f}1\u{1f}0\u{1f}editor\u{1f}1\u{1f}$3\u{1f}@1\u{1f}%0\u{1f}\u{1f}/p\u{1f}\u{1f}\u{1f}\u{1f}
+work\u{1f}100\u{1f}10\u{1f}1\u{1f}1\u{1f}my logs\u{1f}0\u{1f}$3\u{1f}@2\u{1f}%0\u{1f}\u{1f}/p\u{1f}\u{1f}\u{1f}\u{1f}
+scratch\u{1f}50\u{1f}5\u{1f}0\u{1f}0\u{1f}shell\u{1f}1\u{1f}$8\u{1f}@3\u{1f}%0\u{1f}\u{1f}/p\u{1f}\u{1f}\u{1f}\u{1f}
 ";
         let sessions = parse_windows(raw);
         assert_eq!(
@@ -718,9 +721,9 @@ scratch\u{1f}50\u{1f}5\u{1f}0\u{1f}0\u{1f}shell\u{1f}1\u{1f}$8\u{1f}@3\u{1f}%0\u
     #[test]
     fn parse_windows_populates_one_session_id_per_session() {
         let raw = "\
-work\u{1f}100\u{1f}10\u{1f}1\u{1f}0\u{1f}editor\u{1f}1\u{1f}$3\u{1f}@1\u{1f}%0\u{1f}\u{1f}/p\u{1f}\u{1f}\u{1f}
-work\u{1f}100\u{1f}10\u{1f}1\u{1f}1\u{1f}my logs\u{1f}0\u{1f}$3\u{1f}@2\u{1f}%0\u{1f}\u{1f}/p\u{1f}\u{1f}\u{1f}
-scratch\u{1f}50\u{1f}5\u{1f}0\u{1f}0\u{1f}shell\u{1f}1\u{1f}$8\u{1f}@3\u{1f}%0\u{1f}\u{1f}/p\u{1f}\u{1f}\u{1f}
+work\u{1f}100\u{1f}10\u{1f}1\u{1f}0\u{1f}editor\u{1f}1\u{1f}$3\u{1f}@1\u{1f}%0\u{1f}\u{1f}/p\u{1f}\u{1f}\u{1f}\u{1f}
+work\u{1f}100\u{1f}10\u{1f}1\u{1f}1\u{1f}my logs\u{1f}0\u{1f}$3\u{1f}@2\u{1f}%0\u{1f}\u{1f}/p\u{1f}\u{1f}\u{1f}\u{1f}
+scratch\u{1f}50\u{1f}5\u{1f}0\u{1f}0\u{1f}shell\u{1f}1\u{1f}$8\u{1f}@3\u{1f}%0\u{1f}\u{1f}/p\u{1f}\u{1f}\u{1f}\u{1f}
 ";
         let sessions = parse_windows(raw);
         assert_eq!(sessions.len(), 2, "two sessions, ids collapse per-session not per-window");
@@ -755,8 +758,8 @@ scratch\u{1f}50\u{1f}5\u{1f}0\u{1f}0\u{1f}shell\u{1f}1\u{1f}$8\u{1f}@3\u{1f}%0\u
     }
 
     const SAMPLE: &str = "\
-work\u{1f}100\u{1f}10\u{1f}1\u{1f}0\u{1f}editor\u{1f}1\u{1f}$3\u{1f}@1\u{1f}%0\u{1f}\u{1f}/p\u{1f}\u{1f}\u{1f}
-scratch\u{1f}50\u{1f}5\u{1f}0\u{1f}0\u{1f}shell\u{1f}1\u{1f}$8\u{1f}@2\u{1f}%0\u{1f}\u{1f}/p\u{1f}\u{1f}\u{1f}
+work\u{1f}100\u{1f}10\u{1f}1\u{1f}0\u{1f}editor\u{1f}1\u{1f}$3\u{1f}@1\u{1f}%0\u{1f}\u{1f}/p\u{1f}\u{1f}\u{1f}\u{1f}
+scratch\u{1f}50\u{1f}5\u{1f}0\u{1f}0\u{1f}shell\u{1f}1\u{1f}$8\u{1f}@2\u{1f}%0\u{1f}\u{1f}/p\u{1f}\u{1f}\u{1f}\u{1f}
 ";
 
     #[test]
@@ -765,8 +768,8 @@ scratch\u{1f}50\u{1f}5\u{1f}0\u{1f}0\u{1f}shell\u{1f}1\u{1f}$8\u{1f}@2\u{1f}%0\u
         // (backslash-zero-three-seven), with records still newline-separated.
         // This is the exact shape from a real 3.5a field report.
         let escaped =
-            "0\\0371782948598\\0371782748885\\0371\\0371\\0372.1.198\\0371\\037$0\\037@1\\037%0\\037\\037/p\\037\\037\\037\n\
-             0\\0371782948598\\0371782748885\\0371\\0372\\037zsh\\0370\\037$0\\037@2\\037%1\\037\\037/p\\037\\037\\037\n";
+            "0\\0371782948598\\0371782748885\\0371\\0371\\0372.1.198\\0371\\037$0\\037@1\\037%0\\037\\037/p\\037\\037\\037\\037\n\
+             0\\0371782948598\\0371782748885\\0371\\0372\\037zsh\\0370\\037$0\\037@2\\037%1\\037\\037/p\\037\\037\\037\\037\n";
         let normalized = normalize_separators(escaped);
         assert!(normalized.contains('\u{1f}'), "escape converted to real separator");
         assert!(!normalized.contains("\\037"), "no literal escape remains");
@@ -783,7 +786,7 @@ scratch\u{1f}50\u{1f}5\u{1f}0\u{1f}0\u{1f}shell\u{1f}1\u{1f}$8\u{1f}@2\u{1f}%0\u
     #[test]
     fn normalize_separators_passes_raw_byte_form_through_unallocated() {
         // tmux versions that emit the raw 0x1F byte are borrowed, not copied.
-        let raw = "work\u{1f}100\u{1f}10\u{1f}1\u{1f}0\u{1f}editor\u{1f}1\u{1f}$3\u{1f}@1\u{1f}%0\u{1f}\u{1f}/p\u{1f}\u{1f}\u{1f}";
+        let raw = "work\u{1f}100\u{1f}10\u{1f}1\u{1f}0\u{1f}editor\u{1f}1\u{1f}$3\u{1f}@1\u{1f}%0\u{1f}\u{1f}/p\u{1f}\u{1f}\u{1f}\u{1f}";
         assert!(matches!(normalize_separators(raw), std::borrow::Cow::Borrowed(_)));
         let sessions = parse_windows(&normalize_separators(raw));
         assert_eq!(sessions.len(), 1);
@@ -840,8 +843,8 @@ scratch\u{1f}50\u{1f}5\u{1f}0\u{1f}0\u{1f}shell\u{1f}1\u{1f}$8\u{1f}@2\u{1f}%0\u
     #[test]
     fn pane_rows_of_one_window_yield_one_window() {
         let raw = "\
-work\u{1f}100\u{1f}10\u{1f}1\u{1f}0\u{1f}editor\u{1f}1\u{1f}$3\u{1f}@1\u{1f}%1\u{1f}\u{1f}/p\u{1f}\u{1f}\u{1f}
-work\u{1f}100\u{1f}10\u{1f}1\u{1f}0\u{1f}editor\u{1f}1\u{1f}$3\u{1f}@1\u{1f}%2\u{1f}\u{1f}/p\u{1f}\u{1f}\u{1f}
+work\u{1f}100\u{1f}10\u{1f}1\u{1f}0\u{1f}editor\u{1f}1\u{1f}$3\u{1f}@1\u{1f}%1\u{1f}\u{1f}/p\u{1f}\u{1f}\u{1f}\u{1f}
+work\u{1f}100\u{1f}10\u{1f}1\u{1f}0\u{1f}editor\u{1f}1\u{1f}$3\u{1f}@1\u{1f}%2\u{1f}\u{1f}/p\u{1f}\u{1f}\u{1f}\u{1f}
 ";
         let sessions = parse_windows(raw);
         assert_eq!(sessions.len(), 1);
@@ -850,7 +853,7 @@ work\u{1f}100\u{1f}10\u{1f}1\u{1f}0\u{1f}editor\u{1f}1\u{1f}$3\u{1f}@1\u{1f}%2\u
 
     #[test]
     fn agent_state_containing_separator_keeps_window_and_is_not_an_agent() {
-        let raw = "work\u{1f}100\u{1f}10\u{1f}1\u{1f}0\u{1f}editor\u{1f}1\u{1f}$3\u{1f}@1\u{1f}%1\u{1f}wait\u{1f}ing\u{1f}/p\u{1f}\u{1f}\u{1f}\n";
+        let raw = "work\u{1f}100\u{1f}10\u{1f}1\u{1f}0\u{1f}editor\u{1f}1\u{1f}$3\u{1f}@1\u{1f}%1\u{1f}wait\u{1f}ing\u{1f}/p\u{1f}\u{1f}\u{1f}\u{1f}\n";
         let sessions = parse_windows(raw);
         assert_eq!(sessions.len(), 1);
         assert_eq!(sessions[0].windows.len(), 1);
@@ -861,18 +864,18 @@ work\u{1f}100\u{1f}10\u{1f}1\u{1f}0\u{1f}editor\u{1f}1\u{1f}$3\u{1f}@1\u{1f}%2\u
     #[test]
     fn parse_agents_keeps_only_panes_with_a_known_state() {
         let raw = "\
-work\u{1f}100\u{1f}10\u{1f}1\u{1f}0\u{1f}editor\u{1f}1\u{1f}$3\u{1f}@1\u{1f}%1\u{1f}waiting\u{1f}/p\u{1f}\u{1f}\u{1f}
-work\u{1f}100\u{1f}10\u{1f}1\u{1f}0\u{1f}editor\u{1f}1\u{1f}$3\u{1f}@1\u{1f}%2\u{1f}working\u{1f}/p\u{1f}\u{1f}\u{1f}
-work\u{1f}100\u{1f}10\u{1f}1\u{1f}0\u{1f}editor\u{1f}1\u{1f}$3\u{1f}@1\u{1f}%3\u{1f}\u{1f}/p\u{1f}\u{1f}\u{1f}
-work\u{1f}100\u{1f}10\u{1f}1\u{1f}0\u{1f}editor\u{1f}1\u{1f}$3\u{1f}@1\u{1f}%4\u{1f}bogus\u{1f}/p\u{1f}\u{1f}\u{1f}
-work\u{1f}100\u{1f}10\u{1f}1\u{1f}1\u{1f}logs\u{1f}0\u{1f}$3\u{1f}@2\u{1f}%5\u{1f}\u{1f}/p\u{1f}\u{1f}\u{1f}
+work\u{1f}100\u{1f}10\u{1f}1\u{1f}0\u{1f}editor\u{1f}1\u{1f}$3\u{1f}@1\u{1f}%1\u{1f}waiting\u{1f}/p\u{1f}\u{1f}\u{1f}\u{1f}
+work\u{1f}100\u{1f}10\u{1f}1\u{1f}0\u{1f}editor\u{1f}1\u{1f}$3\u{1f}@1\u{1f}%2\u{1f}working\u{1f}/p\u{1f}\u{1f}\u{1f}\u{1f}
+work\u{1f}100\u{1f}10\u{1f}1\u{1f}0\u{1f}editor\u{1f}1\u{1f}$3\u{1f}@1\u{1f}%3\u{1f}\u{1f}/p\u{1f}\u{1f}\u{1f}\u{1f}
+work\u{1f}100\u{1f}10\u{1f}1\u{1f}0\u{1f}editor\u{1f}1\u{1f}$3\u{1f}@1\u{1f}%4\u{1f}bogus\u{1f}/p\u{1f}\u{1f}\u{1f}\u{1f}
+work\u{1f}100\u{1f}10\u{1f}1\u{1f}1\u{1f}logs\u{1f}0\u{1f}$3\u{1f}@2\u{1f}%5\u{1f}\u{1f}/p\u{1f}\u{1f}\u{1f}\u{1f}
 ";
         let agents = parse_agents(raw);
         assert_eq!(
             agents["@1"],
             vec![
-                AgentPane { pane_id: "%1".into(), state: AgentState::Waiting, reported_state: AgentState::Waiting, path: "/p".into(), background: 0, since: 0, note: String::new() },
-                AgentPane { pane_id: "%2".into(), state: AgentState::Working, reported_state: AgentState::Working, path: "/p".into(), background: 0, since: 0, note: String::new() },
+                AgentPane { pane_id: "%1".into(), state: AgentState::Waiting, reported_state: AgentState::Waiting, path: "/p".into(), background: 0, since: 0, note: String::new(), title: String::new() },
+                AgentPane { pane_id: "%2".into(), state: AgentState::Working, reported_state: AgentState::Working, path: "/p".into(), background: 0, since: 0, note: String::new(), title: String::new() },
             ]
         );
         assert!(!agents.contains_key("@2"));
@@ -880,12 +883,12 @@ work\u{1f}100\u{1f}10\u{1f}1\u{1f}1\u{1f}logs\u{1f}0\u{1f}$3\u{1f}@2\u{1f}%5\u{1
     }
 
     fn agent_line(pane: &str, state: &str, bg: &str, note: &str) -> String {
-        format!("work\u{1f}100\u{1f}10\u{1f}1\u{1f}0\u{1f}editor\u{1f}1\u{1f}$3\u{1f}@1\u{1f}{pane}\u{1f}{state}\u{1f}/p\u{1f}{bg}\u{1f}\u{1f}{note}\n")
+        format!("work\u{1f}100\u{1f}10\u{1f}1\u{1f}0\u{1f}editor\u{1f}1\u{1f}$3\u{1f}@1\u{1f}{pane}\u{1f}{state}\u{1f}/p\u{1f}{bg}\u{1f}\u{1f}\u{1f}{note}\n")
     }
 
     #[test]
     fn parse_agents_reads_since_and_treats_bad_values_as_unknown() {
-        let line = |since: &str| agent_line("%1", "waiting", "", "n").replace("\u{1f}\u{1f}n", &format!("\u{1f}{since}\u{1f}n"));
+        let line = |since: &str| agent_line("%1", "waiting", "", "n").replace("\u{1f}\u{1f}\u{1f}n", &format!("\u{1f}{since}\u{1f}\u{1f}n"));
         assert_eq!(parse_agents(&line("1700000000"))["@1"][0].since, 1_700_000_000);
         assert_eq!(parse_agents(&line("soon"))["@1"][0].since, 0);
     }
@@ -894,6 +897,13 @@ work\u{1f}100\u{1f}10\u{1f}1\u{1f}1\u{1f}logs\u{1f}0\u{1f}$3\u{1f}@2\u{1f}%5\u{1
     fn parse_agents_reads_note_and_background() {
         let p = &parse_agents(&agent_line("%1", "working", "3", "fixing tests"))["@1"][0];
         assert_eq!((p.background, p.note.as_str(), p.state), (3, "fixing tests", AgentState::Working));
+    }
+
+    #[test]
+    fn parse_agents_reads_title_between_since_and_note() {
+        let raw = agent_line("%1", "waiting", "", "n").replace("\u{1f}\u{1f}n", "\u{1f}fix-login\u{1f}n");
+        let p = &parse_agents(&raw)["@1"][0];
+        assert_eq!((p.title.as_str(), p.note.as_str()), ("fix-login", "n"));
     }
 
     #[test]
