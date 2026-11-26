@@ -127,12 +127,8 @@ pub struct PickerState {
     pub static_color: String,
     pub active_palette: Vec<String>,
     pub border_active_palette: Vec<String>,
-    pub attached_color: String,
-    pub attached_color_mode: AttachedColorMode,
     pub border_color: String,
     pub border_color_policy: ColorPolicy,
-    pub dot_color_mode: DotColorMode,
-    pub dot_color: String,
     pub shortcut_color: String,
     /// Glyph shown in the agent view for agents with background tasks.
     pub background_badge: String,
@@ -230,12 +226,8 @@ impl PickerState {
             static_color: config.static_color.clone(),
             active_palette: config.active_palette.clone(),
             border_active_palette: config.border_active_palette.clone(),
-            attached_color: config.attached_color.clone(),
-            attached_color_mode: config.attached_color_mode,
             border_color: config.border_color.clone(),
             border_color_policy: config.border_color_policy,
-            dot_color_mode: config.dot_color_mode,
-            dot_color: config.dot_color.clone(),
             shortcut_color: config.shortcut_color.clone(),
             background_badge: config.background_badge.clone(),
             agent_badges: config.agent_badges,
@@ -495,8 +487,6 @@ impl PickerState {
         config.static_color = self.static_color.clone();
         config.active_palette = self.active_palette.clone();
         config.border_active_palette = self.border_active_palette.clone();
-        config.attached_color = self.attached_color.clone();
-        config.attached_color_mode = self.attached_color_mode;
         config.border_color = self.border_color.clone();
         config.border_color_policy = self.border_color_policy;
         config.inbox_icon = self.inbox_icon.clone();
@@ -507,8 +497,6 @@ impl PickerState {
         config.clear_dormant_on_attach = self.clear_dormant_on_attach;
         config.search_window_names = self.search_window_names;
         config.session_metric = self.session_metric;
-        config.dot_color_mode = self.dot_color_mode;
-        config.dot_color = self.dot_color.clone();
         config.shortcut_color = self.shortcut_color.clone();
         config.always_show_shortcuts = self.always_show_shortcuts;
         config.caret_style = self.caret_style;
@@ -1345,11 +1333,8 @@ mod tests {
             new_group_color_policy: ColorPolicy::Static,
             static_color: "red".to_string(),
             active_palette: vec!["red".to_string(), "white".to_string()],
-            dot_color_mode: DotColorMode::Group,
-            dot_color: "lightred".to_string(),
             shortcut_color: "lightyellow".to_string(),
             always_show_shortcuts: false,
-            attached_color_mode: AttachedColorMode::Match,
             ..Default::default()
         };
         let state = PickerState::build(sessions, &cfg);
@@ -1359,11 +1344,8 @@ mod tests {
         assert_eq!(state.new_group_color_policy, ColorPolicy::Static);
         assert_eq!(state.static_color, "red");
         assert_eq!(state.active_palette, vec!["red".to_string(), "white".to_string()]);
-        assert_eq!(state.dot_color_mode, DotColorMode::Group);
-        assert_eq!(state.dot_color, "lightred");
         assert_eq!(state.shortcut_color, "lightyellow");
         assert!(!state.always_show_shortcuts);
-        assert_eq!(state.attached_color_mode, AttachedColorMode::Match);
     }
 
     #[test]
@@ -1451,8 +1433,6 @@ mod tests {
         st.expand();
         st.move_cursor(2); // land on window index 1
         st.toggle_dormant();
-        st.attached_color = "magenta".to_string();
-        st.attached_color_mode = AttachedColorMode::Match;
         st.border_color = "yellow".to_string();
         st.default_mode = DefaultMode::Search;
         st.number_dormant_sessions = false;
@@ -1463,8 +1443,6 @@ mod tests {
         st.remember_expanded_sessions = true;
         st.clear_dormant_on_attach = true;
         st.session_metric = SessionMetric::Age;
-        st.dot_color_mode = DotColorMode::Group;
-        st.dot_color = "lightblue".to_string();
         st.shortcut_color = "lightcyan".to_string();
         st.always_show_shortcuts = false;
         st.caret_style = CaretStyle::Underline;
@@ -1477,8 +1455,6 @@ mod tests {
         let reloaded = Config::load_from(&path);
 
         assert!(reloaded.agents_oldest_first && reloaded.agents_flat);
-        assert_eq!(reloaded.attached_color, "magenta");
-        assert_eq!(reloaded.attached_color_mode, AttachedColorMode::Match);
         assert_eq!(reloaded.border_color, "yellow");
         assert_eq!(reloaded.default_mode, DefaultMode::Search);
         assert!(!reloaded.number_dormant_sessions);
@@ -1489,8 +1465,6 @@ mod tests {
         assert!(reloaded.remember_expanded_sessions);
         assert!(reloaded.clear_dormant_on_attach);
         assert_eq!(reloaded.session_metric, SessionMetric::Age);
-        assert_eq!(reloaded.dot_color_mode, DotColorMode::Group);
-        assert_eq!(reloaded.dot_color, "lightblue");
         assert_eq!(reloaded.shortcut_color, "lightcyan");
         assert!(!reloaded.always_show_shortcuts);
         assert_eq!(reloaded.caret_style, CaretStyle::Underline);
