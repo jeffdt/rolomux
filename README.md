@@ -82,7 +82,7 @@ bind C new-session \; command-prompt -I "" "rename-session '%%'" \; command-prom
 | `⇧J` / `⇧K` | Move the selected session or window up/down (also `⇧↓` / `⇧↑`): a session row reorders within its group or crosses into the neighboring group; a window row reorders within its session or crosses into the neighboring session. Both wrap around at the top/bottom of the list. |
 | `r` | Rename the selected session or window |
 | `x` | Kill the selected session or window (press again to confirm) |
-| `a` | Open the agent view: every CLI agent pane grouped by state; `1`-`9` or `↵` jumps to its pane, `s` flips newest/oldest first, `g` flips grouped/flat, `w` hides or shows working agents, `f`/`⇧F` and `/` work as in the tree, `a` returns |
+| `a` | Open the agent view: every CLI agent pane grouped by state; `1`-`9` or `↵` jumps to its pane, `s` flips newest/oldest first, `g` flips grouped/flat, `w` hides or shows working agents, `r` reloads agent state, `f`/`⇧F` and `/` work as in the tree, `a` returns |
 | `g` | Raise the cursor to group altitude |
 | `n` | Create a new session and switch to it |
 | `b` | Break the selected window out into a new session (placed above its old one) and switch to it |
@@ -203,7 +203,7 @@ If the repeat window closes before your next tap, raise tmux's `repeat-time` (50
 rolomux shows a `✻` for each CLI agent on its window and session rows: red when the agent is waiting on you, yellow when it's done and it's your move, and green while it's working.
 Selecting a window jumps to its most urgent agent pane. Turn the badges off with the **Agent badges** setting.
 
-Press `a` for the agent view, which lists every agent pane grouped by state, newest in its state first, or open it directly with a tmux bind such as `bind a display-popup -E -B -w 84 -h 60% "exec rolomux --agents"`. `s` sorts oldest first instead, `g` drops the grouping for one list in that order, and `w` hides agents that are working so only the ones waiting on you are listed; all three are remembered. A `●` marks the window you opened it from.
+Press `a` for the agent view, which lists every agent pane grouped by state, newest in its state first, or open it directly with a tmux bind such as `bind a display-popup -E -B -w 84 -h 60% "exec rolomux --agents"`. `s` sorts oldest first instead, `g` drops the grouping for one list in that order, and `w` hides agents that are working so only the ones waiting on you are listed; all three are remembered. The view refreshes every 2 seconds, so agents move between sections as their state changes; it holds off for a few seconds after each keypress so rows don't shift while you navigate, and `r` reloads right away. A `●` marks the window you opened it from.
 Focus mode works there the same as in the tree: `f` hides agents in dormant sessions and windows, which are otherwise listed dimmed, and `⇧F` peeks. If focus mode is hiding an agent that's waiting on you, the footer says so in red, for example `1 blocked`.
 
 | Grouped by state (default) | Flat, `g` |
@@ -269,6 +269,7 @@ Each row shows a jump number in its gutter; pressing it jumps straight to that r
 - **Caret blink.** Off by default (the caret stays solid). When on, the caret blinks.
 - **Background badge.** The glyph that marks agents with background tasks still running in the agent view. Cycle through ↻, ⧗ and ◔ with `h`/`l`.
 - **Agent badges.** On by default. Whether session and window rows show agent badges, in the tree and in search. The agent view is unaffected.
+- **Auto refresh.** On by default. Whether the agent view refreshes on its own every 2 seconds. Off, it reloads only when you press `r`.
 
 | Key | Action |
 | --- | --- |

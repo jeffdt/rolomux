@@ -136,13 +136,13 @@ fn detail_lines(row: Option<&AgentRow>, width: usize) -> Vec<Line<'static>> {
 
 /// The footer hint. Toggle keys name what pressing them does: `f` reads `show`
 /// while focus mode hides agents (as in the tree), `s` the other sort order,
-/// `g` the other layout, `w` whether working agents are hidden or shown.
+/// `g` the other layout, `w` whether working agents are hidden or shown, `r` reloads agent state.
 fn agents_footer_hint(state: &PickerState) -> String {
     let focus = if state.focus_mode() { "show" } else { "focus" };
     let sort = if state.agents_oldest_first { "newest" } else { "oldest" };
     let layout = if state.agents_flat { "group" } else { "flat" };
     let working = if state.agents_hide_working { "show" } else { "hide" };
-    format!("1-9 jump · ↵ switch · f {focus} · s {sort} · g {layout} · w {working} · a tree · q quit")
+    format!("1-9 jump · f {focus} · s {sort} · g {layout} · w {working} · r reload · a tree · q quit")
 }
 
 /// Draws the agent view: rows under per-state headers (or one flat list), plus the footer.
@@ -490,7 +490,7 @@ mod tests {
     #[test]
     fn footer_lists_agent_view_keys() {
         let text = text_of(&render(&mixed(), None)).join("\n");
-        assert!(text.contains("1-9 jump · ↵ switch · f focus · s oldest · g flat · w hide · a tree · q quit"));
+        assert!(text.contains("1-9 jump · f focus · s oldest · g flat · w hide · r reload · a tree · q quit"), "{text}");
     }
 
     #[test]

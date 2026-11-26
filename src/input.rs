@@ -119,6 +119,7 @@ pub enum AgentsInput {
     ToggleSort,
     ToggleLayout,
     ToggleHideWorking,
+    Refresh,
     Search,
     Quit,
     None,
@@ -128,7 +129,8 @@ pub enum AgentsInput {
 /// highlighted pane, `1`-`9` jump straight to a row, and `a`/`q`/`Esc` leave
 /// (`a` back to the tree, `q`/`Esc` out of the picker). `f` and `⇧F` toggle
 /// focus mode and peek, the same as in the tree. `s` flips the sort, `g`
-/// flips between sections and one flat list, and `/` opens search.
+/// flips between sections and one flat list, `r` refreshes agent state, and
+/// `/` opens search.
 pub fn map_agents_key(key: KeyEvent) -> AgentsInput {
     match key.code {
         KeyCode::Char('F') if key.modifiers.contains(KeyModifiers::SHIFT) => AgentsInput::TogglePeek,
@@ -136,6 +138,7 @@ pub fn map_agents_key(key: KeyEvent) -> AgentsInput {
         KeyCode::Char('s') => AgentsInput::ToggleSort,
         KeyCode::Char('g') => AgentsInput::ToggleLayout,
         KeyCode::Char('w') => AgentsInput::ToggleHideWorking,
+        KeyCode::Char('r') => AgentsInput::Refresh,
         KeyCode::Char('/') => AgentsInput::Search,
         KeyCode::Char('j') | KeyCode::Down => AgentsInput::Down,
         KeyCode::Char('k') | KeyCode::Up => AgentsInput::Up,
@@ -386,6 +389,7 @@ mod tests {
         assert_eq!(map_agents_key(key(KeyCode::Char('s'))), AgentsInput::ToggleSort);
         assert_eq!(map_agents_key(key(KeyCode::Char('g'))), AgentsInput::ToggleLayout);
         assert_eq!(map_agents_key(key(KeyCode::Char('w'))), AgentsInput::ToggleHideWorking);
+        assert_eq!(map_agents_key(key(KeyCode::Char('r'))), AgentsInput::Refresh);
         assert_eq!(map_agents_key(key(KeyCode::Char('/'))), AgentsInput::Search);
         assert_eq!(map_agents_key(key(KeyCode::Char('a'))), AgentsInput::ToggleTree);
         assert_eq!(map_agents_key(key(KeyCode::Char('q'))), AgentsInput::Quit);

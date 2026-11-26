@@ -15,7 +15,7 @@ use model::{Action, KillTarget, Mode, PendingCreate, PendingRename, PickerState,
 use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
 use std::io::{self, stdout};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tmux::{apply_action, publish_target, RealTmux, Tmux};
 use input::{is_help_dismiss_key, map_agents_key, map_altitude_key, map_key, map_search_key, map_settings_key, AgentsInput, AltitudeInput, Input, SearchInput, SettingsInput};
 use ui::draw;
@@ -50,6 +50,14 @@ const SWAP_INDICATOR_TICK: Duration = Duration::from_millis(50);
 /// itself is much slower (`model::blink::BLINK_PERIOD`); this just needs to
 /// be well under that to catch the boundary promptly.
 const BLINK_TICK: Duration = Duration::from_millis(100);
+
+/// How often the agent view re-gathers agent state, so rows re-sort as
+/// agents change state without a keypress.
+const AGENT_REFRESH: Duration = Duration::from_secs(2);
+
+/// How long after a keypress an automatic agent refresh waits, so rows and
+/// jump numbers don't shift while the user is navigating.
+const AGENT_REFRESH_HOLD: Duration = Duration::from_secs(3);
 
 fn main() -> io::Result<()> {
     let mut cycle: Option<i32> = None;
@@ -452,7 +460,18 @@ fn event_loop(
     config: &mut store::Config,
     path: &std::path::Path,
 ) -> io::Result<Option<model::Action>> {
+    let mut agents_gathered_at = Instant::now();
+    let mut last_key_at = Instant::now();
     loop {
+        let auto_refreshing = state.mode == Mode::Agents && state.agent_auto_refresh;
+        let refresh_wait = AGENT_REFRESH
+            .saturating_sub(agents_gathered_at.elapsed())
+            .max(AGENT_REFRESH_HOLD.saturating_sub(last_key_at.elapsed()));
+        if auto_refreshing && refresh_wait.is_zero() {
+            state.refresh_agents(tmux.gather().agents);
+            agents_gathered_at = Instant::now();
+            continue;
+        }
         terminal.draw(|f| draw(f, state))?;
 
         // While a swap-flash indicator is in flight, wake up on a short
@@ -468,6 +487,8 @@ fn event_loop(
             if event::poll(SWAP_INDICATOR_TICK)? { Some(event::read()?) } else { None }
         } else if blink_showing {
             if event::poll(BLINK_TICK)? { Some(event::read()?) } else { None }
+        } else if auto_refreshing {
+            if event::poll(refresh_wait)? { Some(event::read()?) } else { None }
         } else {
             Some(event::read()?)
         };
@@ -478,6 +499,7 @@ fn event_loop(
             if key.kind != event::KeyEventKind::Press {
                 continue;
             }
+            last_key_at = Instant::now();
             if state.help_visible() {
                 if is_help_dismiss_key(key) {
                     state.close_help();
@@ -725,6 +747,10 @@ fn event_loop(
                     AgentsInput::ToggleSort => state.toggle_agent_sort(),
                     AgentsInput::ToggleLayout => state.toggle_agent_layout(),
                     AgentsInput::ToggleHideWorking => state.toggle_agent_hide_working(),
+                    AgentsInput::Refresh => {
+                        state.refresh_agents(tmux.gather().agents);
+                        agents_gathered_at = Instant::now();
+                    }
                     AgentsInput::Search => state.enter_search(),
                     AgentsInput::Quit => return Ok(None),
                     AgentsInput::None => {}
