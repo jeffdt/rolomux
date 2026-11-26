@@ -138,6 +138,7 @@ pub struct PickerState {
     pub background_badge: String,
     /// Whether tree and search rows show agent badges.
     pub agent_badges: bool,
+    pub agent_auto_refresh: bool,
     pub always_show_shortcuts: bool,
     pub caret_style: CaretStyle,
     pub caret_blink: bool,
@@ -238,6 +239,7 @@ impl PickerState {
             shortcut_color: config.shortcut_color.clone(),
             background_badge: config.background_badge.clone(),
             agent_badges: config.agent_badges,
+            agent_auto_refresh: config.agent_auto_refresh,
             always_show_shortcuts: config.always_show_shortcuts,
             caret_style: config.caret_style,
             caret_blink: config.caret_blink,
@@ -500,6 +502,7 @@ impl PickerState {
         config.inbox_icon = self.inbox_icon.clone();
         config.background_badge = self.background_badge.clone();
         config.agent_badges = self.agent_badges;
+        config.agent_auto_refresh = self.agent_auto_refresh;
         config.remember_expanded_sessions = self.remember_expanded_sessions;
         config.clear_dormant_on_attach = self.clear_dormant_on_attach;
         config.search_window_names = self.search_window_names;

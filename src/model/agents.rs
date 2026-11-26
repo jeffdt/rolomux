@@ -43,24 +43,31 @@ impl PickerState {
     /// Flips between newest-first and oldest-first, keeping the selected agent selected.
     pub fn toggle_agent_sort(&mut self) {
         self.keep_agent_selected(|st| st.agents_oldest_first = !st.agents_oldest_first);
+        self.dirty = true;
     }
 
     /// Flips between per-state sections and one flat list, keeping the selected agent selected.
     pub fn toggle_agent_layout(&mut self) {
         self.keep_agent_selected(|st| st.agents_flat = !st.agents_flat);
+        self.dirty = true;
     }
 
     /// Hides or shows working agents, keeping the selected agent selected while it stays listed.
     pub fn toggle_agent_hide_working(&mut self) {
         self.keep_agent_selected(|st| st.agents_hide_working = !st.agents_hide_working);
+        self.dirty = true;
     }
 
     fn keep_agent_selected(&mut self, change: impl FnOnce(&mut Self)) {
         let pane = self.agent_rows().into_iter().nth(self.agent_cursor).map(|r| r.pane_id);
         change(self);
-        self.dirty = true;
         let rows = self.agent_rows();
         self.agent_cursor = pane.and_then(|id| rows.iter().position(|r| r.pane_id == id)).unwrap_or(self.agent_cursor.min(rows.len().saturating_sub(1)));
+    }
+
+    /// Swaps in freshly gathered agent panes so the view re-sorts, keeping the selected agent selected.
+    pub fn refresh_agents(&mut self, agents: std::collections::HashMap<String, Vec<super::AgentPane>>) {
+        self.keep_agent_selected(|st| st.set_agents(agents));
     }
 
     /// Enter the agent view with the cursor on the first row.
@@ -245,6 +252,24 @@ mod tests {
         st.apply_to_config(&mut cfg);
         let reloaded = PickerState::build(vec![s("a", 1, 1)], &cfg);
         assert!(reloaded.agents_oldest_first && reloaded.agents_flat && reloaded.agents_hide_working);
+    }
+
+    #[test]
+    fn refresh_resorts_and_keeps_the_selected_agent_without_marking_dirty() {
+        let mut st = mixed();
+        st.enter_agents();
+        st.agent_move(3);
+        assert_eq!(st.agent_rows()[st.agent_cursor()].pane_id, "%1");
+        st.dirty = false;
+        st.refresh_agents(
+            [("@1".to_string(), vec![pane("%1", AgentState::Waiting), pane("%2", AgentState::Working)]), ("@2".to_string(), vec![pane("%3", AgentState::Waiting)])]
+                .into_iter()
+                .collect(),
+        );
+        let ids: Vec<String> = st.agent_rows().into_iter().map(|r| r.pane_id).collect();
+        assert_eq!(ids, ["%1", "%3", "%2"]);
+        assert_eq!(st.agent_cursor(), 0);
+        assert!(!st.dirty, "a refresh changes no config");
     }
 
     #[test]

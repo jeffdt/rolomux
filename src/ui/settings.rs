@@ -201,6 +201,9 @@ pub(super) fn draw_settings(frame: &mut Frame, state: &PickerState, inner: Rect)
             SettingsRow::AgentBadges => {
                 settings_row_line(*row, "Agent badges", value(caret_blink_label(state.agent_badges)), changed, selected, width)
             }
+            SettingsRow::AgentAutoRefresh => {
+                settings_row_line(*row, "Auto refresh", value(caret_blink_label(state.agent_auto_refresh)), changed, selected, width)
+            }
         };
         let dim_unused_palette = match row {
             SettingsRow::BorderPalette | SettingsRow::BorderPaletteColor(_) => {
@@ -283,6 +286,7 @@ fn gutter_span() -> Span<'static> {
 fn settings_number_span(row: SettingsRow, selected: bool) -> Vec<Span<'static>> {
     match row.jump_number() {
         Some(n) => vec![Span::styled(jump_label(n), secondary(selected)), Span::raw(" ")],
+        None if row.is_top_level() => vec![Span::raw("   ")],
         None => vec![],
     }
 }

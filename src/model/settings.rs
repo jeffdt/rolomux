@@ -46,6 +46,7 @@ pub enum SettingsRow {
     CaretBlink,
     BackgroundBadge,
     AgentBadges,
+    AgentAutoRefresh,
 }
 
 /// The 18 top-level Settings rows in fixed display/jump-number order.
@@ -56,7 +57,7 @@ pub enum SettingsRow {
 /// this array without updating every fixed-position test that references it
 /// (`settings_visible_rows_collapsed_shows_eighteen_rows_in_order` and the
 /// `settings_move_cursor` row-index tests throughout this file).
-const TOP_LEVEL_ROWS: [SettingsRow; 20] = [
+const TOP_LEVEL_ROWS: [SettingsRow; 21] = [
     SettingsRow::DefaultMode,
     SettingsRow::DormantNumbering,
     SettingsRow::RememberExpanded,
@@ -77,7 +78,11 @@ const TOP_LEVEL_ROWS: [SettingsRow; 20] = [
     SettingsRow::CaretBlink,
     SettingsRow::BackgroundBadge,
     SettingsRow::AgentBadges,
+    SettingsRow::AgentAutoRefresh,
 ];
+
+/// Digits and Alt+digits give 20 jump slots; top-level rows past that are reached with j/k.
+const MAX_JUMP_NUMBER: usize = 20;
 
 impl SettingsRow {
     /// A short, single-line explanation of what this setting does, shown on
@@ -195,6 +200,12 @@ impl SettingsRow {
                 "Session and window rows hide agent badges; the agent view still lists every agent."
             }
             .to_string(),
+            SettingsRow::AgentAutoRefresh => if state.agent_auto_refresh {
+                "The agent view refreshes itself every 2s while you're idle."
+            } else {
+                "The agent view only refreshes manually, with r."
+            }
+            .to_string(),
         }
     }
 
@@ -240,6 +251,7 @@ impl SettingsRow {
             SettingsRow::CaretBlink => state.caret_blink != d.caret_blink,
             SettingsRow::BackgroundBadge => state.background_badge != d.background_badge,
             SettingsRow::AgentBadges => state.agent_badges != d.agent_badges,
+            SettingsRow::AgentAutoRefresh => state.agent_auto_refresh != d.agent_auto_refresh,
         }
     }
 
@@ -248,7 +260,12 @@ impl SettingsRow {
     /// first jumping to their parent, not directly, since there are only
     /// 20 digit slots and up to 32 possible children across both pickers.
     pub fn jump_number(&self) -> Option<usize> {
-        TOP_LEVEL_ROWS.iter().position(|r| r == self).map(|i| i + 1)
+        TOP_LEVEL_ROWS.iter().position(|r| r == self).map(|i| i + 1).filter(|&n| n <= MAX_JUMP_NUMBER)
+    }
+
+    /// Whether this is a top-level row (numbered or past the last jump slot) rather than a child row.
+    pub fn is_top_level(&self) -> bool {
+        TOP_LEVEL_ROWS.contains(self)
     }
 }
 
@@ -334,7 +351,7 @@ impl PickerState {
     /// The top-level Settings row that jump number `n` (1-18) targets, or
     /// `None` outside that range. The inverse of `SettingsRow::jump_number`.
     fn settings_row_for_number(n: usize) -> Option<SettingsRow> {
-        TOP_LEVEL_ROWS.get(n.checked_sub(1)?).copied()
+        TOP_LEVEL_ROWS[..MAX_JUMP_NUMBER].get(n.checked_sub(1)?).copied()
     }
 
     /// A Settings row's digit/Alt+digit jump number was pressed: move the
@@ -473,6 +490,11 @@ impl PickerState {
         self.dirty = true;
     }
 
+    fn toggle_agent_auto_refresh(&mut self) {
+        self.agent_auto_refresh = !self.agent_auto_refresh;
+        self.dirty = true;
+    }
+
     fn toggle_agent_badges(&mut self) {
         self.agent_badges = !self.agent_badges;
         self.dirty = true;
@@ -536,6 +558,7 @@ impl PickerState {
             SettingsRow::CaretStyle => self.cycle_caret_style(),
             SettingsRow::CaretBlink => self.toggle_caret_blink(),
             SettingsRow::AgentBadges => self.toggle_agent_badges(),
+            SettingsRow::AgentAutoRefresh => self.toggle_agent_auto_refresh(),
         }
     }
 
@@ -584,6 +607,7 @@ impl PickerState {
             SettingsRow::CaretStyle => self.cycle_caret_style(),
             SettingsRow::CaretBlink => self.toggle_caret_blink(),
             SettingsRow::AgentBadges => self.toggle_agent_badges(),
+            SettingsRow::AgentAutoRefresh => self.toggle_agent_auto_refresh(),
         }
     }
 
@@ -610,7 +634,8 @@ impl PickerState {
             | SettingsRow::CaretStyle
             | SettingsRow::CaretBlink
             | SettingsRow::BackgroundBadge
-            | SettingsRow::AgentBadges => self.settings_step_right(),
+            | SettingsRow::AgentBadges
+            | SettingsRow::AgentAutoRefresh => self.settings_step_right(),
             SettingsRow::ShortcutColor => self.expand_shortcut_color(),
             SettingsRow::ShortcutColorOption(idx) => self.select_shortcut_color(idx),
             SettingsRow::Palette => {}
@@ -832,6 +857,7 @@ impl PickerState {
             SettingsRow::CaretBlink => self.caret_blink = d.caret_blink,
             SettingsRow::BackgroundBadge => self.background_badge = d.background_badge.clone(),
             SettingsRow::AgentBadges => self.agent_badges = d.agent_badges,
+            SettingsRow::AgentAutoRefresh => self.agent_auto_refresh = d.agent_auto_refresh,
         }
     }
 
@@ -880,7 +906,7 @@ mod tests {
     use crate::model::*;
     use crate::model::test_support::*;
     use crate::store::Config;
-    use super::TOP_LEVEL_ROWS;
+    use super::{MAX_JUMP_NUMBER, TOP_LEVEL_ROWS};
 
     fn settings_state() -> PickerState {
         let sessions = vec![s("a", 1, 1)];
@@ -1409,6 +1435,7 @@ mod tests {
                 SettingsRow::CaretBlink,
                 SettingsRow::BackgroundBadge,
                 SettingsRow::AgentBadges,
+                SettingsRow::AgentAutoRefresh,
             ]
         );
     }
@@ -1431,10 +1458,21 @@ mod tests {
     }
 
     #[test]
-    fn agent_badges_is_the_last_top_level_row_after_background_badge() {
+    fn agent_badges_takes_the_last_jump_number_after_background_badge() {
         assert_eq!(SettingsRow::BackgroundBadge.jump_number(), Some(19));
         assert_eq!(SettingsRow::AgentBadges.jump_number(), Some(20));
-        assert_eq!(settings_state().settings_visible_rows().last(), Some(&SettingsRow::AgentBadges));
+    }
+
+    #[test]
+    fn auto_refresh_is_the_last_row_with_no_jump_number_and_toggles() {
+        let mut st = settings_state();
+        assert_eq!(SettingsRow::AgentAutoRefresh.jump_number(), None);
+        st.settings_move_cursor(20);
+        assert_eq!(st.current_settings_row(), SettingsRow::AgentAutoRefresh);
+        assert!(st.agent_auto_refresh);
+        st.settings_activate();
+        assert!(!st.agent_auto_refresh && st.dirty);
+        assert!(SettingsRow::AgentAutoRefresh.is_changed(&st));
     }
 
     #[test]
@@ -1477,10 +1515,11 @@ mod tests {
 
     #[test]
     fn settings_row_for_number_round_trips_with_jump_number() {
-        for n in 1..=TOP_LEVEL_ROWS.len() {
+        for n in 1..=MAX_JUMP_NUMBER {
             let row = PickerState::settings_row_for_number(n).unwrap();
             assert_eq!(row.jump_number(), Some(n));
         }
+        assert_eq!(PickerState::settings_row_for_number(MAX_JUMP_NUMBER + 1), None);
     }
 
     #[test]
