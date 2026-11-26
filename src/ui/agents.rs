@@ -68,16 +68,26 @@ struct LeadColumns {
     here: bool,
 }
 
+/// The row's session and window names, each capped at its own max width.
+fn label_parts(row: &AgentRow) -> (String, String) {
+    (truncate_end(&row.session, MAX_SESSION_WIDTH), truncate_end(&row.window_name, MAX_WINDOW_WIDTH))
+}
+
+/// Width of the joined `session › window` label, so later columns can align past it.
+fn label_len(row: &AgentRow) -> usize {
+    let (name, window) = label_parts(row);
+    name.chars().count() + 3 + window.chars().count()
+}
+
 #[allow(clippy::too_many_arguments)]
 /// One agent row: jump number, state glyph (flat list only), the `●` for the
-/// window you came from (whose agent name also takes the state color), the
-/// agent's window name, its session dimmed, path, and the time in state
-/// right-aligned at the end.
-fn agent_item(row: &AgentRow, number: usize, selected: bool, lead: LeadColumns, name_width: usize, window_width: usize, badge_width: usize, badge_glyph: &str, age_width: usize, width: usize, home: Option<&str>) -> ListItem<'static> {
+/// window you came from (whose session brightens and whose window name takes
+/// the state color), the session dimmed, the agent's window name, path, and the time in state right-aligned at the end.
+fn agent_item(row: &AgentRow, number: usize, selected: bool, lead: LeadColumns, label_width: usize, badge_width: usize, badge_glyph: &str, age_width: usize, width: usize, home: Option<&str>) -> ListItem<'static> {
     let color = agent_color(row.state);
     let label = if number <= 9 { jump_label(number) } else { "  ".to_string() };
-    let name = format!("{:<name_width$}", truncate_end(&row.session, name_width));
-    let window = format!("{:<window_width$}", truncate_end(&row.window_name, window_width));
+    let (name, window) = label_parts(row);
+    let window = format!("{window}{}", " ".repeat(label_width.saturating_sub(label_len(row))));
     let badge_cell = if badge_width == 0 {
         String::new()
     } else if row.background > 0 {
@@ -86,13 +96,13 @@ fn agent_item(row: &AgentRow, number: usize, selected: bool, lead: LeadColumns, 
         " ".repeat(badge_width + 1)
     };
     let lead_width = 2 * (lead.glyph as usize + lead.here as usize);
-    let prefix_width = 1 + 2 + lead_width + name_width + 3 + window_width + badge_cell.chars().count() + PATH_GAP.len();
+    let prefix_width = 1 + 2 + lead_width + label_width + badge_cell.chars().count() + PATH_GAP.len();
     let age_cell = if age_width == 0 { 0 } else { age_width + 2 };
     let path_room = width.saturating_sub(prefix_width + age_cell);
     let path = truncate_end(&tilde_home(&row.path, home), path_room);
     let (path, age) = if age_cell == 0 { (path, String::new()) } else { (format!("{path:<path_room$}"), format!("  {:>age_width$}", state_age(row))) };
     let dim = secondary(selected);
-    let session_style = if row.dormant { dormant_session(selected) } else { dim };
+    let session_style = if row.dormant { dormant_session(selected) } else if row.here { Style::default() } else { dim };
     let window_style = if row.dormant { session_style } else if row.here { Style::default().fg(color).add_modifier(Modifier::BOLD) } else { Style::default() };
     let mut spans = vec![Span::styled("│", Style::default().fg(color)), Span::styled(label, dim)];
     if lead.glyph {
@@ -103,9 +113,9 @@ fn agent_item(row: &AgentRow, number: usize, selected: bool, lead: LeadColumns, 
         spans.push(Span::styled(if row.here { "● " } else { "  " }, Style::default().fg(color)));
     }
     spans.extend([
-        Span::styled(window, window_style),
-        Span::styled(" ‹ ", dim),
         Span::styled(name, session_style),
+        Span::styled(" › ", dim),
+        Span::styled(window, window_style),
         Span::styled(badge_cell, Style::default().fg(color)),
         Span::raw(PATH_GAP),
         Span::styled(path, dim.add_modifier(Modifier::ITALIC)),
@@ -169,8 +179,7 @@ fn draw_agents_with_home(frame: &mut Frame, state: &PickerState, inner: Rect, ho
             items.push(ListItem::new(Line::from(Span::styled(text, Style::default().fg(DIM)))));
         }
     } else {
-        let name_width = rows.iter().map(|r| r.session.chars().count()).max().unwrap_or(0).min(MAX_SESSION_WIDTH);
-        let window_width = rows.iter().map(|r| r.window_name.chars().count()).max().unwrap_or(0).min(MAX_WINDOW_WIDTH);
+        let label_width = rows.iter().map(label_len).max().unwrap_or(0);
         let badge_width = rows
             .iter()
             .filter(|r| r.background > 0)
@@ -192,7 +201,7 @@ fn draw_agents_with_home(frame: &mut Frame, state: &PickerState, inner: Rect, ho
             if selected {
                 selected_line = Some(items.len());
             }
-            items.push(agent_item(row, i + 1, selected, lead, name_width, window_width, badge_width, &state.background_badge, age_width, chunks[0].width as usize, home));
+            items.push(agent_item(row, i + 1, selected, lead, label_width, badge_width, &state.background_badge, age_width, chunks[0].width as usize, home));
         }
     }
     let list = List::new(items).highlight_style(Style::default().bg(SEL_BG).add_modifier(Modifier::BOLD));
@@ -299,13 +308,13 @@ mod tests {
     #[test]
     fn rows_are_numbered_in_display_order_and_overflow_is_blank() {
         let buf = render(&mixed(), None);
-        assert!(text_of(&buf)[row_with(&buf, "beta") as usize].contains("│1 win-beta"));
-        assert!(text_of(&buf)[row_with(&buf, "gamma") as usize].contains("│2 win-gamma"));
-        assert!(text_of(&buf)[row_with(&buf, "alpha") as usize].contains("│3 win-alpha"));
+        assert!(text_of(&buf)[row_with(&buf, "beta") as usize].contains("│1 beta"));
+        assert!(text_of(&buf)[row_with(&buf, "gamma") as usize].contains("│2 gamma"));
+        assert!(text_of(&buf)[row_with(&buf, "alpha") as usize].contains("│3 alpha"));
         let many = state_with((0..11).map(|i| (Box::leak(format!("s{i:02}").into_boxed_str()) as &str, vec![pane("%1", AgentState::Working, "/p")])).collect());
         let buf = render_sized(&many, 40);
-        assert!(text_of(&buf)[row_with(&buf, "s08") as usize].contains("│9 win-s08"));
-        assert!(text_of(&buf)[row_with(&buf, "s09") as usize].contains("│  win-s09"));
+        assert!(text_of(&buf)[row_with(&buf, "s08") as usize].contains("│9 s08"));
+        assert!(text_of(&buf)[row_with(&buf, "s09") as usize].contains("│  s09"));
     }
 
     fn render_sized(st: &PickerState, height: u16) -> Buffer {
@@ -335,30 +344,29 @@ mod tests {
         st.toggle_agent_layout();
         let buf = render(&st, None);
         let y = row_with(&buf, "gamma");
-        assert!(text_of(&buf)[y as usize].contains(&format!("{AGENT_GLYPH} win-gamma")));
+        assert!(text_of(&buf)[y as usize].contains(&format!("{AGENT_GLYPH} gamma")));
         let x = (0..buf.area.width).find(|x| buf[(*x, y)].symbol() == AGENT_GLYPH).unwrap();
         assert_eq!(buf[(x, y)].fg, Color::Yellow);
     }
 
     #[test]
-    fn window_you_came_from_gets_a_dot_and_its_agent_name_in_its_state_color() {
+    fn window_you_came_from_gets_a_dot_a_bright_session_and_its_window_name_in_its_state_color() {
         let mut st = mixed_from_gamma();
         let buf = render(&st, None);
         let y = row_with(&buf, "gamma");
         let line = &text_of(&buf)[y as usize];
-        assert!(line.contains("● win-gamma ‹ gamma"));
+        assert!(line.contains("● gamma › win-gamma"));
         let dot = (0..buf.area.width).find(|x| buf[(*x, y)].symbol() == "●").unwrap();
         assert_eq!(buf[(dot, y)].fg, Color::Yellow, "the row's state color, not the attached color");
-        let window = line.chars().position(|c| c == 'w').unwrap() as u16;
-        assert!(buf[(window, y)].modifier.contains(Modifier::BOLD));
-        assert_eq!(buf[(window, y)].fg, Color::Yellow);
-        let session = window + line.chars().skip(window as usize).collect::<String>().find("‹ gamma").unwrap() as u16 + 2;
-        assert_ne!(buf[(session, y)].fg, Color::Yellow, "the session stays dim");
-        assert!(!buf[(session, y)].modifier.contains(Modifier::BOLD));
-        assert!(text_of(&buf)[row_with(&buf, "beta") as usize].contains("│1   win-beta"), "other rows reserve the dot slot");
+        let at = |needle: &str| line[..line.find(needle).unwrap()].chars().count() as u16;
+        assert!(buf[(at("win-gamma"), y)].modifier.contains(Modifier::BOLD));
+        assert_eq!(buf[(at("win-gamma"), y)].fg, Color::Yellow);
+        assert_eq!(buf[(at("gamma"), y)].fg, Color::Reset, "the session is undimmed, not colored");
+        assert!(!buf[(at("gamma"), y)].modifier.contains(Modifier::BOLD));
+        assert!(text_of(&buf)[row_with(&buf, "beta") as usize].contains("│1   beta"), "other rows reserve the dot slot");
         st.toggle_agent_layout();
         let buf = render(&st, None);
-        assert!(text_of(&buf)[row_with(&buf, "gamma") as usize].contains(&format!("{AGENT_GLYPH} ● win-gamma")));
+        assert!(text_of(&buf)[row_with(&buf, "gamma") as usize].contains(&format!("{AGENT_GLYPH} ● gamma")));
     }
 
     #[test]
@@ -366,7 +374,7 @@ mod tests {
         let mut st = mixed_from_gamma();
         st.current_session = Some("elsewhere".into());
         let buf = render(&st, None);
-        assert!(text_of(&buf)[row_with(&buf, "beta") as usize].contains("│1 win-beta"));
+        assert!(text_of(&buf)[row_with(&buf, "beta") as usize].contains("│1 beta"));
     }
 
     #[test]
@@ -378,6 +386,17 @@ mod tests {
         assert_eq!(header_x, gutter_x, "header starts in the gutter column");
         assert!(text_of(&buf)[y as usize].contains("DONE ───"));
         assert_eq!(buf[(header_x + 5, y)].fg, Color::Yellow);
+    }
+
+    #[test]
+    fn session_and_window_join_without_a_gap_while_paths_stay_aligned() {
+        let st = state_with(vec![("a", vec![pane("%1", AgentState::Done, "/pa")]), ("longer", vec![pane("%2", AgentState::Done, "/pb")])]);
+        let buf = render(&st, None);
+        let lines = text_of(&buf);
+        let short = &lines[row_with(&buf, "win-a") as usize];
+        let long = &lines[row_with(&buf, "win-longer") as usize];
+        assert!(short.contains("a › win-a "));
+        assert_eq!(short.find("/pa"), long.find("/pb"));
     }
 
     #[test]
@@ -607,7 +626,7 @@ mod tests {
         let long = "s".repeat(60);
         let st = state_with(vec![(long.as_str(), vec![pane("%1", AgentState::Done, "/the/path")])]);
         let text = text_of(&render(&st, None)).join("\n");
-        assert!(text.contains(&format!("‹ {}… ", "s".repeat(MAX_SESSION_WIDTH - 1))));
+        assert!(text.contains(&format!("{}… ›", "s".repeat(MAX_SESSION_WIDTH - 1))));
         assert!(text.contains("/the/path"));
     }
 
@@ -623,6 +642,6 @@ mod tests {
     #[test]
     fn no_badge_column_when_no_row_has_background_work() {
         let buf = render(&mixed(), None);
-        assert!(text_of(&buf)[row_with(&buf, "alpha") as usize].contains("win-alpha ‹ alpha   /w/alpha"));
+        assert!(text_of(&buf)[row_with(&buf, "alpha") as usize].contains("alpha › win-alpha   /w/alpha"));
     }
 }
