@@ -335,6 +335,8 @@ This project was fully vibe coded. Use at your own risk.
 rolomux is designed and tested for one tmux client attached to one session at a time.
 Running multiple terminals attached to different sessions simultaneously may or may not work; it isn't a tested or supported scenario.
 
+rolomux is designed for dark terminal themes. Light themes aren't supported yet (the selected row can be unreadable), but support is welcome: see [#236](https://github.com/jeffdt/rolomux/issues/236).
+
 ## License
 
 MIT
