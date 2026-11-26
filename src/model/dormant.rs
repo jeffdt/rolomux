@@ -148,27 +148,22 @@ impl PickerState {
     }
 
     /// Applied once at construction: if `clear_dormant_on_attach` is on,
-    /// drop dormant status for every session that is both attached and
-    /// dormant. This is the opt-in cleanup; `is_attached`'s always-visible
-    /// exemption in `ordered`/`session_visible` is the always-on safety net
-    /// that applies regardless of this setting.
+    /// drop dormant status for every attached session and for the active
+    /// window of each attached session. This is the opt-in cleanup;
+    /// `is_attached`'s always-visible exemption in `ordered`/`session_visible`
+    /// is the always-on safety net that applies regardless of this setting.
+    /// A window attached and left without opening the picker is never seen,
+    /// so it keeps its flag.
     pub(super) fn apply_clear_dormant_on_attach(&mut self) {
         if !self.clear_dormant_on_attach {
             return;
         }
-        let names: Vec<String> = self
-            .all
-            .iter()
-            .filter(|s| s.attached && self.dormant.contains(&s.name))
-            .map(|s| s.name.clone())
-            .collect();
-        if names.is_empty() {
-            return;
+        for sess in self.all.iter().filter(|s| s.attached) {
+            self.dirty |= self.dormant.remove(&sess.name);
+            for win in sess.windows.iter().filter(|w| w.active) {
+                self.dirty |= self.dormant_windows.remove(&(sess.name.clone(), win.index));
+            }
         }
-        for name in names {
-            self.dormant.remove(&name);
-        }
-        self.dirty = true;
     }
 
     fn clamp_cursor_to_visible_rows(&mut self) {
@@ -320,6 +315,25 @@ mod tests {
         let state = PickerState::build(sessions, &cfg);
         assert!(!state.is_dormant("a"), "attaching to a dormant session clears its dormant flag when the setting is on");
         assert!(state.dirty, "the cleared flag is marked dirty so it flushes to config");
+    }
+
+    #[test]
+    fn build_clears_dormant_flag_for_attached_window_only_when_setting_on() {
+        let mut sessions = vec![session_with_windows("a", 1, vec![win_active(0, "e"), win(1, "f")])];
+        sessions[0].attached = true;
+        let dormant_windows = vec![
+            DormantWindow { session: "a".into(), index: 0, id: String::new() },
+            DormantWindow { session: "a".into(), index: 1, id: String::new() },
+        ];
+        let cfg = Config { dormant_windows: dormant_windows.clone(), clear_dormant_on_attach: true, ..Default::default() };
+        let state = PickerState::build(sessions.clone(), &cfg);
+        assert!(!state.is_window_dormant("a", 0), "the attached window's dormant flag is cleared");
+        assert!(state.is_window_dormant("a", 1), "a non-active window in the attached session keeps its flag");
+        assert!(state.dirty);
+
+        let cfg = Config { dormant_windows, clear_dormant_on_attach: false, ..Default::default() };
+        let state = PickerState::build(sessions, &cfg);
+        assert!(state.is_window_dormant("a", 0), "the flag stays when the setting is off");
     }
 
     #[test]
