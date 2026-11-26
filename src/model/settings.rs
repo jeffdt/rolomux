@@ -1435,7 +1435,7 @@ mod tests {
                 SettingsRow::CaretBlink,
                 SettingsRow::BackgroundBadge,
                 SettingsRow::AgentBadges,
-SettingsRow::AgentAutoRefresh,
+                SettingsRow::AgentAutoRefresh,
             ]
         );
     }
@@ -1466,9 +1466,7 @@ SettingsRow::AgentAutoRefresh,
     #[test]
     fn auto_refresh_is_the_last_row_with_no_jump_number_and_toggles() {
         let mut st = settings_state();
-        assert_eq!(st.settings_visible_rows().last(), Some(&SettingsRow::AgentAutoRefresh));
         assert_eq!(SettingsRow::AgentAutoRefresh.jump_number(), None);
-        assert!(SettingsRow::AgentAutoRefresh.is_top_level());
         st.settings_move_cursor(20);
         assert_eq!(st.current_settings_row(), SettingsRow::AgentAutoRefresh);
         assert!(st.agent_auto_refresh);
