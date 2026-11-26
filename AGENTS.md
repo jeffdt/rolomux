@@ -206,19 +206,44 @@ release** (Homebrew users never see `main`, only tagged releases). See the
 - Build/test loop: `RUSTFLAGS="-D warnings" cargo test`, then
   `cargo build --release`.
 - **Leave a live preview when a feature is done.** Once a feature is
-  implemented and tests pass, launch the freshly built binary in a new tmux
-  window so the change is waiting on screen as a real running picker, not
-  just green test output. See the `live-preview` skill for the exact `mux
-  spawn` invocation, worktree-path pinning, and config isolation rules. Skip
-  this for test-only changes (e.g. fixing a flaky test, adding test
+  implemented and tests pass, leave the freshly built binary ready to open
+  in a real tmux popup, the way rolomux actually runs, not just green test
+  output. A popup is the faithful check: a full window hides problems that
+  only show at the real `-w 84 -h 60%` size (rows that don't fit, a footer
+  that overflows), so prefer it over running the binary full-screen. **Never
+  open the popup yourself**: it lands on top of whatever the user is doing.
+  Instead, split a new pane off your own pane without taking focus and
+  prefill the launch command in it, unsent, so the user opens the popup by
+  pressing Enter there when they're ready:
+
+  ```
+  preview_dir=/abs/path/to/worktree
+  pane=$(tmux split-window -d -h -t "$TMUX_PANE" -c "$preview_dir" -P -F '#{pane_id}')
+  tmux send-keys -t "$pane" -l "tmux display-popup -E -B -w 84 -h 60% \"XDG_CONFIG_HOME=$preview_dir/.preview-config $preview_dir/target/release/rolomux\""
+  ```
+
+  Match the popup flags to the user's real bind in `~/.tmux.conf`, and add
+  `--agents` or `--search` when the change lives in that view. No `Enter`
+  after the `send-keys -l`: the command must wait for the user. Pin the
+  absolute worktree path and keep `XDG_CONFIG_HOME` pointed at the
+  git-ignored `.preview-config` so poking at the preview never touches the
+  real config (see the `live-preview` skill for why both matter). After a
+  rebuild the prefilled command picks up the new binary on its next run, but
+  an already-open preview keeps running the old one: close and relaunch it
+  rather than letting the user test a stale build. These rules replace the
+  `live-preview` skill's full-window `mux spawn` launch for this repo. Skip
+  all of this for test-only changes (e.g. fixing a flaky test, adding test
   coverage) that carry no user-facing behavior change to preview.
 - **Mock up visual/rendering changes before writing the spec.** When a design
   discussion touches how something renders (colors, layout, new glyphs/columns),
   don't rely on a text description alone — render an ANSI mockup (never the
   real binary) so the user can look at it before design gets locked in. See the
   `mockup` skill for the standardized construction method, dimensions, color
-  constraints, window naming, and cleanup rules. Skip this for changes with no
-  visual surface (model/logic-only work).
+  constraints, window naming, and cleanup rules. A mockup isn't the real
+  binary, so it doesn't need a popup: a new window is fine when it needs the
+  room (side-by-side options, a full-height card), and a split pane is fine
+  for a simple one. Skip this for changes with no visual surface
+  (model/logic-only work).
 - Specs live in `specs/`, plans in `plans/`, the build ledger in
   `.superpowers/`; all three are git-ignored scratch, not part of the package.
 - **Review gate is the plan, not the spec.** When brainstorming a feature
