@@ -19,7 +19,7 @@ case "$1" in
   start|end)
     # Compaction (even mid-turn) also fires SessionStart; it is not a new session.
     [ "$(field .source)" = compact ] && exit 0
-    for o in @rolomux_agent_state @rolomux_agent_note @rolomux_agent_bg @rolomux_agent_since @rolomux_agent_prompt @rolomux_agent_title; do unset_opt "$o"; done
+    for o in @rolomux_agent_state @rolomux_agent_note @rolomux_agent_bg @rolomux_agent_since @rolomux_agent_prompt @rolomux_agent_title @rolomux_agent_wants; do unset_opt "$o"; done
     [ "$1" = start ] && title
     exit 0 ;;
   prompt)
@@ -30,13 +30,17 @@ case "$1" in
   tool)
     # Back to work after a question, a permission, or a Stop that fired mid-turn: show your prompt again.
     case "$before" in working*) ;; *) opt @rolomux_agent_note "$(tmux show -pqv -t "$TMUX_PANE" @rolomux_agent_prompt)" ;; esac
-    opt @rolomux_agent_state working ;;
+    opt @rolomux_agent_state working; unset_opt @rolomux_agent_wants ;;
   ask) opt @rolomux_agent_state waiting; opt @rolomux_agent_note "$(questions)" ;;
   permission)
-    opt @rolomux_agent_state waiting
+    # Auto mode can still approve a request after this fires, so only stash the note;
+    # the agent is blocked once the dialog's notification arrives.
     # AskUserQuestion can also raise a permission request; keep its questions.
-    if [ "$(field .tool_name)" = AskUserQuestion ]; then opt @rolomux_agent_note "$(questions)"
-    else opt @rolomux_agent_note "wants $(field .tool_name)"; fi ;;
+    if [ "$(field .tool_name)" = AskUserQuestion ]; then opt @rolomux_agent_wants "$(questions)"
+    else opt @rolomux_agent_wants "wants $(field .tool_name)"; fi ;;
+  dialog)
+    opt @rolomux_agent_state waiting
+    w=$(tmux show -pqv -t "$TMUX_PANE" @rolomux_agent_wants); [ -n "$w" ] && opt @rolomux_agent_note "$w" ;;
   notify) opt @rolomux_agent_state waiting ;;
   stop)
     opt @rolomux_agent_state 'done'
