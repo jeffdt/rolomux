@@ -26,7 +26,7 @@ pub(super) fn draw_settings(frame: &mut Frame, state: &PickerState, inner: Rect)
     for (i, row) in rows.iter().enumerate() {
         match row {
             SettingsRow::DefaultMode => push_settings_section_header(&mut items, "BEHAVIOR", Color::Blue, list_area.width),
-            SettingsRow::AttachedColor => push_settings_section_header(&mut items, "COLORS", Color::Magenta, list_area.width),
+            SettingsRow::BorderColorPolicy => push_settings_section_header(&mut items, "COLORS", Color::Magenta, list_area.width),
             SettingsRow::InboxIcon => push_settings_section_header(&mut items, "APPEARANCE", Color::Green, list_area.width),
             _ => {}
         }
@@ -105,17 +105,6 @@ pub(super) fn draw_settings(frame: &mut Frame, state: &PickerState, inner: Rect)
             SettingsRow::InboxIcon => {
                 settings_row_line(*row, "Inbox icon", value(&state.inbox_icon), changed, selected, width)
             }
-            SettingsRow::AttachedColor => settings_row_line(
-                *row,
-                "Attached session color",
-                mode_with_static_swatch(
-                    attached_color_mode_label(state.attached_color_mode),
-                    (state.attached_color_mode == AttachedColorMode::Static).then_some(state.attached_color.as_str()),
-                ),
-                changed,
-                selected,
-                width,
-            ),
             SettingsRow::BorderColorPolicy => settings_row_line(
                 *row,
                 "Border color",
@@ -150,17 +139,6 @@ pub(super) fn draw_settings(frame: &mut Frame, state: &PickerState, inner: Rect)
             SettingsRow::ShortcutColorOption(idx) => {
                 settings_color_option_line(ALL_NAMED_COLORS[*idx], &state.shortcut_color, selected)
             }
-            SettingsRow::DotColorMode => settings_row_line(
-                *row,
-                "Active window color",
-                mode_with_static_swatch(
-                    dot_color_mode_label(state.dot_color_mode),
-                    (state.dot_color_mode == DotColorMode::Static).then_some(state.dot_color.as_str()),
-                ),
-                changed,
-                selected,
-                width,
-            ),
             SettingsRow::ColorPolicy => settings_row_line(
                 *row,
                 "New group color",
@@ -454,20 +432,6 @@ fn color_policy_label(p: ColorPolicy) -> &'static str {
 
 fn always_show_shortcuts_label(always_show_shortcuts: bool) -> &'static str {
     if always_show_shortcuts { "On" } else { "Off" }
-}
-
-fn dot_color_mode_label(m: DotColorMode) -> &'static str {
-    match m {
-        DotColorMode::Static => "Static",
-        DotColorMode::Group => "Group",
-    }
-}
-
-fn attached_color_mode_label(m: AttachedColorMode) -> &'static str {
-    match m {
-        AttachedColorMode::Static => "Static",
-        AttachedColorMode::Match => "Group",
-    }
 }
 
 #[cfg(test)]

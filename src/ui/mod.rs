@@ -1,5 +1,5 @@
 use crate::model::{
-    AgentState, AttachedColorMode, ColorPolicy, CreateStage, DefaultMode, DotColorMode, Group, Mode, PickerState, Row,
+    AgentState, ColorPolicy, CreateStage, DefaultMode, Group, Mode, PickerState, Row,
     Session, SessionMetric, SettingsRow, StartFocusMode, SwapDirection, Window, ALL_NAMED_COLORS,
 };
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
@@ -279,8 +279,6 @@ fn draw_picker(frame: &mut Frame, state: &PickerState, inner: Rect) {
     }).count();
     let wide_numbering = numbered_session_count > 10;
     let meta = MetaLayout::compute(session_refs, list_area.width, true, wide_numbering);
-    let attached_static_color = color_from_name(&state.attached_color);
-    let dot_static_color = color_from_name(&state.dot_color);
 
     let group_ids = state.ordered_group_ids();
     let mut items: Vec<ListItem> = Vec::new();
@@ -395,10 +393,6 @@ fn draw_picker(frame: &mut Frame, state: &PickerState, inner: Rect) {
                     None
                 };
                 let rename_buf = if selected && state.renaming() { state.rename_edit_buffer() } else { None };
-                let attached_color = match state.attached_color_mode {
-                    AttachedColorMode::Match => current_gutter_color,
-                    AttachedColorMode::Static => attached_static_color,
-                };
                 if create_above_session.as_deref() == Some(sess.name.as_str()) {
                     push_create_phantom_row(&mut items, create_prefix, create_buf, current_gutter_color, wide_numbering, raised, selected, create_placeholder, blink_visible, caret, break_out_window.as_ref());
                 }
@@ -409,7 +403,7 @@ fn draw_picker(frame: &mut Frame, state: &PickerState, inner: Rect) {
                     number,
                     meta,
                     dormant,
-                    attached_color,
+                    current_gutter_color,
                     None,
                     Some(current_gutter_color),
                     state.session_metric,
@@ -434,10 +428,6 @@ fn draw_picker(frame: &mut Frame, state: &PickerState, inner: Rect) {
                 let window_dormant = state.is_window_dormant(&sess.name, sess.windows[*wi].index);
                 let leaving = break_out.is_some_and(|src| src.session == sess.name && src.index == sess.windows[*wi].index);
                 let dormant = state.is_dormant(&sess.name) || window_dormant || leaving;
-                let dot_color = match state.dot_color_mode {
-                    DotColorMode::Group => current_gutter_color,
-                    DotColorMode::Static => dot_static_color,
-                };
                 items.push(recede(window_item(
                     &sess.windows[*wi],
                     last,
@@ -446,7 +436,7 @@ fn draw_picker(frame: &mut Frame, state: &PickerState, inner: Rect) {
                     dormant,
                     window_dormant,
                     rename_buf,
-                    dot_color,
+                    current_gutter_color,
                     state.window_swap_marker(&sess.name, sess.windows[*wi].index),
                     wide_numbering,
                     caret,
@@ -561,8 +551,11 @@ fn draw_search(frame: &mut Frame, state: &PickerState, inner: Rect) {
         // Search always suppresses jump numbers (see module doc), so the
         // wide-numbering column is never needed here.
         let meta = MetaLayout::compute(results.iter().copied(), chunks[1].width, false, false);
-        let attached_static_color = color_from_name(&state.attached_color);
-        let dot_static_color = color_from_name(&state.dot_color);
+        let session_group_color = |sess: &Session| {
+            state
+                .group_index_of(&sess.name)
+                .map_or(ACCENT, |gi| group_color(&state.groups[gi], gi, &state.active_palette))
+        };
         // Widest age string among tagged rows, so every tag in this render
         // starts at the same column regardless of its own row's age width.
         // Degenerates to 0 when `session_metric` is Hidden (every row's
@@ -594,13 +587,7 @@ fn draw_search(frame: &mut Frame, state: &PickerState, inner: Rect) {
                         let age_pad = age_width.saturating_sub(this_age_width);
                         (state.groups[gi].name.clone(), group_color(&state.groups[gi], gi, &state.active_palette), age_pad)
                     });
-                    let attached_color = match state.attached_color_mode {
-                        AttachedColorMode::Match => state
-                            .group_index_of(&sess.name)
-                            .map(|gi| group_color(&state.groups[gi], gi, &state.active_palette))
-                            .unwrap_or(attached_static_color),
-                        AttachedColorMode::Static => attached_static_color,
-                    };
+                    let attached_color = session_group_color(sess);
                     items.push(session_item(sess, next_is_window, selected, None, meta, state.is_dormant(&sess.name), attached_color, group_tag, None, state.session_metric, None, None, false, false, None, false, caret, &session_badges(state, sess)));
                 }
                 Row::Window(si, wi) => {
@@ -611,13 +598,7 @@ fn draw_search(frame: &mut Frame, state: &PickerState, inner: Rect) {
                     }
                     let window_dormant = state.is_window_dormant(&sess.name, sess.windows[*wi].index);
                     let dormant = state.is_dormant(&sess.name) || window_dormant;
-                    let dot_color = match state.dot_color_mode {
-                        DotColorMode::Group => state
-                            .group_index_of(&sess.name)
-                            .map(|gi| group_color(&state.groups[gi], gi, &state.active_palette))
-                            .unwrap_or(dot_static_color),
-                        DotColorMode::Static => dot_static_color,
-                    };
+                    let dot_color = session_group_color(sess);
                     items.push(window_item(&sess.windows[*wi], !next_is_window, selected, None, dormant, window_dormant, None, dot_color, None, false, caret, &window_agent_states(state, &sess.windows[*wi]), meta.width));
                 }
             }
@@ -1721,10 +1702,10 @@ mod tests {
     }
 
     #[test]
-    fn attached_session_name_uses_the_configured_attached_color() {
+    fn attached_session_name_uses_its_group_color() {
         let sessions = vec![Session { id: String::new(), name: "current".into(), activity: 1, created: 1, attached: true,
                                        windows: vec![] }];
-        let cfg = Config { attached_color: "lightgreen".to_string(), ..Default::default() };
+        let cfg = Config { groups: vec![Group { name: "work".into(), members: vec!["current".into()], color: "lightgreen".into(), ..Default::default() }], ..Default::default() };
         let state = PickerState::build(sessions, &cfg);
         let backend = TestBackend::new(80, 20);
         let mut terminal = Terminal::new(backend).unwrap();
@@ -1732,7 +1713,7 @@ mod tests {
         let buf = terminal.backend().buffer().clone();
         let y = (0..buf.area.height).find(|&y| find_text_x(&buf, y, "current").is_some()).unwrap();
         let x = find_text_x(&buf, y, "current").unwrap();
-        assert_eq!(buf[(x, y)].style().fg, Some(Color::LightGreen), "attached session name picks up the configured color");
+        assert_eq!(buf[(x, y)].style().fg, Some(Color::LightGreen), "attached session name picks up its group color");
     }
 
     #[test]
@@ -1743,7 +1724,7 @@ mod tests {
             Session { id: String::new(), name: "other".into(), activity: 1, created: 2, attached: false,
                       windows: vec![] },
         ];
-        let cfg = Config { attached_color: "lightgreen".to_string(), ..Default::default() };
+        let cfg = Config { groups: vec![Group { name: "work".into(), members: vec!["current".into()], color: "lightgreen".into(), ..Default::default() }], ..Default::default() };
         let state = PickerState::build(sessions, &cfg);
         let backend = TestBackend::new(80, 20);
         let mut terminal = Terminal::new(backend).unwrap();
@@ -1755,7 +1736,7 @@ mod tests {
         assert!(current_x >= 4, "expected room for gutter + number + dot slot + glyph before the name");
         let dot_cell = &buf[(current_x - 4, current_y)];
         assert_eq!(dot_cell.symbol(), "●", "attached session's row shows the dot 4 cols before its name");
-        assert_eq!(dot_cell.style().fg, Some(Color::LightGreen), "dot uses the configured attached_color");
+        assert_eq!(dot_cell.style().fg, Some(Color::LightGreen), "dot uses its group color");
 
         let other_y = (0..buf.area.height).find(|&y| find_text_x(&buf, y, "other").is_some()).unwrap();
         let other_x = find_text_x(&buf, other_y, "other").unwrap();
@@ -2118,12 +2099,12 @@ mod tests {
     }
 
     #[test]
-    fn attached_dormant_session_dot_renders_dim_not_attached_color() {
+    fn attached_dormant_session_dot_renders_dim_not_group_color() {
         let sessions = vec![
             Session { id: String::new(), name: "alpha".into(), activity: 30, created: 1, attached: true,
                       windows: vec![] },
         ];
-        let cfg = Config { groups: vec![], dormant: vec!["alpha".into()], attached_color: "lightgreen".to_string(), ..Default::default() };
+        let cfg = Config { groups: vec![Group { name: "work".into(), members: vec!["alpha".into()], color: "lightgreen".into(), ..Default::default() }], dormant: vec!["alpha".into()], ..Default::default() };
         let state = PickerState::build(sessions, &cfg); // cursor starts on "alpha"
         let backend = TestBackend::new(80, 20);
         let mut terminal = Terminal::new(backend).unwrap();
@@ -2134,7 +2115,7 @@ mod tests {
         let x = find_text_x(&buf, y, "alpha").unwrap();
         let dot_cell = &buf[(x - 4, y)];
         assert_eq!(dot_cell.symbol(), "●", "attached session's dot still renders even though dormant");
-        assert_ne!(dot_cell.style().fg, Some(Color::LightGreen), "dormant beats attached_color for the dot, same priority order the name style already uses");
+        assert_ne!(dot_cell.style().fg, Some(Color::LightGreen), "dormant beats the group color for the dot, same priority order the name style already uses");
     }
 
     #[test]
@@ -2208,7 +2189,6 @@ mod tests {
         let cfg = Config {
             groups: vec![],
             dormant: vec!["current".into()],
-            attached_color: "lightgreen".to_string(),
             ..Default::default()
         };
         let state = PickerState::build(sessions, &cfg);
@@ -3679,10 +3659,7 @@ mod tests {
         }
 
         // ...while each row keeps the identity it has at session altitude.
-        let attached_fg = match st.attached_color_mode {
-            AttachedColorMode::Match => group_color(&st.groups[0], 0, &st.active_palette),
-            AttachedColorMode::Static => color_from_name(&st.attached_color),
-        };
+        let attached_fg = group_color(&st.groups[0], 0, &st.active_palette);
         let work_y = row_of(&buf, "work");
         let work_x = find_text_x(&buf, work_y, "work").unwrap();
         assert_eq!(buf[(work_x, work_y)].style().fg, Some(attached_fg), "attached session keeps its color");
@@ -4127,14 +4104,11 @@ mod tests {
     }
 
     #[test]
-    fn draw_settings_shows_attached_and_border_color_rows() {
+    fn draw_settings_shows_border_color_row() {
         let text = render_to_string_sized(&settings_view(), 80, 24);
-        assert!(text.contains("Attached session color"));
+        assert!(!text.contains("Attached session color"));
         assert!(text.contains("Border color"));
-        // Attached session color, Active window color, and Border color are
-        // now contiguous rows in the COLORS section, all defaulting to
-        // Static green, so all three swatches render together here.
-        assert_eq!(text.matches("green").count(), 3, "one swatch label per collapsed color row");
+        assert_eq!(text.matches("green").count(), 1, "Border color's Static green swatch");
     }
 
     #[test]
@@ -4201,31 +4175,9 @@ mod tests {
     }
 
     #[test]
-    fn draw_settings_attached_color_row_shows_mode_label_and_hides_swatch_in_match_mode() {
-        let mut st = settings_view();
-        st.settings_move_cursor(8); // AttachedColor
-        let text = render_to_string(&st);
-        let row = text
-            .lines()
-            .find(|l| l.contains("Attached session color"))
-            .expect("row rendered");
-        assert!(row.contains("Static"), "default mode shown: {row:?}");
-        assert!(row.contains("green"), "swatch + color name shown while Static: {row:?}");
-
-        st.settings_step_right(); // Static -> Match
-        let text = render_to_string(&st);
-        let row = text
-            .lines()
-            .find(|l| l.contains("Attached session color"))
-            .expect("row rendered");
-        assert!(row.contains("Group"), "mode label matches DotColorMode's own Group label: {row:?}");
-        assert!(!row.contains("green"), "no swatch/color name while Match: {row:?}");
-    }
-
-    #[test]
     fn draw_settings_expanded_shortcut_color_shows_radio_glyphs() {
         let mut st = settings_view();
-        st.settings_move_cursor(14); // ShortcutColor
+        st.settings_move_cursor(12); // ShortcutColor
         st.settings_step_right();
         let text = render_to_string(&st);
         assert!(text.contains("●"));
@@ -4235,10 +4187,10 @@ mod tests {
     #[test]
     fn draw_settings_expanded_palette_shows_swatches_and_checkboxes() {
         let mut st = settings_view();
-        st.settings_move_cursor(13); // Palette
+        st.settings_move_cursor(11); // Palette
         st.settings_step_right(); // expand
         // Taller than the usual 80x20: section headers and the added Show
-        // shortcuts/Shortcut color/Active window color/Border color
+        // shortcuts/Shortcut color/Border color
         // policy/Inbox icon rows now push the palette rows further down
         // than the default viewport reveals.
         let text = render_to_string_sized(&st, 80, 31);
@@ -4251,7 +4203,7 @@ mod tests {
     #[test]
     fn draw_settings_shows_static_color_value_when_policy_is_static() {
         let mut st = settings_view();
-        st.settings_move_cursor(12); // ColorPolicy row
+        st.settings_move_cursor(10); // ColorPolicy row
         st.settings_step_right(); // Rotate -> Random
         st.settings_step_right(); // Random -> Static
         st.static_color = "magenta".to_string();
@@ -4267,15 +4219,14 @@ mod tests {
         let text = render_to_string_sized(&settings_view(), 80, 28); // default policy is Rotate
         // "Rotate" itself is on screen, but no color name should follow it
         // since Rotate has no single fixed color to show. The four swatches
-        // on screen are Attached session color, Active window color, and
-        // Border color policy (all Static by default), plus the
+        // on screen are Border color policy (Static by default) and the
         // always-present Shortcut color row; Rotate/Random must not add a
-        // fifth for the New group color policy row itself.
+        // third for the New group color policy row itself.
         assert!(text.contains("Rotate"));
         assert_eq!(
             text.matches("██").count(),
-            4,
-            "no extra swatch for Rotate/Random policies beyond the other four color rows"
+            2,
+            "no extra swatch for Rotate/Random policies beyond the other two color rows"
         );
     }
 
@@ -4327,22 +4278,22 @@ mod tests {
 
     #[test]
     fn draw_settings_row_eleven_shows_the_alt_glyph_jump_label() {
-        // Border color (row 11) sits below the fold at the default 80x20
-        // size; needs height >= 24 to render.
-        let text = render_to_string_sized(&settings_view(), 80, 24);
+        // New group color (row 11) sits below the fold at the default 80x20
+        // size; needs a taller viewport to render.
+        let text = render_to_string_sized(&settings_view(), 80, 26);
         let row = text
             .lines()
-            .find(|line| line.contains("Border color"))
-            .expect("Border color row (jump number 11) is rendered");
+            .find(|line| line.contains("New group color"))
+            .expect("New group color row (jump number 11) is rendered");
         // Strip margin and frame border to check the actual content.
         let content = row.chars().skip(3).collect::<String>();
-        assert!(content.starts_with("│⌥1"), "row 11 (Border color) shows the Alt+1 jump label: {row:?}");
+        assert!(content.starts_with("│⌥1"), "row 11 (New group color) shows the Alt+1 jump label: {row:?}");
     }
 
     #[test]
     fn draw_settings_child_color_option_rows_are_unchanged_by_jump_numbering() {
         let mut st = settings_view();
-        st.settings_move_cursor(14); // ShortcutColor
+        st.settings_move_cursor(12); // ShortcutColor
         st.settings_step_right(); // expand
         let text = render_to_string(&st);
         let row = text
@@ -4360,7 +4311,7 @@ mod tests {
     #[test]
     fn draw_settings_gutter_bar_continues_through_expanded_color_options() {
         let mut st = settings_view();
-        st.settings_move_cursor(14); // ShortcutColor
+        st.settings_move_cursor(12); // ShortcutColor
         st.settings_step_right(); // expand
         let text = render_to_string(&st);
         let row = text
@@ -4375,10 +4326,10 @@ mod tests {
     #[test]
     fn draw_settings_gutter_bar_continues_through_expanded_palette_rows() {
         let mut st = settings_view();
-        st.settings_move_cursor(13); // Palette
+        st.settings_move_cursor(11); // Palette
         st.settings_step_right(); // expand
         // Taller than the usual 80x20: section headers and the added Show
-        // shortcuts/Shortcut color/Active window color/Border color
+        // shortcuts/Shortcut color/Border color
         // policy/Inbox icon rows now push the palette rows further down
         // than the default viewport reveals.
         let text = render_to_string_sized(&st, 80, 30);
@@ -4424,7 +4375,7 @@ mod tests {
     #[test]
     fn draw_settings_border_palette_row_is_not_dimmed_once_border_color_leaves_static() {
         let mut st = settings_view();
-        st.settings_move_cursor(10); // BorderColorPolicy, defaults to Static
+        st.settings_move_cursor(8); // BorderColorPolicy, defaults to Static
         st.settings_step_right(); // Static -> Rotate
         let backend = TestBackend::new(80, 31);
         let mut terminal = Terminal::new(backend).unwrap();
@@ -4442,7 +4393,7 @@ mod tests {
     #[test]
     fn draw_settings_expanded_border_palette_child_rows_dim_too_when_border_color_is_static() {
         let mut st = settings_view(); // border_color_policy defaults to Static
-        st.settings_jump(12); // BorderPalette, expands to first active swatch
+        st.settings_jump(10); // BorderPalette, expands to first active swatch
         let backend = TestBackend::new(80, 31);
         let mut terminal = Terminal::new(backend).unwrap();
         terminal.draw(|f| draw(f, &st)).unwrap();
@@ -4475,7 +4426,7 @@ mod tests {
     #[test]
     fn draw_settings_group_palette_row_dims_once_new_group_color_becomes_static() {
         let mut st = settings_view();
-        st.settings_move_cursor(12); // ColorPolicy
+        st.settings_move_cursor(10); // ColorPolicy
         st.settings_step_right();
         st.settings_step_right(); // Rotate -> Random -> Static
         let backend = TestBackend::new(80, 31);
@@ -4512,12 +4463,12 @@ mod tests {
     }
 
     #[test]
-    fn draw_settings_colors_header_precedes_attached_color_row() {
+    fn draw_settings_colors_header_precedes_border_color_row() {
         let text = render_to_string_sized(&settings_view(), 80, 22);
         let lines: Vec<&str> = text.lines().collect();
         let header_idx = lines.iter().position(|l| l.contains("COLORS")).expect("COLORS header rendered");
-        let row_idx = lines.iter().position(|l| l.contains("Attached session color")).expect("Attached session color row rendered");
-        assert!(header_idx < row_idx, "COLORS header should render above the Attached session color row");
+        let row_idx = lines.iter().position(|l| l.contains("Border color")).expect("Border color row rendered");
+        assert!(header_idx < row_idx, "COLORS header should render above the Border color row");
     }
 
     #[test]
@@ -4960,29 +4911,17 @@ mod tests {
     }
 
     #[test]
-    fn dot_color_static_mode_uses_the_configured_color_not_the_group_color() {
-        let state = dot_color_test_state(Config { dot_color: "lightblue".to_string(), ..Default::default() });
-        assert_eq!(state.dot_color_mode, DotColorMode::Static, "default mode is Static");
+    fn window_dot_uses_the_sessions_group_color() {
+        let state = dot_color_test_state(Config::default());
         let backend = TestBackend::new(80, 20);
         let mut terminal = Terminal::new(backend).unwrap();
         terminal.draw(|f| draw(f, &state)).unwrap();
         let buf = terminal.backend().buffer().clone();
-        assert_eq!(find_dot_color(&buf), Some(Color::LightBlue), "Static mode ignores the group color");
-    }
-
-    #[test]
-    fn dot_color_group_mode_inherits_the_sessions_group_color() {
-        let state = dot_color_test_state(Config { dot_color_mode: DotColorMode::Group, ..Default::default() });
-        let backend = TestBackend::new(80, 20);
-        let mut terminal = Terminal::new(backend).unwrap();
-        terminal.draw(|f| draw(f, &state)).unwrap();
-        let buf = terminal.backend().buffer().clone();
-        assert_eq!(find_dot_color(&buf), Some(Color::Magenta), "Group mode picks up the tools group's color");
+        assert_eq!(find_dot_color(&buf), Some(Color::Magenta), "window dot picks up the tools group's color");
     }
 
     /// Shared setup for the attached-session-color tests: one attached
-    /// session filed in a "magenta" group so Match mode's inherited color is
-    /// unambiguous against the Static default ("green").
+    /// session filed in a "magenta" group.
     fn attached_color_test_state(cfg_overrides: Config) -> PickerState {
         let sessions = vec![
             Session { id: String::new(), name: "claude".into(), activity: 30, created: 1, attached: true,
@@ -4996,33 +4935,20 @@ mod tests {
     }
 
     #[test]
-    fn attached_color_static_mode_uses_the_configured_color_not_the_group_color() {
-        let state = attached_color_test_state(Config { attached_color: "lightblue".to_string(), ..Default::default() });
-        assert_eq!(state.attached_color_mode, AttachedColorMode::Static, "default mode is Static");
+    fn attached_session_inherits_its_group_color() {
+        let state = attached_color_test_state(Config::default());
         let backend = TestBackend::new(80, 20);
         let mut terminal = Terminal::new(backend).unwrap();
         terminal.draw(|f| draw(f, &state)).unwrap();
         let buf = terminal.backend().buffer().clone();
         let y = (0..buf.area.height).find(|&y| find_text_x(&buf, y, "claude").is_some()).unwrap();
         let x = find_text_x(&buf, y, "claude").unwrap();
-        assert_eq!(buf[(x, y)].style().fg, Some(Color::LightBlue), "Static mode ignores the group color");
+        assert_eq!(buf[(x, y)].style().fg, Some(Color::Magenta), "attached session picks up the tools group's color");
     }
 
     #[test]
-    fn attached_color_match_mode_inherits_the_sessions_group_color() {
-        let state = attached_color_test_state(Config { attached_color_mode: AttachedColorMode::Match, ..Default::default() });
-        let backend = TestBackend::new(80, 20);
-        let mut terminal = Terminal::new(backend).unwrap();
-        terminal.draw(|f| draw(f, &state)).unwrap();
-        let buf = terminal.backend().buffer().clone();
-        let y = (0..buf.area.height).find(|&y| find_text_x(&buf, y, "claude").is_some()).unwrap();
-        let x = find_text_x(&buf, y, "claude").unwrap();
-        assert_eq!(buf[(x, y)].style().fg, Some(Color::Magenta), "Match mode picks up the tools group's color");
-    }
-
-    #[test]
-    fn attached_color_match_mode_also_applies_in_search_view() {
-        let mut state = attached_color_test_state(Config { attached_color_mode: AttachedColorMode::Match, ..Default::default() });
+    fn attached_session_group_color_also_applies_in_search_view() {
+        let mut state = attached_color_test_state(Config::default());
         state.mode = Mode::Search;
         state.search_push('c');
         let backend = TestBackend::new(80, 20);
@@ -5031,7 +4957,7 @@ mod tests {
         let buf = terminal.backend().buffer().clone();
         let y = (0..buf.area.height).find(|&y| find_text_x(&buf, y, "claude").is_some()).unwrap();
         let x = find_text_x(&buf, y, "claude").unwrap();
-        assert_eq!(buf[(x, y)].style().fg, Some(Color::Magenta), "Match mode picks up the group color in search too");
+        assert_eq!(buf[(x, y)].style().fg, Some(Color::Magenta), "group color applies in search too");
     }
 
     #[test]

@@ -1,5 +1,5 @@
 use crate::model::{
-    AttachedColorMode, CaretStyle, ColorPolicy, DefaultMode, DotColorMode, Group, HEADER_COLORS,
+    CaretStyle, ColorPolicy, DefaultMode, Group, HEADER_COLORS,
     SessionMetric, StartFocusMode, ensure_inbox_last, ensure_single_inbox,
 };
 use serde::Deserialize;
@@ -65,8 +65,6 @@ pub struct Config {
     pub static_color: String,
     pub active_palette: Vec<String>,
     pub border_active_palette: Vec<String>,
-    pub attached_color: String,
-    pub attached_color_mode: AttachedColorMode,
     pub border_color: String,
     pub border_color_policy: ColorPolicy,
     pub inbox_icon: String,
@@ -79,8 +77,6 @@ pub struct Config {
     pub expanded: Vec<String>,
     pub session_metric: SessionMetric,
     pub start_focus_mode: StartFocusMode,
-    pub dot_color_mode: DotColorMode,
-    pub dot_color: String,
     pub shortcut_color: String,
     pub always_show_shortcuts: bool,
     pub caret_style: CaretStyle,
@@ -125,8 +121,6 @@ impl Default for Config {
             static_color: "cyan".to_string(),
             active_palette: default_active_palette(),
             border_active_palette: default_border_active_palette(),
-            attached_color: "green".to_string(),
-            attached_color_mode: AttachedColorMode::default(),
             border_color: "green".to_string(),
             border_color_policy: ColorPolicy::Static,
             inbox_icon: "⊛".to_string(),
@@ -137,8 +131,6 @@ impl Default for Config {
             expanded: Vec::new(),
             session_metric: SessionMetric::default(),
             start_focus_mode: StartFocusMode::default(),
-            dot_color_mode: DotColorMode::default(),
-            dot_color: "green".to_string(),
             shortcut_color: "gray".to_string(),
             always_show_shortcuts: true,
             caret_style: CaretStyle::default(),
@@ -178,10 +170,6 @@ struct RawSettings {
     #[serde(default)]
     border_active_palette: Option<Vec<String>>,
     #[serde(default)]
-    attached_color: Option<String>,
-    #[serde(default)]
-    attached_color_mode: Option<String>,
-    #[serde(default)]
     border_color: Option<String>,
     #[serde(default)]
     border_color_policy: Option<String>,
@@ -198,10 +186,6 @@ struct RawSettings {
     session_metric: Option<String>,
     #[serde(default)]
     start_focus_mode: Option<String>,
-    #[serde(default)]
-    dot_color_mode: Option<String>,
-    #[serde(default)]
-    dot_color: Option<String>,
     #[serde(default)]
     shortcut_color: Option<String>,
     #[serde(default)]
@@ -222,8 +206,6 @@ struct OutSettings {
     static_color: String,
     active_palette: Vec<String>,
     border_active_palette: Vec<String>,
-    attached_color: String,
-    attached_color_mode: String,
     border_color: String,
     border_color_policy: String,
     inbox_icon: String,
@@ -233,8 +215,6 @@ struct OutSettings {
     remember_expanded_sessions: bool,
     session_metric: String,
     start_focus_mode: String,
-    dot_color_mode: String,
-    dot_color: String,
     shortcut_color: String,
     always_show_shortcuts: bool,
     caret_style: String,
@@ -357,13 +337,6 @@ impl Config {
             .map(ColorPolicy::from_config_str)
             .unwrap_or_default();
         let static_color = raw.settings.static_color.unwrap_or_else(|| "cyan".to_string());
-        let attached_color = raw.settings.attached_color.unwrap_or_else(|| "green".to_string());
-        let attached_color_mode = raw
-            .settings
-            .attached_color_mode
-            .as_deref()
-            .map(AttachedColorMode::from_config_str)
-            .unwrap_or_default();
         let border_color = raw.settings.border_color.unwrap_or_else(|| "green".to_string());
         let border_color_policy = raw
             .settings
@@ -396,13 +369,6 @@ impl Config {
             .as_deref()
             .map(StartFocusMode::from_config_str)
             .unwrap_or_default();
-        let dot_color_mode = raw
-            .settings
-            .dot_color_mode
-            .as_deref()
-            .map(DotColorMode::from_config_str)
-            .unwrap_or_default();
-        let dot_color = raw.settings.dot_color.unwrap_or_else(|| "green".to_string());
         let shortcut_color = raw.settings.shortcut_color.unwrap_or_else(|| "gray".to_string());
         let always_show_shortcuts = raw.settings.always_show_shortcuts.unwrap_or(true);
         let caret_style = raw
@@ -429,8 +395,6 @@ impl Config {
             static_color,
             active_palette,
             border_active_palette,
-            attached_color,
-            attached_color_mode,
             border_color,
             border_color_policy,
             inbox_icon,
@@ -441,8 +405,6 @@ impl Config {
             expanded: raw.expanded,
             session_metric,
             start_focus_mode,
-            dot_color_mode,
-            dot_color,
             shortcut_color,
             always_show_shortcuts,
             caret_style,
@@ -490,8 +452,6 @@ impl Config {
                 static_color: self.static_color.clone(),
                 active_palette: self.active_palette.clone(),
                 border_active_palette: self.border_active_palette.clone(),
-                attached_color: self.attached_color.clone(),
-                attached_color_mode: self.attached_color_mode.as_config_str().to_string(),
                 border_color: self.border_color.clone(),
                 border_color_policy: self.border_color_policy.as_config_str().to_string(),
                 inbox_icon: self.inbox_icon.clone(),
@@ -501,8 +461,6 @@ impl Config {
                 remember_expanded_sessions: self.remember_expanded_sessions,
                 session_metric: self.session_metric.as_config_str().to_string(),
                 start_focus_mode: self.start_focus_mode.as_config_str().to_string(),
-                dot_color_mode: self.dot_color_mode.as_config_str().to_string(),
-                dot_color: self.dot_color.clone(),
                 shortcut_color: self.shortcut_color.clone(),
                 always_show_shortcuts: self.always_show_shortcuts,
                 caret_style: self.caret_style.as_config_str().to_string(),
@@ -744,6 +702,21 @@ mod tests {
         .unwrap();
         let cfg = Config::load_from(&path);
         assert!(!cfg.focus_mode, "current-version file reads focus_mode, not the stale legacy key");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn config_with_removed_attached_and_dot_color_keys_still_loads() {
+        let dir = std::env::temp_dir().join(format!("rolomux-removed-dot-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.toml");
+        std::fs::write(
+            &path,
+            format!("config_version = {CONFIG_VERSION}\n[settings]\ndot_color_mode = \"group\"\ndot_color = \"red\"\nattached_color = \"blue\"\nattached_color_mode = \"match\"\nborder_color = \"blue\"\n"),
+        )
+        .unwrap();
+        let cfg = Config::load_from(&path);
+        assert_eq!(cfg.border_color, "blue", "other settings survive the stale keys");
         std::fs::remove_dir_all(&dir).ok();
     }
 
@@ -998,7 +971,6 @@ mod tests {
         assert!(cfg.number_dormant_sessions);
         assert_eq!(cfg.new_group_color_policy, ColorPolicy::Rotate);
         assert_eq!(cfg.static_color, "cyan");
-        assert_eq!(cfg.attached_color, "green");
         assert_eq!(cfg.border_color, "green");
         assert_eq!(
             cfg.active_palette,
@@ -1018,7 +990,6 @@ mod tests {
         assert!(cfg.number_dormant_sessions);
         assert_eq!(cfg.new_group_color_policy, ColorPolicy::Rotate);
         assert_eq!(cfg.static_color, "cyan");
-        assert_eq!(cfg.attached_color, "green");
         assert_eq!(cfg.border_color, "green");
         assert_eq!(
             cfg.active_palette,
@@ -1173,7 +1144,6 @@ inbox = true
             new_group_color_policy: ColorPolicy::Static,
             static_color: "magenta".to_string(),
             active_palette: vec!["magenta".to_string(), "white".to_string()],
-            attached_color: "lightgreen".to_string(),
             border_color: "yellow".to_string(),
             search_window_names: true,
             ..Default::default()
@@ -1185,7 +1155,6 @@ inbox = true
         assert!(!reloaded.number_dormant_sessions);
         assert_eq!(reloaded.new_group_color_policy, ColorPolicy::Static);
         assert_eq!(reloaded.static_color, "magenta");
-        assert_eq!(reloaded.attached_color, "lightgreen");
         assert_eq!(reloaded.border_color, "yellow");
         assert_eq!(reloaded.inbox_icon, "⊛");
         assert_eq!(
@@ -1580,18 +1549,6 @@ inbox = true
     }
 
     #[test]
-    fn round_trips_attached_color_mode() {
-        let dir = std::env::temp_dir().join(format!("rolomux-attached-color-mode-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("config.toml");
-        let cfg = Config { attached_color_mode: AttachedColorMode::Match, ..Default::default() };
-        cfg.save_to(&path).unwrap();
-        let reloaded = Config::load_from(&path);
-        assert_eq!(reloaded.attached_color_mode, AttachedColorMode::Match);
-        std::fs::remove_dir_all(&dir).ok();
-    }
-
-    #[test]
     fn border_color_policy_defaults_to_static_on_a_fresh_config() {
         let cfg = Config::default();
         assert_eq!(cfg.border_color_policy, ColorPolicy::Static);
@@ -1617,17 +1574,6 @@ inbox = true
         cfg.save_to(&path).unwrap();
         let reloaded = Config::load_from(&path);
         assert_eq!(reloaded.border_color_policy, ColorPolicy::Rotate);
-        std::fs::remove_dir_all(&dir).ok();
-    }
-
-    #[test]
-    fn legacy_config_without_attached_color_mode_defaults_to_static() {
-        let dir = std::env::temp_dir().join(format!("rolomux-noattachedmode-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("config.toml");
-        std::fs::write(&path, "config_version = 4\n").unwrap();
-        let cfg = Config::load_from(&path);
-        assert_eq!(cfg.attached_color_mode, AttachedColorMode::Static);
         std::fs::remove_dir_all(&dir).ok();
     }
 
