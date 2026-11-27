@@ -102,8 +102,8 @@ fn agent_item(row: &AgentRow, number: usize, selected: bool, lead: LeadColumns, 
     let path = truncate_end(&tilde_home(&row.path, home), path_room);
     let (path, age) = if age_cell == 0 { (path, String::new()) } else { (format!("{path:<path_room$}"), format!("  {:>age_width$}", state_age(row))) };
     let dim = secondary(selected);
-    let session_style = if row.dormant { dormant_session(selected) } else if row.here { Style::default() } else { dim };
-    let window_style = if row.dormant { session_style } else if row.here { Style::default().fg(color).add_modifier(Modifier::BOLD) } else { Style::default() };
+    let session_style = if row.dormant { dormant_session(selected) } else if row.here { Style::default().fg(color).add_modifier(Modifier::BOLD) } else { Style::default() };
+    let window_style = session_style;
     let mut spans = vec![Span::styled("│", Style::default().fg(color)), Span::styled(label, dim)];
     if lead.glyph {
         spans.push(Span::styled(AGENT_GLYPH, Style::default().fg(color)));
@@ -350,7 +350,7 @@ mod tests {
     }
 
     #[test]
-    fn window_you_came_from_gets_a_dot_a_bright_session_and_its_window_name_in_its_state_color() {
+    fn window_you_came_from_gets_a_dot_and_its_session_and_window_names_in_its_state_color() {
         let mut st = mixed_from_gamma();
         let buf = render(&st, None);
         let y = row_with(&buf, "gamma");
@@ -361,8 +361,12 @@ mod tests {
         let at = |needle: &str| line[..line.find(needle).unwrap()].chars().count() as u16;
         assert!(buf[(at("win-gamma"), y)].modifier.contains(Modifier::BOLD));
         assert_eq!(buf[(at("win-gamma"), y)].fg, Color::Yellow);
-        assert_eq!(buf[(at("gamma"), y)].fg, Color::Reset, "the session is undimmed, not colored");
-        assert!(!buf[(at("gamma"), y)].modifier.contains(Modifier::BOLD));
+        assert_eq!(buf[(at("gamma"), y)].fg, Color::Yellow);
+        assert!(buf[(at("gamma"), y)].modifier.contains(Modifier::BOLD));
+        let beta_y = row_with(&buf, "beta");
+        let beta_line = &text_of(&buf)[beta_y as usize];
+        let beta_x = beta_line[..beta_line.find("beta").unwrap()].chars().count() as u16;
+        assert_eq!(buf[(beta_x, beta_y)].fg, Color::Reset, "other sessions are white like their windows");
         assert!(text_of(&buf)[row_with(&buf, "beta") as usize].contains("│1   beta"), "other rows reserve the dot slot");
         st.toggle_agent_layout();
         let buf = render(&st, None);
