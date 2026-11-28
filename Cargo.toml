@@ -11,6 +11,11 @@ authors = ["Jeff DiTeodoro"]
 name = "rolomux"
 path = "src/main.rs"
 
+[package.metadata.tui-utils]
+launch = "popup"
+popup_flags = "-E -B -w 84 -h 60%"
+config_isolation = "xdg"
+
 [dependencies]
 crossterm = "0.28"
 nucleo-matcher = "0.3"
