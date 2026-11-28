@@ -14,12 +14,16 @@ picker. It is a standalone compiled binary that tmux launches on demand via
 
 Shared skills (`mockup`, `vhs-recording`, `cutting-a-release`, `live-preview`)
 come from the `tui-utils` plugin (github.com/jeffdt/tui-utils), not this
-repo. One-time per machine:
+repo. One-time per machine, at user scope:
 
 ```
 /plugin marketplace add jeffdt/tui-utils
 /plugin install tui-utils@tui-utils
 ```
+
+This repo's per-app modifiers for those skills live in
+`[package.metadata.tui-utils]` in `Cargo.toml` (keys documented in the
+plugin's README).
 
 ## Versioning
 
@@ -186,15 +190,6 @@ release** (Homebrew users never see `main`, only tagged releases). See the
 
 ## Working in this repo
 
-- **Always work in a dedicated `wt switch --create jeffdt/<branch>` worktree,
-  never directly in this main checkout.** Create the worktree first, even for
-  an edit that feels too small to bother. This bit us directly: two agent
-  sessions once edited the shared main checkout at the same time with no
-  worktree isolation, producing one entangled uncommitted diff (an unrelated
-  cosmetic tweak and a mid-flight model refactor mixed into the same files)
-  and a broken build that neither session noticed until the user asked about it.
-  A worktree per feature branch is what makes concurrent or resumed sessions
-  safe; the main checkout should stay clean and always reflect `origin/main`.
 - **When pulling an issue from GitHub to work on, check the other open issues
   for ones that would make sense to bundle into the same PR** (`gh issue
   list --state open`) before starting. Look for genuine overlap, e.g. same
@@ -205,45 +200,15 @@ release** (Homebrew users never see `main`, only tagged releases). See the
   on with just the requested issue.
 - Build/test loop: `RUSTFLAGS="-D warnings" cargo test`, then
   `cargo build --release`.
-- **Leave a live preview when a feature is done.** Once a feature is
-  implemented and tests pass, leave the freshly built binary ready to open
-  in a real tmux popup, the way rolomux actually runs, not just green test
-  output. A popup is the faithful check: a full window hides problems that
-  only show at the real `-w 84 -h 60%` size (rows that don't fit, a footer
-  that overflows), so prefer it over running the binary full-screen. **Never
-  open the popup yourself**: it lands on top of whatever the user is doing.
-  Instead, split a new pane off your own pane without taking focus and
-  prefill the launch command in it, unsent, so the user opens the popup by
-  pressing Enter there when they're ready:
-
-  ```
-  preview_dir=/abs/path/to/worktree
-  pane=$(tmux split-window -d -h -t "$TMUX_PANE" -c "$preview_dir" -P -F '#{pane_id}')
-  tmux send-keys -t "$pane" -l "tmux display-popup -E -B -w 84 -h 60% \"XDG_CONFIG_HOME=$preview_dir/.preview-config $preview_dir/target/release/rolomux\""
-  ```
-
-  Match the popup flags to the user's real bind in `~/.tmux.conf`, and add
-  `--agents` or `--search` when the change lives in that view. No `Enter`
-  after the `send-keys -l`: the command must wait for the user. Pin the
-  absolute worktree path and keep `XDG_CONFIG_HOME` pointed at the
-  git-ignored `.preview-config` so poking at the preview never touches the
-  real config (see the `live-preview` skill for why both matter). After a
-  rebuild the prefilled command picks up the new binary on its next run, but
-  an already-open preview keeps running the old one: close and relaunch it
-  rather than letting the user test a stale build. These rules replace the
-  `live-preview` skill's full-window `mux spawn` launch for this repo. Skip
-  all of this for test-only changes (e.g. fixing a flaky test, adding test
-  coverage) that carry no user-facing behavior change to preview.
+- **Leave a live preview when a feature is done** with the `live-preview`
+  skill: it opens the freshly built binary in a real popup at the bind's
+  size, which is the faithful check, since a full window hides rows that
+  don't fit and footers that overflow. Skip it for test-only changes.
 - **Mock up visual/rendering changes before writing the spec.** When a design
   discussion touches how something renders (colors, layout, new glyphs/columns),
-  don't rely on a text description alone — render an ANSI mockup (never the
-  real binary) so the user can look at it before design gets locked in. See the
-  `mockup` skill for the standardized construction method, dimensions, color
-  constraints, window naming, and cleanup rules. A mockup isn't the real
-  binary, so it doesn't need a popup: a new window is fine when it needs the
-  room (side-by-side options, a full-height card), and a split pane is fine
-  for a simple one. Skip this for changes with no visual surface
-  (model/logic-only work).
+  don't rely on a text description alone: build a mockup with the `mockup`
+  skill so the user can look at it before design gets locked in. Skip this
+  for changes with no visual surface (model/logic-only work).
 - Specs live in `specs/`, plans in `plans/`, the build ledger in
   `.superpowers/`; all three are git-ignored scratch, not part of the package.
 - **Review gate is the plan, not the spec.** When brainstorming a feature
@@ -269,7 +234,7 @@ release** (Homebrew users never see `main`, only tagged releases). See the
   backs it, what it looked like mid-iteration).
   A change to the picker's visual appearance (colors, layout, new UI element) needs a
   refreshed `docs/images/organize.gif` and/or `docs/images/search.gif`
-  showing it live -- see the `vhs-tmux-recording` skill and
+  showing it live -- see the `vhs-recording` skill and
   `docs/demo/organize.tape` / `docs/demo/search.tape` for the recording
   setup. Skip both for internal-only changes (specs and plans, CI
   config, dependency bumps) with no user-facing surface.
